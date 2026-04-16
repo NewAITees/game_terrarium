@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MOSS Alpha v0.1</title>
+  <style>
+    :root {
+      color-scheme: dark;
+    }
+
+    html,
+    body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #030508;
+      font-family: "SF Mono", "Menlo", monospace;
+    }
+
+    canvas {
+      display: block;
+    }
+  </style>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.162/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.162/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+    import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+    import { BokehPass } from 'three/addons/postprocessing/BokehPass.js';
+
+    const CONFIG = {
+      nodeCount: 14,
+      packetCount: 30,
+      packetSpeed: 0.35,
+      bokehFocus: 100,
+      bokehAperture: 0.018,
+      edgeOpacity: 0.72,
+      fogDensity: 0.0035
+    };
+    const ENABLE_TILT_SHIFT = false;
+
+    const NODE_COLORS = {
+      terminal: 0x00e5ff,
+      router: 0x7fffff,
+      switch: 0xffffff
+    };
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x07131c);
+    scene.fog = new THREE.FogExp2(0x07131c, CONFIG.fogDensity);
+
+    const camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 1, 1000);
+    camera.position.set(0, 80, 60);
+    camera.lookAt(0, 0, 0);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 0, 0);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+    controls.minDistance = 40;
+    controls.maxDistance = 220;
+    controls.autoRotate = true;
+    controls.autoRotateSpeed = 0.35;
+
+    const grid = new THREE.GridHelper(100, 20, 0x234862, 0x1b3448);
+    grid.position.y = -0.01;
+    scene.add(grid);
+
+    const nodeMeshes = [];
+    const nodeData = [];
+
+    const terminalGeometry = new THREE.IcosahedronGeometry(1.5, 0);
+    const routerGeometry = new THREE.OctahedronGeometry(2);
+    const switchGeometry = new THREE.BoxGeometry(3, 3, 3);
+
+    function randomRange(min, max) {
+      return min + Math.random() * (max - min);
+    }
+
+    function randomNodeType() {
+      const roll = Math.random();
+      if (roll < 0.5) return 'terminal';
+      if (roll < 0.85) return 'router';
+      return 'switch';
+    }
+
+    function geometryForType(type) {
+      if (type === 'terminal') return terminalGeometry;
+      if (type === 'router') return routerGeometry;
+      return switchGeometry;
+    }
+
+    for (let i = 0; i < CONFIG.nodeCount; i += 1) {
+      const type = randomNodeType();
+      const pos = new THREE.Vector3(randomRange(-30, 30), 0, randomRange(-30, 30));
+      const material = new THREE.MeshBasicMaterial({
+        color: NODE_COLORS[type],
+        wireframe: true
+      });
+      const mesh = new THREE.Mesh(geometryForType(type), material);
+      mesh.position.copy(pos);
+
+      scene.add(mesh);
+      nodeMeshes.push(mesh);
+      nodeData.push({
+        pos,
+        type,
+        mesh,
+        neighbors: [],
+        spin: new THREE.Vector3(
+          randomRange(-0.45, 0.45),
+          randomRange(-0.7, 0.7),
+          randomRange(-0.45, 0.45)
+        )
+      });
+    }
+
+    const edgeMaterial = new THREE.LineBasicMaterial({
+      color: 0x2f6d96,
+      transparent: true,
+      opacity: CONFIG.edgeOpacity
+    });
+
+    const activeEdgeMaterial = new THREE.LineBasicMaterial({
+      color: 0x00e5ff,
+      transparent: true,
+      opacity: 0.8
+    });
+
+    const edges = [];
+    const edgeLookup = new Map();
+
+    function connectNodes(aIndex, bIndex) {
+      const a = nodeData[aIndex];
+      const b = nodeData[bIndex];
+      if (!a || !b || a === b) return;
+
+      const points = [a.pos.clone(), b.pos.clone()];
+      const geometry = new THREE.BufferGeometry().setFromPoints(points);
+      const line = new THREE.Line(geometry, edgeMaterial);
+
+      scene.add(line);
+      edges.push({
+        aIndex,
+        bIndex,
+        line,
+        activeUntil: 0
+      });
+      edgeLookup.set(edgeKey(aIndex, bIndex), edges[edges.length - 1]);
+
+      a.neighbors.push(bIndex);
+      b.neighbors.push(aIndex);
+    }
+
+    const connected = new Set();
+
+    function edgeKey(i, j) {
+      return i < j ? `${i}-${j}` : `${j}-${i}`;
+    }
+
+    // Build a connected backbone, then add extra random edges.
+    for (let i = 1; i < nodeData.length; i += 1) {
+      const j = Math.floor(Math.random() * i);
+      const key = edgeKey(i, j);
+      if (!connected.has(key)) {
+        connected.add(key);
+        connectNodes(i, j);
+      }
+    }
+
+    const extraEdgeCount = Math.floor(CONFIG.nodeCount * 1.2);
+    let safety = 0;
+    while (edges.length < CONFIG.nodeCount - 1 + extraEdgeCount && safety < 1000) {
+      safety += 1;
+      const a = Math.floor(Math.random() * nodeData.length);
+      const b = Math.floor(Math.random() * nodeData.length);
+      if (a === b) continue;
+      const key = edgeKey(a, b);
+      if (connected.has(key)) continue;
+      connected.add(key);
+      connectNodes(a, b);
+    }
+
+    function findEdge(startIndex, endIndex) {
+      return edgeLookup.get(edgeKey(startIndex, endIndex)) || null;
+    }
+
+    const packetGeometry = new THREE.SphereGeometry(0.5, 10, 10);
+    const packetMaterial = new THREE.MeshBasicMaterial({ color: 0x67ffb1 });
+
+    class Packet {
+      constructor(startIndex, endIndex) {
+        this.mesh = new THREE.Mesh(packetGeometry, packetMaterial);
+        this.startIndex = startIndex;
+        this.endIndex = endIndex;
+        this.start = nodeData[startIndex].pos;
+        this.end = nodeData[endIndex].pos;
+        this.t = Math.random();
+        this.speed = CONFIG.packetSpeed + Math.random() * 0.4;
+        this.mesh.position.lerpVectors(this.start, this.end, this.t);
+        scene.add(this.mesh);
+      }
+
+      respawn() {
+        const current = this.endIndex;
+        const neighbors = nodeData[current].neighbors;
+        if (!neighbors.length) {
+          this.startIndex = current;
+          this.endIndex = Math.floor(Math.random() * nodeData.length);
+          if (this.endIndex === current) {
+            this.endIndex = (current + 1) % nodeData.length;
+          }
+        } else {
+          const next = neighbors[Math.floor(Math.random() * neighbors.length)];
+          this.startIndex = current;
+          this.endIndex = next;
+        }
+
+        this.start = nodeData[this.startIndex].pos;
+        this.end = nodeData[this.endIndex].pos;
+        this.t = 0;
+        this.speed = CONFIG.packetSpeed + Math.random() * 0.4;
+      }
+
+      update(delta, now) {
+        this.t += delta * this.speed;
+
+        if (this.t >= 1) {
+          this.respawn();
+        }
+
+        this.mesh.position.lerpVectors(this.start, this.end, this.t);
+
+        const edge = findEdge(this.startIndex, this.endIndex);
+        if (edge) {
+          edge.activeUntil = Math.max(edge.activeUntil, now + 0.12);
+        }
+      }
+    }
+
+    function randomStartAndEnd() {
+      const start = Math.floor(Math.random() * nodeData.length);
+      const neighbors = nodeData[start].neighbors;
+      if (neighbors.length > 0) {
+        const end = neighbors[Math.floor(Math.random() * neighbors.length)];
+        return { start, end };
+      }
+      let end = Math.floor(Math.random() * nodeData.length);
+      if (end === start) end = (start + 1) % nodeData.length;
+      return { start, end };
+    }
+
+    const packets = [];
+    for (let i = 0; i < CONFIG.packetCount; i += 1) {
+      const { start, end } = randomStartAndEnd();
+      packets.push(new Packet(start, end));
+    }
+
+    let composer = null;
+    if (ENABLE_TILT_SHIFT) {
+      composer = new EffectComposer(renderer);
+      composer.addPass(new RenderPass(scene, camera));
+
+      const bokehPass = new BokehPass(scene, camera, {
+        focus: CONFIG.bokehFocus,
+        aperture: CONFIG.bokehAperture,
+        maxblur: 0.03
+      });
+      composer.addPass(bokehPass);
+    }
+
+    const clock = new THREE.Clock();
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      const delta = Math.min(clock.getDelta(), 0.05);
+      const now = performance.now() / 1000;
+
+      for (const node of nodeData) {
+        node.mesh.rotation.x += delta * node.spin.x;
+        node.mesh.rotation.y += delta * node.spin.y;
+        node.mesh.rotation.z += delta * node.spin.z;
+      }
+
+      for (const packet of packets) {
+        packet.update(delta, now);
+      }
+
+      for (const edge of edges) {
+        edge.line.material = edge.activeUntil > now ? activeEdgeMaterial : edgeMaterial;
+      }
+
+      controls.update();
+      if (composer) {
+        composer.render();
+      } else {
+        renderer.render(scene, camera);
+      }
+    }
+
+    animate();
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      if (composer) composer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,881 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>City Traffic Sim v2</title>
+  <style>
+    *, html, body { margin: 0; overflow: hidden; }
+    canvas { display: block; }
+    #tilt-ui {
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      z-index: 20;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 10px;
+      border-radius: 8px;
+      background: rgba(8, 14, 20, 0.72);
+      color: #d8e7f4;
+      font: 12px/1.2 Menlo, monospace;
+      user-select: none;
+    }
+    #tilt-ui .row { display: flex; gap: 6px; }
+    #tilt-ui button {
+      border: 1px solid rgba(216, 231, 244, 0.4);
+      background: rgba(18, 34, 48, 0.9);
+      color: #d8e7f4;
+      padding: 3px 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      font: 12px Menlo, monospace;
+    }
+    #tilt-ui button.active {
+      background: rgba(44, 120, 180, 0.9);
+      border-color: rgba(160, 220, 255, 0.9);
+    }
+  </style>
+  <script type="importmap">
+    {"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.162/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.162/examples/jsm/"}}
+  </script>
+</head>
+<body>
+<div id="tilt-ui">
+  <div id="tilt-label">TiltShift: 弱2 (100%)</div>
+  <div class="row">
+    <button data-tilt="off">OFF</button>
+    <button data-tilt="weak1">弱1</button>
+    <button data-tilt="weak2" class="active">弱2</button>
+    <button data-tilt="weak3">弱3</button>
+  </div>
+</div>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+
+// ─── CONFIG ───────────────────────────────────────────────────────────
+const C = {
+  half:     48,    // city half-size (roads from -48 to +48)
+  block:    16,    // spacing between road centers
+  roadW:    3.2,   // road width (2 lanes total)
+  laneOff:  0.72,  // lane centre offset from road centre
+  carLen:   2.2,   // car body length (Z local axis)
+  stopGap:  0.55,  // extra clearance beyond intersection boundary
+  carCount: 42,
+  speedMin: 3.0,
+  speedMax: 7.5,
+  gTime:    4.5,   // green phase duration (s)
+  yTime:    0.9,   // yellow phase duration (s)
+  followGapMin: 2.8,
+  followGapSoft: 8.0,
+  tiltShiftEnabled: true,
+  tiltFocusLine: 0.5,
+  tiltFocusWidth: 0.16,
+  tiltGradient: 0.28,
+  vividEnabled: true,
+  vividSaturation: 1.34,
+  vividContrast: 1.16,
+  vividBrightness: 1.08,
+};
+
+const hw = C.roadW / 2;  // half road-width
+
+// Signal state machine:  0 = NS_GREEN · 1 = NS_YELLOW · 2 = EW_GREEN · 3 = EW_YELLOW
+const DURS = [C.gTime, C.yTime, C.gTime, C.yTime];
+
+// ─── SCENE ────────────────────────────────────────────────────────────
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xcfe3f2);
+scene.fog = new THREE.FogExp2(0xcfe3f2, 0.0024);
+
+const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 0.5, 1500);
+camera.position.set(0, 130, 108);
+camera.lookAt(0, 0, 0);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = false;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.42;
+document.body.appendChild(renderer.domElement);
+
+const ctrl = new OrbitControls(camera, renderer.domElement);
+ctrl.target.set(0, 0, 0);
+ctrl.enableDamping = true;
+ctrl.dampingFactor = 0.06;
+ctrl.enablePan = false;
+ctrl.minDistance = 55;
+ctrl.maxDistance = 300;
+ctrl.maxPolarAngle = Math.PI * 0.455;
+
+let composer = null;
+let tiltShiftPass = null;
+let vividPass = null;
+if (C.tiltShiftEnabled) {
+  const TiltShiftShader = {
+    uniforms: {
+      tDiffuse: { value: null },
+      resolution: { value: new THREE.Vector2(innerWidth, innerHeight) },
+      blurStrength: { value: 0.0 },
+      focusLine: { value: C.tiltFocusLine },
+      focusWidth: { value: C.tiltFocusWidth },
+      gradient: { value: C.tiltGradient }
+    },
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform sampler2D tDiffuse;
+      uniform vec2 resolution;
+      uniform float blurStrength;
+      uniform float focusLine;
+      uniform float focusWidth;
+      uniform float gradient;
+      varying vec2 vUv;
+      void main() {
+        float d = abs(vUv.y - focusLine);
+        float mask = smoothstep(focusWidth, focusWidth + gradient, d);
+        vec2 texel = 1.0 / resolution;
+        vec2 dir = vec2(1.0, 0.65);
+        vec2 r = texel * blurStrength * mask * dir;
+        vec4 c = vec4(0.0);
+        c += texture2D(tDiffuse, vUv - 4.0 * r) * 0.05;
+        c += texture2D(tDiffuse, vUv - 3.0 * r) * 0.09;
+        c += texture2D(tDiffuse, vUv - 2.0 * r) * 0.12;
+        c += texture2D(tDiffuse, vUv - 1.0 * r) * 0.15;
+        c += texture2D(tDiffuse, vUv)           * 0.18;
+        c += texture2D(tDiffuse, vUv + 1.0 * r) * 0.15;
+        c += texture2D(tDiffuse, vUv + 2.0 * r) * 0.12;
+        c += texture2D(tDiffuse, vUv + 3.0 * r) * 0.09;
+        c += texture2D(tDiffuse, vUv + 4.0 * r) * 0.05;
+        gl_FragColor = c;
+      }
+    `
+  };
+  composer = new EffectComposer(renderer);
+  composer.addPass(new RenderPass(scene, camera));
+  tiltShiftPass = new ShaderPass(TiltShiftShader);
+  composer.addPass(tiltShiftPass);
+
+  if (C.vividEnabled) {
+    const VividShader = {
+      uniforms: {
+        tDiffuse: { value: null },
+        saturation: { value: C.vividSaturation },
+        contrast: { value: C.vividContrast },
+        brightness: { value: C.vividBrightness }
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform sampler2D tDiffuse;
+        uniform float saturation;
+        uniform float contrast;
+        uniform float brightness;
+        varying vec2 vUv;
+        void main() {
+          vec4 tex = texture2D(tDiffuse, vUv);
+          vec3 c = tex.rgb * brightness;
+          float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
+          c = mix(vec3(luma), c, saturation);
+          c = (c - 0.5) * contrast + 0.5;
+          gl_FragColor = vec4(c, tex.a);
+        }
+      `
+    };
+    vividPass = new ShaderPass(VividShader);
+    composer.addPass(vividPass);
+  }
+}
+
+const APERTURE_LEVELS = {
+  off: 0.0,
+  weak1: 1.7,
+  weak2: 2.2,
+  weak3: 2.8
+};
+let tiltMode = C.tiltShiftEnabled ? 'weak2' : 'off';
+let targetAperture = APERTURE_LEVELS.weak2;
+const tiltLabelEl = document.getElementById('tilt-label');
+const tiltButtons = Array.from(document.querySelectorAll('#tilt-ui button[data-tilt]'));
+
+function setTiltMode(mode) {
+  tiltMode = mode;
+  for (const btn of tiltButtons) btn.classList.toggle('active', btn.dataset.tilt === mode);
+}
+
+for (const btn of tiltButtons) {
+  btn.addEventListener('click', () => setTiltMode(btn.dataset.tilt));
+}
+setTiltMode(tiltMode);
+
+// ─── LIGHTS ───────────────────────────────────────────────────────────
+scene.add(new THREE.HemisphereLight(0xf2f8ff, 0xa4b5c2, 1.35));
+const sun = new THREE.DirectionalLight(0xfff8ee, 1.42);
+sun.position.set(90, 160, 55);
+scene.add(sun);
+
+// ─── ROAD GRID ────────────────────────────────────────────────────────
+// roads[] holds both x-positions (NS roads) and z-positions (EW roads)
+// Grid is symmetric, so same values are used for both axes.
+const roads = [];
+for (let v = -C.half; v <= C.half; v += C.block) roads.push(v);
+const N = roads.length;  // number of roads per axis
+
+// ─── GROUND ───────────────────────────────────────────────────────────
+const gnd = new THREE.Mesh(
+  new THREE.PlaneGeometry(300, 300),
+  new THREE.MeshStandardMaterial({ color: 0x94a8b8, roughness: 0.96 })
+);
+gnd.rotation.x = -Math.PI / 2;
+gnd.position.y = -0.02;
+scene.add(gnd);
+
+// ─── ROAD MESHES ──────────────────────────────────────────────────────
+const roadGrp = new THREE.Group();
+
+const roadMat  = new THREE.MeshStandardMaterial({ color: 0x22292e, roughness: 0.92 });
+const dashMat  = new THREE.MeshBasicMaterial({ color: 0xe0e2b4 });
+const cwMat    = new THREE.MeshBasicMaterial({ color: 0xd0d0b4 });
+const curbMat  = new THREE.MeshStandardMaterial({ color: 0x7a8898, roughness: 0.85 });
+
+// EW roads: fixed Z, extend along X
+for (const rz of roads) {
+  const r = new THREE.Mesh(
+    new THREE.BoxGeometry(C.half * 2 + C.roadW + 0.2, 0.05, C.roadW),
+    roadMat
+  );
+  r.position.set(0, 0.015, rz);
+  r.receiveShadow = true;
+  roadGrp.add(r);
+
+  // Centre-line dashes between intersections
+  for (let xi = 0; xi < N - 1; xi++) {
+    const cx = (roads[xi] + roads[xi + 1]) / 2;
+    for (let d = -1.7; d <= 1.7; d += 1.7) {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.06, 0.11), dashMat);
+      m.position.set(cx + d, 0.04, rz);
+      roadGrp.add(m);
+    }
+  }
+
+  // Kerbs
+  for (const side of [-1, 1]) {
+    const k = new THREE.Mesh(
+      new THREE.BoxGeometry(C.half * 2 + C.roadW + 0.2, 0.08, 0.14),
+      curbMat
+    );
+    k.position.set(0, 0.04, rz + side * (hw + 0.07));
+    roadGrp.add(k);
+  }
+}
+
+// NS roads: fixed X, extend along Z
+for (const rx of roads) {
+  const r = new THREE.Mesh(
+    new THREE.BoxGeometry(C.roadW, 0.05, C.half * 2 + C.roadW + 0.2),
+    roadMat
+  );
+  r.position.set(rx, 0.015, 0);
+  r.receiveShadow = true;
+  roadGrp.add(r);
+
+  for (let zi = 0; zi < N - 1; zi++) {
+    const cz = (roads[zi] + roads[zi + 1]) / 2;
+    for (let d = -1.7; d <= 1.7; d += 1.7) {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.06, 1.0), dashMat);
+      m.position.set(rx, 0.04, cz + d);
+      roadGrp.add(m);
+    }
+  }
+
+  for (const side of [-1, 1]) {
+    const k = new THREE.Mesh(
+      new THREE.BoxGeometry(0.14, 0.08, C.half * 2 + C.roadW + 0.2),
+      curbMat
+    );
+    k.position.set(rx + side * (hw + 0.07), 0.04, 0);
+    roadGrp.add(k);
+  }
+}
+
+// Intersection fills + crosswalk stripes
+for (const rx of roads) {
+  for (const rz of roads) {
+    // Road fill (covers the gap)
+    const fill = new THREE.Mesh(
+      new THREE.BoxGeometry(C.roadW + 0.12, 0.052, C.roadW + 0.12),
+      roadMat
+    );
+    fill.position.set(rx, 0.015, rz);
+    roadGrp.add(fill);
+
+    // Crosswalk stripes: 4 sides, 3 stripes each
+    for (const axis of [0, 1]) {
+      for (const side of [-1, 1]) {
+        for (const ofs of [-0.42, 0.42]) {
+          const sw = C.roadW * 0.52, sh = 0.06, sd = 0.38;
+          const cw = new THREE.Mesh(
+            axis === 0
+              ? new THREE.BoxGeometry(sd, sh, sw)   // across NS road
+              : new THREE.BoxGeometry(sw, sh, sd),  // across EW road
+            cwMat
+          );
+          cw.position.set(
+            axis === 0 ? rx + side * (hw + 0.88) : rx + ofs * 0.6,
+            0.034,
+            axis === 0 ? rz + ofs * 0.6            : rz + side * (hw + 0.88)
+          );
+          roadGrp.add(cw);
+        }
+      }
+    }
+  }
+}
+scene.add(roadGrp);
+
+// ─── BUILDINGS ────────────────────────────────────────────────────────
+const bldGrp = new THREE.Group();
+const bGeom  = new THREE.BoxGeometry(1, 1, 1);
+const lotH   = (C.block - C.roadW) * 0.5;
+
+const parkMat  = new THREE.MeshStandardMaterial({ color: 0x4a7850, roughness: 1 });
+const treeMat  = new THREE.MeshStandardMaterial({ color: 0x3a5c3a, roughness: 1 });
+const trunkMat = new THREE.MeshStandardMaterial({ color: 0x5a4030 });
+
+// Building colour palettes (base hues with slight variation)
+const palettes = [
+  0x7080a4, 0xa08870, 0x6e8870, 0x8e7888,
+  0x7888a0, 0xb09870, 0x6a8478, 0x9880a0,
+];
+
+function rn(a, b) { return a + Math.random() * (b - a); }
+function ri(n)    { return Math.floor(Math.random() * n); }
+
+for (let xi = 0; xi < N - 1; xi++) {
+  for (let zi = 0; zi < N - 1; zi++) {
+    const cx = (roads[xi] + roads[xi + 1]) / 2;
+    const cz = (roads[zi] + roads[zi + 1]) / 2;
+
+    if (Math.random() < 0.17) {
+      // Park block
+      const p = new THREE.Mesh(new THREE.BoxGeometry(lotH * 1.4, 0.07, lotH * 1.4), parkMat);
+      p.position.set(cx, 0.035, cz);
+      p.receiveShadow = true;
+      bldGrp.add(p);
+      for (let t = 0; t < 3 + ri(2); t++) {
+        const tx = cx + rn(-lotH * 0.42, lotH * 0.42);
+        const tz = cz + rn(-lotH * 0.42, lotH * 0.42);
+        const th = rn(1.4, 2.6);
+        const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.14, th, 4), trunkMat);
+        trunk.position.set(tx, th / 2, tz);
+        bldGrp.add(trunk);
+        const crown = new THREE.Mesh(new THREE.SphereGeometry(rn(0.52, 0.92), 4, 3), treeMat);
+        crown.position.set(tx, th + 0.35, tz);
+        bldGrp.add(crown);
+      }
+      continue;
+    }
+
+    const tc   = 1 + ri(3);
+    const base = palettes[ri(palettes.length)];
+    for (let t = 0; t < tc; t++) {
+      const w   = rn(2.0, lotH * 0.88);
+      const d   = rn(2.0, lotH * 0.88);
+      const h   = rn(3.0, t === 0 ? 27 : 14);
+      const col = new THREE.Color(base).multiplyScalar(rn(0.78, 1.14));
+      const mat = new THREE.MeshStandardMaterial({
+        color: col, roughness: rn(0.7, 0.9), metalness: rn(0, 0.07)
+      });
+      const b = new THREE.Mesh(bGeom, mat);
+      b.scale.set(w, h, d);
+      b.position.set(cx + rn(-lotH * 0.2, lotH * 0.2), h / 2, cz + rn(-lotH * 0.2, lotH * 0.2));
+      bldGrp.add(b);
+
+      // Rooftop mechanical/HVAC element
+      if (h > 9 && Math.random() > 0.5) {
+        const rh  = rn(0.7, 2.2);
+        const rw  = w * rn(0.25, 0.52);
+        const rd  = d * rn(0.25, 0.52);
+        const rmb = new THREE.Mesh(
+          bGeom,
+          new THREE.MeshStandardMaterial({ color: 0x4a5460, roughness: 0.82 })
+        );
+        rmb.scale.set(rw, rh, rd);
+        rmb.position.set(
+          b.position.x + rn(-0.4, 0.4),
+          h + rh / 2,
+          b.position.z + rn(-0.4, 0.4)
+        );
+        bldGrp.add(rmb);
+      }
+    }
+  }
+}
+scene.add(bldGrp);
+
+// ─── TRAFFIC SIGNALS ──────────────────────────────────────────────────
+// 4 heads per intersection:
+// southbound(1) + northbound(1) + eastbound(1) + westbound(1)
+// North/South group and East/West group are synchronized.
+
+const poleGeo = new THREE.CylinderGeometry(0.065, 0.085, 3.8, 6);
+const unitArmGeo = new THREE.BoxGeometry(1, 0.08, 0.08);
+const dropGeo = new THREE.CylinderGeometry(0.035, 0.035, 0.45, 6);
+const boxGeo  = new THREE.BoxGeometry(0.42, 1.18, 0.22);
+const litGeo  = new THREE.SphereGeometry(0.11, 6, 4);
+const visorGeo = new THREE.BoxGeometry(0.24, 0.04, 0.12);
+const poleMt  = new THREE.MeshStandardMaterial({ color: 0x3a3a3a, roughness: 0.82 });
+const boxMt   = new THREE.MeshStandardMaterial({ color: 0x101010, roughness: 0.85 });
+
+const mats = {
+  rOff: new THREE.MeshStandardMaterial({ color: 0x4c0a0a }),
+  rOn:  new THREE.MeshStandardMaterial({ color: 0xff2424, emissive: 0xcc1010, emissiveIntensity: 1.1 }),
+  yOff: new THREE.MeshStandardMaterial({ color: 0x362400 }),
+  yOn:  new THREE.MeshStandardMaterial({ color: 0xffcc00, emissive: 0xddaa00, emissiveIntensity: 1.1 }),
+  gOff: new THREE.MeshStandardMaterial({ color: 0x073010 }),
+  gOn:  new THREE.MeshStandardMaterial({ color: 0x1af060, emissive: 0x10cc3a, emissiveIntensity: 1.1 }),
+};
+
+const sigGrp = new THREE.Group();
+
+function makeHeadOnPole(poleX, poleZ, armEndX, armEndZ, faceX, faceZ) {
+  const g = new THREE.Group();
+  g.position.set(poleX, 0, poleZ);
+
+  const pole = new THREE.Mesh(poleGeo, poleMt);
+  pole.position.y = 1.9;
+  g.add(pole);
+
+  const relX = armEndX - poleX;
+  const relZ = armEndZ - poleZ;
+  const armLen = Math.hypot(relX, relZ);
+
+  const arm = new THREE.Mesh(unitArmGeo, poleMt);
+  arm.scale.x = armLen;
+  arm.position.set(relX * 0.5, 3.82, relZ * 0.5);
+  arm.rotation.y = Math.atan2(-relZ, relX);
+  g.add(arm);
+
+  const drop = new THREE.Mesh(dropGeo, poleMt);
+  drop.position.set(relX, 3.58, relZ);
+  g.add(drop);
+
+  const head = new THREE.Group();
+  head.position.set(relX, 3.1, relZ);
+  head.rotation.y = Math.atan2(faceX, faceZ);
+
+  const box = new THREE.Mesh(boxGeo, boxMt);
+  head.add(box);
+
+  const rl = new THREE.Mesh(litGeo, mats.rOff);
+  rl.position.set(0, 0.36, 0.105);
+  head.add(rl);
+  const yl = new THREE.Mesh(litGeo, mats.yOff);
+  yl.position.set(0, 0, 0.105);
+  head.add(yl);
+  const gl = new THREE.Mesh(litGeo, mats.gOff);
+  gl.position.set(0, -0.36, 0.105);
+  head.add(gl);
+
+  for (const y of [0.36, 0, -0.36]) {
+    const visor = new THREE.Mesh(visorGeo, poleMt);
+    visor.position.set(0, y + 0.08, 0.2);
+    head.add(visor);
+  }
+
+  g.add(head);
+  sigGrp.add(g);
+  return { rl, yl, gl };
+}
+
+function setHeadState(head, state) {
+  head.rl.material = state === 'red' ? mats.rOn : mats.rOff;
+  head.yl.material = state === 'yellow' ? mats.yOn : mats.yOff;
+  head.gl.material = state === 'green' ? mats.gOn : mats.gOff;
+}
+
+const intersections = [];
+for (let xi = 0; xi < N; xi++) {
+  for (let zi = 0; zi < N; zi++) {
+    const x = roads[xi];
+    const z = roads[zi];
+    const state = ri(4);
+    const timer = rn(0, DURS[state]);
+
+    const d = hw + 0.62;
+    const la = C.laneOff;
+    const inStep = 0.2;
+
+    const nsHeads = [];
+    const ewHeads = [];
+
+    // NW corner: southbound
+    nsHeads.push(makeHeadOnPole(x - d, z - d, x - la, z - d + inStep, 0, -1));
+
+    // NE corner: westbound
+    ewHeads.push(makeHeadOnPole(x + d, z - d, x + d - inStep, z - la, 1, 0));
+
+    // SW corner: eastbound
+    ewHeads.push(makeHeadOnPole(x - d, z + d, x - d + inStep, z - 0.15, -1, 0));
+
+    // SE corner: northbound
+    nsHeads.push(makeHeadOnPole(x + d, z + d, x + la, z + d - inStep, 0, 1));
+
+    const inter = { id: `${xi},${zi}`, x, z, xi, zi, state, timer, nsHeads, ewHeads };
+    intersections.push(inter);
+  }
+}
+
+function applySignalVis(inter) {
+  const s = inter.state;
+  const nsState = s === 0 ? 'green' : s === 1 ? 'yellow' : 'red';
+  const ewState = s === 2 ? 'green' : s === 3 ? 'yellow' : 'red';
+  for (const head of inter.nsHeads) setHeadState(head, nsState);
+  for (const head of inter.ewHeads) setHeadState(head, ewState);
+}
+
+for (const inter of intersections) applySignalVis(inter);
+scene.add(sigGrp);
+
+// ─── CARS ─────────────────────────────────────────────────────────────
+const headingVec = {
+  E: { x: 1, z: 0 },
+  W: { x: -1, z: 0 },
+  S: { x: 0, z: 1 },
+  N: { x: 0, z: -1 },
+};
+const leftTurn = { E: 'N', N: 'W', W: 'S', S: 'E' };
+const rightTurn = { E: 'S', S: 'W', W: 'N', N: 'E' };
+
+function isEWHeading(h) { return h === 'E' || h === 'W'; }
+function headingSign(h) { return (h === 'E' || h === 'S') ? 1 : -1; }
+function headingYaw(h) {
+  if (h === 'E') return Math.PI / 2;
+  if (h === 'W') return -Math.PI / 2;
+  if (h === 'S') return 0;
+  return Math.PI;
+}
+
+function closestRoadIdx(val) {
+  return roads.reduce((bi, v, i) =>
+    Math.abs(v - val) < Math.abs(roads[bi] - val) ? i : bi, 0
+  );
+}
+
+function laneFixedFor(heading, roadIndex) {
+  const roadV = roads[roadIndex];
+  if (heading === 'E') return roadV + C.laneOff;
+  if (heading === 'W') return roadV - C.laneOff;
+  if (heading === 'S') return roadV - C.laneOff;
+  return roadV + C.laneOff;
+}
+
+function axisCoord(inter, heading) {
+  return isEWHeading(heading) ? inter.x : inter.z;
+}
+
+function nextStepIndex(xi, zi, heading) {
+  return { xi: xi + headingVec[heading].x, zi: zi + headingVec[heading].z };
+}
+
+function canGoHeading(heading, state) {
+  return isEWHeading(heading) ? (state === 2 || state === 3) : (state === 0 || state === 1);
+}
+
+const carGrp = new THREE.Group();
+scene.add(carGrp);
+
+const bodyGeo = new THREE.BoxGeometry(1.24, 0.46, C.carLen);
+const roofGeo = new THREE.BoxGeometry(0.88, 0.38, 1.06);
+const wGeo = new THREE.CylinderGeometry(0.26, 0.26, 0.16, 7);
+const wMat = new THREE.MeshStandardMaterial({ color: 0x161616 });
+const hlMat = new THREE.MeshStandardMaterial({ color: 0xffffee, emissive: 0xffffcc, emissiveIntensity: 0.6 });
+const tlMat = new THREE.MeshStandardMaterial({ color: 0xff2020, emissive: 0xcc0000, emissiveIntensity: 0.5 });
+const hlGeo = new THREE.BoxGeometry(0.28, 0.11, 0.04);
+const tlGeo = new THREE.BoxGeometry(0.22, 0.09, 0.04);
+
+const carCols = [
+  0xd82010, 0x1a58d8, 0xd8be10, 0x18a840,
+  0x9820a0, 0xd86020, 0x18a0c0, 0xc82848,
+  0xf0f0ee, 0x202020, 0x909090, 0xa8a820,
+];
+
+const cars = [];
+const headings = ['E', 'W', 'S', 'N'];
+
+function assignDestination(car, avoidXi = -1, avoidZi = -1) {
+  do {
+    car.targetXi = ri(N);
+    car.targetZi = ri(N);
+  } while (car.targetXi === avoidXi && car.targetZi === avoidZi);
+}
+
+function syncCarMesh(car) {
+  car.laneFixed = laneFixedFor(car.heading, car.roadIndex);
+  if (isEWHeading(car.heading)) {
+    car.group.position.set(car.pos, 0, car.laneFixed);
+  } else {
+    car.group.position.set(car.laneFixed, 0, car.pos);
+  }
+  car.group.rotation.y = headingYaw(car.heading);
+}
+
+function spawnCar() {
+  const heading = headings[ri(headings.length)];
+  const roadIndex = ri(N);
+  const pos = rn(-C.half, C.half);
+
+  const col = carCols[ri(carCols.length)];
+  const bMat = new THREE.MeshStandardMaterial({ color: col, roughness: 0.55, metalness: 0.18 });
+  const rMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(col).multiplyScalar(0.58),
+    roughness: 0.5, metalness: 0.12
+  });
+
+  const g = new THREE.Group();
+
+  const body = new THREE.Mesh(bodyGeo, bMat);
+  body.position.y = 0.52;
+  g.add(body);
+
+  const roof = new THREE.Mesh(roofGeo, rMat);
+  roof.position.set(0, 0.88, 0.06);
+  g.add(roof);
+
+  for (const [wx, wz] of [[-0.47, -0.66], [-0.47, 0.66], [0.47, -0.66], [0.47, 0.66]]) {
+    const w = new THREE.Mesh(wGeo, wMat);
+    w.rotation.z = Math.PI / 2;
+    w.position.set(wx, 0.26, wz);
+    g.add(w);
+  }
+
+  for (const ox of [-0.27, 0.27]) {
+    const hl = new THREE.Mesh(hlGeo, hlMat);
+    hl.position.set(ox, 0.5, C.carLen / 2 + 0.02);
+    g.add(hl);
+  }
+
+  for (const ox of [-0.21, 0.21]) {
+    const tl = new THREE.Mesh(tlGeo, tlMat);
+    tl.position.set(ox, 0.47, -(C.carLen / 2) - 0.02);
+    g.add(tl);
+  }
+
+  const car = {
+    heading,
+    roadIndex,
+    pos,
+    baseSpeed: rn(C.speedMin, C.speedMax),
+    speedNow: 0,
+    group: g,
+    targetXi: 0,
+    targetZi: 0,
+    laneFixed: 0,
+  };
+  assignDestination(car);
+  syncCarMesh(car);
+
+  carGrp.add(g);
+  cars.push(car);
+}
+
+for (let i = 0; i < C.carCount; i++) spawnCar();
+
+function nextInter(car) {
+  if (car.heading === 'E') {
+    for (let xi = 0; xi < N; xi++) {
+      if (roads[xi] > car.pos) return intersections[xi * N + car.roadIndex];
+    }
+    return null;
+  }
+  if (car.heading === 'W') {
+    for (let xi = N - 1; xi >= 0; xi--) {
+      if (roads[xi] < car.pos) return intersections[xi * N + car.roadIndex];
+    }
+    return null;
+  }
+  if (car.heading === 'S') {
+    for (let zi = 0; zi < N; zi++) {
+      if (roads[zi] > car.pos) return intersections[car.roadIndex * N + zi];
+    }
+    return null;
+  }
+  for (let zi = N - 1; zi >= 0; zi--) {
+    if (roads[zi] < car.pos) return intersections[car.roadIndex * N + zi];
+  }
+  return null;
+}
+
+function chooseHeadingAtIntersection(car, inter) {
+  if (inter.xi === car.targetXi && inter.zi === car.targetZi) {
+    assignDestination(car, inter.xi, inter.zi);
+  }
+
+  const options = [car.heading, leftTurn[car.heading], rightTurn[car.heading]];
+  let best = car.heading;
+  let bestScore = Infinity;
+
+  for (const nextH of options) {
+    const next = nextStepIndex(inter.xi, inter.zi, nextH);
+    if (next.xi < 0 || next.xi >= N || next.zi < 0 || next.zi >= N) continue;
+
+    let score = Math.abs(car.targetXi - next.xi) + Math.abs(car.targetZi - next.zi);
+    if (nextH !== car.heading) score += 0.08;
+    if (score < bestScore) {
+      bestScore = score;
+      best = nextH;
+    }
+  }
+
+  if (best === car.heading && Math.random() < 0.08) {
+    return Math.random() < 0.5 ? leftTurn[car.heading] : rightTurn[car.heading];
+  }
+
+  return best;
+}
+
+function applyTurn(car, inter, nextHeading) {
+  if (nextHeading === car.heading) return;
+  car.heading = nextHeading;
+
+  if (isEWHeading(nextHeading)) {
+    car.roadIndex = inter.zi;
+    car.pos = inter.x;
+  } else {
+    car.roadIndex = inter.xi;
+    car.pos = inter.z;
+  }
+}
+
+function laneGapAhead(car, other) {
+  if (car.heading !== other.heading || car.roadIndex !== other.roadIndex) return Infinity;
+  const loopLen = (C.half + 2) * 2;
+  let gap;
+  if (headingSign(car.heading) > 0) gap = other.pos - car.pos;
+  else gap = car.pos - other.pos;
+  if (gap <= 0) gap += loopLen;
+  return gap;
+}
+
+const clock = new THREE.Clock();
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+
+  for (const inter of intersections) {
+    inter.timer += dt;
+    if (inter.timer >= DURS[inter.state]) {
+      inter.timer -= DURS[inter.state];
+      inter.state = (inter.state + 1) % 4;
+      applySignalVis(inter);
+    }
+  }
+
+  for (const car of cars) {
+    let minGap = Infinity;
+    for (const other of cars) {
+      if (car === other) continue;
+      const gap = laneGapAhead(car, other);
+      if (gap < minGap) minGap = gap;
+    }
+
+    let speed = car.baseSpeed;
+    if (minGap <= C.followGapMin) {
+      speed = 0;
+    } else if (minGap < C.followGapSoft) {
+      const t = (minGap - C.followGapMin) / (C.followGapSoft - C.followGapMin);
+      speed *= THREE.MathUtils.clamp(t, 0, 1);
+    }
+    car.speedNow = speed;
+  }
+
+  for (const car of cars) {
+    const sign = headingSign(car.heading);
+    const inter = nextInter(car);
+    let speed = car.speedNow;
+
+    if (inter) {
+      const iPos = axisCoord(inter, car.heading);
+      const stopLine = iPos - sign * (hw + C.stopGap);
+      const front = car.pos + sign * (C.carLen / 2);
+      const approaching = sign > 0
+        ? (front >= stopLine - 0.28 && car.pos < iPos)
+        : (front <= stopLine + 0.28 && car.pos > iPos);
+
+      if (approaching && !canGoHeading(car.heading, inter.state)) {
+        speed = 0;
+        const clampedCenter = stopLine - sign * (C.carLen / 2);
+        if (sign > 0) car.pos = Math.min(car.pos, clampedCenter);
+        else car.pos = Math.max(car.pos, clampedCenter);
+      }
+    }
+
+    const prevPos = car.pos;
+    car.pos += sign * speed * dt;
+
+    if (inter) {
+      const iPos = axisCoord(inter, car.heading);
+      const crossed = sign > 0 ? (prevPos < iPos && car.pos >= iPos) : (prevPos > iPos && car.pos <= iPos);
+      if (crossed) {
+        const nextHeading = chooseHeadingAtIntersection(car, inter);
+        applyTurn(car, inter, nextHeading);
+      }
+    }
+
+    const limit = C.half + 2;
+    if (car.pos > limit) car.pos = -limit;
+    if (car.pos < -limit) car.pos = limit;
+
+    syncCarMesh(car);
+  }
+
+  ctrl.update();
+  if (tiltShiftPass) {
+    targetAperture = APERTURE_LEVELS[tiltMode] ?? APERTURE_LEVELS.off;
+
+    tiltShiftPass.uniforms.blurStrength.value = THREE.MathUtils.lerp(
+      tiltShiftPass.uniforms.blurStrength.value,
+      targetAperture,
+      0.08
+    );
+
+    const ratio = THREE.MathUtils.clamp(targetAperture / APERTURE_LEVELS.weak3, 0, 1);
+    const pct = Math.round(ratio * 100);
+    const modeLabel = tiltMode === 'off' ? 'OFF' : tiltMode.replace('weak', '弱');
+    tiltLabelEl.textContent = `TiltShift: ${modeLabel} (${pct}%)`;
+    composer.render();
+  } else {
+    tiltLabelEl.textContent = 'TiltShift: OFF (0%)';
+    renderer.render(scene, camera);
+  }
+}
+
+animate();
+
+window.addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+  if (composer) composer.setSize(innerWidth, innerHeight);
+  if (tiltShiftPass) tiltShiftPass.uniforms.resolution.value.set(innerWidth, innerHeight);
+});
+</script>
+</body>
+</html>
