@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Submarine Cable Map</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; }
+    body {
+      background:
+        radial-gradient(circle at 18% 20%, rgba(42, 112, 147, 0.22), transparent 32%),
+        linear-gradient(140deg, #06151d 0%, #0b1f27 48%, #071016 100%);
+      color: #d8e6e7;
+      font: 12px/1.45 "Avenir Next", "Hiragino Sans", "Yu Gothic", sans-serif;
+    }
+    svg { display: block; width: 100vw; height: 100vh; }
+    .sphere { fill: #071923; }
+    .graticule { fill: none; stroke: rgba(150, 191, 194, 0.12); stroke-width: 0.6; }
+    .country { fill: #112c32; stroke: rgba(194, 223, 218, 0.2); stroke-width: 0.45; }
+    .cable {
+      fill: none;
+      stroke: var(--line-color, #48d3c5);
+      stroke-width: 1.05;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-opacity: 0.44;
+      vector-effect: non-scaling-stroke;
+    }
+    .cable.focused { stroke: #f0d25b; stroke-width: 2.6; stroke-opacity: 0.95; }
+    .landing {
+      fill: #f3eee2;
+      stroke: #17343a;
+      stroke-width: 0.8;
+      opacity: 0.8;
+      vector-effect: non-scaling-stroke;
+    }
+    .landing.hidden { display: none; }
+    .panel {
+      position: fixed;
+      top: 18px;
+      left: 18px;
+      width: min(390px, calc(100vw - 36px));
+      padding: 16px;
+      background: rgba(5, 19, 25, 0.84);
+      border: 1px solid rgba(176, 221, 216, 0.18);
+      border-radius: 8px;
+      box-shadow: 0 18px 60px rgba(0, 0, 0, 0.26);
+      backdrop-filter: blur(12px);
+    }
+    h1 {
+      margin: 0 0 10px;
+      font: 700 19px/1.1 "Avenir Next", "Hiragino Sans", "Yu Gothic", sans-serif;
+      letter-spacing: 0;
+      color: #f4fbf7;
+    }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin: 12px 0;
+    }
+    .stat {
+      padding: 8px;
+      background: rgba(255, 255, 255, 0.045);
+      border: 1px solid rgba(255, 255, 255, 0.07);
+      border-radius: 6px;
+    }
+    .stat strong { display: block; font-size: 18px; line-height: 1; color: #ffffff; }
+    .stat span { color: #91acac; font-size: 10px; text-transform: uppercase; }
+    .controls { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+    .route-controls {
+      display: grid;
+      grid-template-columns: 1fr 1fr auto;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    input, button, select {
+      height: 34px;
+      border-radius: 6px;
+      border: 1px solid rgba(187, 225, 220, 0.18);
+      background: rgba(255, 255, 255, 0.07);
+      color: #eef7f5;
+      font: inherit;
+    }
+    input, select { min-width: 0; padding: 0 10px; }
+    button { padding: 0 12px; cursor: pointer; }
+    button:hover { background: rgba(255, 255, 255, 0.12); }
+    .toggles {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 10px;
+      color: #a8c0bf;
+    }
+    .toggles label { display: inline-flex; align-items: center; gap: 6px; }
+    .toggles input { width: 16px; height: 16px; accent-color: #48d3c5; }
+    .status { margin-top: 10px; min-height: 18px; color: #9eb9b7; }
+    .status.error { color: #ffb099; }
+    .status.route { color: #f0d25b; }
+    .legend {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      width: min(330px, calc(100vw - 36px));
+      padding: 12px 14px;
+      background: rgba(5, 19, 25, 0.76);
+      border: 1px solid rgba(176, 221, 216, 0.16);
+      border-radius: 8px;
+      color: #a9bfbd;
+      backdrop-filter: blur(10px);
+    }
+    .swatch {
+      display: inline-block;
+      width: 34px;
+      height: 3px;
+      margin-right: 8px;
+      vertical-align: middle;
+      background: linear-gradient(90deg, #48d3c5, #f0d25b);
+    }
+    .tooltip {
+      position: fixed;
+      pointer-events: none;
+      transform: translate(12px, 12px);
+      max-width: 260px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      background: rgba(1, 10, 14, 0.9);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: #edf7f4;
+      opacity: 0;
+      transition: opacity 120ms ease;
+    }
+    @media (max-width: 720px) {
+      .panel { top: 10px; left: 10px; width: calc(100vw - 20px); padding: 12px; }
+      .legend { display: none; }
+      h1 { font-size: 16px; }
+      .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .stat strong { font-size: 15px; }
+      .route-controls { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <svg id="map" aria-label="世界の海底ケーブル地図"></svg>
+  <section class="panel">
+    <h1>Submarine Cable Map</h1>
+    <div class="stats">
+      <div class="stat"><strong id="cable-count">--</strong><span>cables</span></div>
+      <div class="stat"><strong id="route-count">--</strong><span>routes</span></div>
+      <div class="stat"><strong id="landing-count">--</strong><span>landings</span></div>
+    </div>
+    <div class="controls">
+      <input id="search" type="search" autocomplete="off" placeholder="Search cable name">
+      <button id="reset">Reset</button>
+    </div>
+    <div class="route-controls">
+      <select id="from-country" aria-label="From country"></select>
+      <select id="to-country" aria-label="To country"></select>
+      <button id="route">Route</button>
+    </div>
+    <div class="toggles">
+      <label><input id="landing-toggle" type="checkbox" checked> landing points</label>
+      <label><input id="animate-toggle" type="checkbox"> flow</label>
+    </div>
+    <div id="status" class="status">Loading live submarinecablemap.com data...</div>
+  </section>
+  <aside class="legend">
+    <span class="swatch"></span>Live GeoJSON routes from submarinecablemap.com. Drag to pan, scroll to zoom.
+  </aside>
+  <div id="tooltip" class="tooltip"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js"></script>
+  <script>
+    const API = {
+      cables: ['http://localhost:3000/submarine-data/cables', 'https://www.submarinecablemap.com/api/v3/cable/all.json'],
+      landings: ['http://localhost:3000/submarine-data/landings', 'https://www.submarinecablemap.com/api/v3/landing-point/landing-point-geo.json'],
+      routes: ['http://localhost:3000/submarine-data/routes', 'https://www.submarinecablemap.com/api/v3/cable/cable-geo.json'],
+      world: ['https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json']
+    };
+
+    const svg = d3.select('#map');
+    const tooltip = d3.select('#tooltip');
+    const statusEl = document.querySelector('#status');
+    const searchEl = document.querySelector('#search');
+    const fromCountryEl = document.querySelector('#from-country');
+    const toCountryEl = document.querySelector('#to-country');
+    const landingToggle = document.querySelector('#landing-toggle');
+    const animateToggle = document.querySelector('#animate-toggle');
+    const width = () => window.innerWidth;
+    const height = () => window.innerHeight;
+
+    let projection;
+    let path;
+    let routeFeatures = [];
+    let landingFeatures = [];
+    let cableList = [];
+    let worldData = null;
+    let focusedCable = '';
+    let routeCableIds = new Set();
+    let cableCountries = new Map();
+    let countryCableIds = new Map();
+    let resizeTimer = 0;
+
+    const layer = svg.append('g');
+    const oceanLayer = layer.append('g');
+    const graticuleLayer = layer.append('g');
+    const countryLayer = layer.append('g');
+    const cableLayer = layer.append('g');
+    const landingLayer = layer.append('g');
+    const graticule = d3.geoGraticule10();
+
+    const zoom = d3.zoom()
+      .scaleExtent([1, 9])
+      .on('zoom', (event) => {
+        layer.attr('transform', event.transform);
+      });
+
+    svg.call(zoom);
+    document.querySelector('#reset').addEventListener('click', () => {
+      focusedCable = '';
+      routeCableIds = new Set();
+      searchEl.value = '';
+      renderData();
+      svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity);
+    });
+    searchEl.addEventListener('input', () => {
+      focusedCable = searchEl.value.trim().toLowerCase();
+      routeCableIds = new Set();
+      renderData();
+    });
+    document.querySelector('#route').addEventListener('click', () => {
+      focusedCable = '';
+      searchEl.value = '';
+      buildPlausibleRoute(fromCountryEl.value, toCountryEl.value);
+      renderData();
+    });
+    landingToggle.addEventListener('change', () => {
+      landingLayer.selectAll('.landing').classed('hidden', !landingToggle.checked);
+    });
+    animateToggle.addEventListener('change', () => {
+      cableLayer.selectAll('.cable').style('stroke-dasharray', animateToggle.checked ? null : 'none');
+    });
+
+    async function fetchFirst(urls) {
+      let lastError;
+      for (const url of urls) {
+        try {
+          const response = await fetch(url);
+          if (!response.ok) throw new Error(`${response.status} ${url}`);
+          return await response.json();
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      throw lastError;
+    }
+
+    function fitProjection() {
+      projection = d3.geoNaturalEarth1()
+        .fitExtent([[22, 24], [width() - 22, height() - 24]], { type: 'Sphere' });
+      path = d3.geoPath(projection);
+      svg.attr('viewBox', `0 0 ${width()} ${height()}`);
+    }
+
+    function renderBase(world) {
+      fitProjection();
+      const countries = topojson.feature(world, world.objects.countries);
+      oceanLayer.selectAll('path').data([{ type: 'Sphere' }]).join('path').attr('class', 'sphere').attr('d', path);
+      graticuleLayer.selectAll('path').data([graticule]).join('path').attr('class', 'graticule').attr('d', path);
+      countryLayer.selectAll('path').data(countries.features).join('path').attr('class', 'country').attr('d', path);
+    }
+
+    function routeMatches(feature) {
+      if (routeCableIds.size) return routeCableIds.has(feature.properties.id);
+      if (!focusedCable) return true;
+      const name = (feature.properties.name || '').toLowerCase();
+      const id = (feature.properties.id || '').toLowerCase();
+      return name.includes(focusedCable) || id.includes(focusedCable);
+    }
+
+    function countryFromLanding(feature) {
+      const name = feature.properties.name || '';
+      const parts = name.split(',').map(part => part.trim()).filter(Boolean);
+      return parts.length > 1 ? parts[parts.length - 1] : '';
+    }
+
+    function distanceSq(a, b) {
+      const dx = a[0] - b[0];
+      const dy = a[1] - b[1];
+      return dx * dx + dy * dy;
+    }
+
+    function endpointCoordinates(feature) {
+      const geometry = feature.geometry;
+      if (!geometry) return [];
+      if (geometry.type === 'LineString') {
+        return [geometry.coordinates[0], geometry.coordinates[geometry.coordinates.length - 1]].filter(Boolean);
+      }
+      if (geometry.type === 'MultiLineString') {
+        return geometry.coordinates.flatMap(line => [line[0], line[line.length - 1]]).filter(Boolean);
+      }
+      return [];
+    }
+
+    function nearestLandingCountry(point) {
+      let best = null;
+      let bestDistance = Infinity;
+      for (const landing of landingFeatures) {
+        const dist = distanceSq(point, landing.geometry.coordinates);
+        if (dist < bestDistance) {
+          bestDistance = dist;
+          best = landing;
+        }
+      }
+      return best && bestDistance < 4 ? countryFromLanding(best) : '';
+    }
+
+    function indexCableCountries() {
+      cableCountries = new Map();
+      countryCableIds = new Map();
+
+      for (const route of routeFeatures) {
+        const countries = new Set(endpointCoordinates(route).map(nearestLandingCountry).filter(Boolean));
+        if (!countries.size) continue;
+        cableCountries.set(route.properties.id, countries);
+        for (const country of countries) {
+          if (!countryCableIds.has(country)) countryCableIds.set(country, new Set());
+          countryCableIds.get(country).add(route.properties.id);
+        }
+      }
+    }
+
+    function populateCountrySelectors() {
+      const countries = [...countryCableIds.keys()].sort((a, b) => a.localeCompare(b));
+      fromCountryEl.replaceChildren(...countries.map(country => new Option(country, country)));
+      toCountryEl.replaceChildren(...countries.map(country => new Option(country, country)));
+      fromCountryEl.value = countries.includes('Japan') ? 'Japan' : countries[0] || '';
+      toCountryEl.value = countries.includes('United States') ? 'United States' : countries[1] || countries[0] || '';
+    }
+
+    function findDirectCable(fromCountry, toCountry) {
+      return routeFeatures.find(route => {
+        const countries = cableCountries.get(route.properties.id);
+        return countries && countries.has(fromCountry) && countries.has(toCountry);
+      });
+    }
+
+    function buildPlausibleRoute(fromCountry, toCountry) {
+      routeCableIds = new Set();
+      if (!fromCountry || !toCountry || fromCountry === toCountry) {
+        statusEl.textContent = 'Choose two different countries';
+        statusEl.className = 'status error';
+        return;
+      }
+
+      const direct = findDirectCable(fromCountry, toCountry);
+      if (direct) {
+        routeCableIds.add(direct.properties.id);
+        statusEl.textContent = `${fromCountry} -> ${toCountry}: direct plausible route via ${direct.properties.name}`;
+        statusEl.className = 'status route';
+        return;
+      }
+
+      for (const hub of countryCableIds.keys()) {
+        if (hub === fromCountry || hub === toCountry) continue;
+        const first = findDirectCable(fromCountry, hub);
+        const second = findDirectCable(hub, toCountry);
+        if (first && second) {
+          routeCableIds.add(first.properties.id);
+          routeCableIds.add(second.properties.id);
+          statusEl.textContent = `${fromCountry} -> ${hub} -> ${toCountry}: plausible 1-hop route`;
+          statusEl.className = 'status route';
+          return;
+        }
+      }
+
+      statusEl.textContent = `${fromCountry} -> ${toCountry}: no simple route found`;
+      statusEl.className = 'status error';
+    }
+
+    function simplifyLine(points) {
+      if (!Array.isArray(points) || points.length <= 16) return points;
+      const step = Math.max(1, Math.ceil(points.length / 90));
+      const simplified = points.filter((_, index) => index === 0 || index === points.length - 1 || index % step === 0);
+      return simplified.length >= 2 ? simplified : points;
+    }
+
+    function simplifyRoute(feature) {
+      const geometry = feature.geometry;
+      if (!geometry) return feature;
+      if (geometry.type === 'LineString') {
+        return { ...feature, geometry: { ...geometry, coordinates: simplifyLine(geometry.coordinates) } };
+      }
+      if (geometry.type === 'MultiLineString') {
+        return {
+          ...feature,
+          geometry: {
+            ...geometry,
+            coordinates: geometry.coordinates.map(simplifyLine)
+          }
+        };
+      }
+      return feature;
+    }
+
+    function renderData() {
+      const visibleRoutes = routeFeatures.filter(routeMatches);
+      cableLayer.selectAll('path')
+        .data(visibleRoutes, d => d.properties.feature_id || `${d.properties.id}-${d.properties.name}`)
+        .join('path')
+        .attr('class', d => `cable ${(focusedCable || routeCableIds.size) && routeMatches(d) ? 'focused' : ''}`)
+        .attr('d', path)
+        .style('--line-color', d => d.properties.color || '#48d3c5')
+        .style('stroke-dasharray', animateToggle.checked ? '2 7' : 'none')
+        .on('pointermove', (event, d) => showTooltip(event, d.properties.name || d.properties.id))
+        .on('pointerleave', hideTooltip);
+
+      landingLayer.selectAll('circle')
+        .data(landingFeatures, d => d.properties.id)
+        .join('circle')
+        .attr('class', `landing${landingToggle.checked ? '' : ' hidden'}`)
+        .attr('cx', d => projection(d.geometry.coordinates)[0])
+        .attr('cy', d => projection(d.geometry.coordinates)[1])
+        .attr('r', 2.4)
+        .on('pointermove', (event, d) => showTooltip(event, d.properties.name))
+        .on('pointerleave', hideTooltip);
+
+      document.querySelector('#route-count').textContent = visibleRoutes.length.toLocaleString();
+      if (!routeCableIds.size) {
+        statusEl.textContent = focusedCable
+          ? `${visibleRoutes.length.toLocaleString()} matching routes`
+          : 'Live data loaded';
+        statusEl.className = 'status';
+      }
+    }
+
+    function showTooltip(event, text) {
+      tooltip
+        .style('left', `${event.clientX}px`)
+        .style('top', `${event.clientY}px`)
+        .style('opacity', 1)
+        .text(text || 'Unknown');
+    }
+
+    function hideTooltip() {
+      tooltip.style('opacity', 0);
+    }
+
+    function animateCables() {
+      let offset = 0;
+      d3.timer(() => {
+        if (!animateToggle.checked) return;
+        offset = (offset + 0.18) % 9;
+        cableLayer.selectAll('.cable').style('stroke-dashoffset', -offset);
+      });
+    }
+
+    async function init() {
+      try {
+        const [world, cables, landings, routes] = await Promise.all([
+          fetchFirst(API.world),
+          fetchFirst(API.cables),
+          fetchFirst(API.landings),
+          fetchFirst(API.routes)
+        ]);
+        worldData = world;
+        cableList = cables;
+        landingFeatures = landings.features || [];
+        routeFeatures = (routes.features || []).map(simplifyRoute);
+        indexCableCountries();
+        populateCountrySelectors();
+        document.querySelector('#cable-count').textContent = cableList.length.toLocaleString();
+        document.querySelector('#landing-count').textContent = landingFeatures.length.toLocaleString();
+        renderBase(world);
+        renderData();
+        animateCables();
+      } catch (error) {
+        statusEl.textContent = `Data load failed: ${error.message}`;
+        statusEl.classList.add('error');
+      }
+    }
+
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        if (worldData) renderBase(worldData);
+        renderData();
+      }, 120);
+    });
+
+    init();
+  </script>
+</body>
+</html>

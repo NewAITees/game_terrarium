@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Dungeon Viewer</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0a0c0f;
+      color: #c8d8e8;
+      font-family: "SF Mono", "Menlo", "Consolas", monospace;
+      font-size: 13px;
+      height: 100vh;
+      display: grid;
+      grid-template-columns: auto 220px;
+      grid-template-rows: auto 1fr;
+      grid-template-areas:
+        "header header"
+        "main   sidebar";
+      gap: 1px;
+    }
+
+    header {
+      grid-area: header;
+      background: #111620;
+      padding: 8px 16px;
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      border-bottom: 1px solid #1e2a38;
+    }
+
+    header h1 { font-size: 14px; color: #67b4e0; letter-spacing: 0.08em; }
+
+    .stat { color: #8aabb8; }
+    .stat span { color: #eef2f5; font-weight: bold; }
+    .stat.danger span { color: #e05c5c; }
+
+    #connection {
+      margin-left: auto;
+      font-size: 11px;
+      color: #4a6a7a;
+    }
+    #connection.ok { color: #4cba6a; }
+
+    main {
+      grid-area: main;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      padding: 16px;
+      gap: 16px;
+      overflow: auto;
+    }
+
+    #grid {
+      display: grid;
+      gap: 1px;
+      line-height: 1;
+    }
+
+    .cell {
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 15px;
+      border-radius: 2px;
+    }
+
+    .cell-wall   { background: #0d1117; color: #1e2a38; }
+    .cell-floor  { background: #111a24; color: #1e2a38; }
+    .cell-exit   { background: #0d2233; color: #00c8ff; }
+    .cell-player { background: #112244; color: #5599ff; font-weight: bold; }
+    .cell-goblin { background: #2a1010; color: #e05c5c; }
+    .cell-orc    { background: #2a1520; color: #d04070; }
+    .cell-troll  { background: #1a0a2a; color: #a060e0; }
+    .cell-potion { background: #0f2210; color: #50cc70; }
+    .cell-sword  { background: #221a08; color: #e0a030; }
+    .cell-shield { background: #1a1a0a; color: #d0d040; }
+    .cell-gold   { background: #1e1a08; color: #c8a820; }
+
+    #legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      font-size: 11px;
+      color: #4a6070;
+    }
+    #legend span { display: flex; align-items: center; gap: 4px; }
+
+    aside {
+      grid-area: sidebar;
+      background: #0d1117;
+      border-left: 1px solid #1e2a38;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .sidebar-section {
+      padding: 12px;
+      border-bottom: 1px solid #1a2430;
+    }
+    .sidebar-section h2 {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #3a5060;
+      margin-bottom: 8px;
+    }
+
+    .hp-bar {
+      height: 6px;
+      background: #1a2430;
+      border-radius: 3px;
+      margin-top: 4px;
+      overflow: hidden;
+    }
+    .hp-fill {
+      height: 100%;
+      background: #4cba6a;
+      border-radius: 3px;
+      transition: width 0.2s;
+    }
+    .hp-fill.low  { background: #e0a030; }
+    .hp-fill.crit { background: #e05c5c; }
+
+    .row { display: flex; justify-content: space-between; margin-bottom: 4px; }
+    .row .label { color: #4a6070; }
+    .row .value { color: #c8d8e8; }
+
+    .badge {
+      display: inline-block;
+      padding: 1px 6px;
+      border-radius: 3px;
+      font-size: 11px;
+      margin: 2px 2px 2px 0;
+    }
+    .badge-item   { background: #1a2430; color: #8aabb8; }
+    .badge-weapon { background: #221a08; color: #e0a030; }
+    .badge-armor  { background: #1a1a0a; color: #d0d040; }
+    .badge-none   { color: #2a3a48; }
+
+    #log {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px 12px;
+      font-size: 11px;
+      line-height: 1.7;
+    }
+    #log h2 {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #3a5060;
+      margin-bottom: 6px;
+    }
+
+    .log-entry { color: #607888; }
+    .log-entry.highlight { color: #c8d8e8; }
+    .log-entry.floor { color: #67b4e0; font-weight: bold; }
+    .log-entry.defeat { color: #e05c5c; }
+    .log-entry.pickup { color: #50cc70; }
+    .log-entry.heal   { color: #4cba6a; }
+    .log-entry.score  { color: #c8a820; }
+    .log-entry.death  { color: #e05c5c; font-weight: bold; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>DUNGEON</h1>
+  <div class="stat">Floor <span id="h-floor">—</span></div>
+  <div class="stat">Score <span id="h-score">—</span></div>
+  <div class="stat" id="h-hp-stat">HP <span id="h-hp">—</span></div>
+  <div id="connection">connecting…</div>
+</header>
+
+<main>
+  <div id="grid"></div>
+  <div id="legend">
+    <span><span class="cell cell-player">@</span> You</span>
+    <span><span class="cell cell-goblin">g</span> Goblin</span>
+    <span><span class="cell cell-orc">o</span> Orc</span>
+    <span><span class="cell cell-troll">T</span> Troll</span>
+    <span><span class="cell cell-potion">!</span> Potion</span>
+    <span><span class="cell cell-sword">/</span> Sword</span>
+    <span><span class="cell cell-shield">]</span> Shield</span>
+    <span><span class="cell cell-gold">$</span> Gold</span>
+    <span><span class="cell cell-exit">></span> Exit</span>
+  </div>
+</main>
+
+<aside>
+  <div class="sidebar-section">
+    <h2>Player</h2>
+    <div class="row"><span class="label">HP</span><span class="value"><span id="s-hp">—</span> / <span id="s-maxhp">—</span></span></div>
+    <div class="hp-bar"><div class="hp-fill" id="s-hpbar" style="width:100%"></div></div>
+    <div class="row" style="margin-top:8px"><span class="label">Gold</span><span class="value" id="s-gold">—</span></div>
+  </div>
+
+  <div class="sidebar-section">
+    <h2>Equipment</h2>
+    <div class="row"><span class="label">Weapon</span><span class="value" id="s-weapon">—</span></div>
+    <div class="row"><span class="label">Armor</span><span class="value" id="s-armor">—</span></div>
+  </div>
+
+  <div class="sidebar-section">
+    <h2>Inventory</h2>
+    <div id="s-inventory"><span class="badge-none">empty</span></div>
+  </div>
+
+  <div id="log">
+    <h2>Log</h2>
+    <div id="log-entries"></div>
+  </div>
+</aside>
+
+<script>
+  const CELL_SYMBOLS = {
+    wall: ['#', 'cell-wall'],
+    floor: ['.', 'cell-floor'],
+    exit: ['>', 'cell-exit'],
+  };
+  const MONSTER_SYMBOLS = {
+    goblin: ['g', 'cell-goblin'],
+    orc:    ['o', 'cell-orc'],
+    troll:  ['T', 'cell-troll'],
+  };
+  const ITEM_SYMBOLS = {
+    potion: ['!', 'cell-potion'],
+    sword:  ['/', 'cell-sword'],
+    shield: [']', 'cell-shield'],
+    gold:   ['$', 'cell-gold'],
+  };
+
+  function render(state) {
+    const { floor, score, player, map, entities, items, fullLog } = state;
+
+    // Header
+    document.getElementById('h-floor').textContent = floor;
+    document.getElementById('h-score').textContent = score;
+    document.getElementById('h-hp').textContent = `${player.hp}/${player.maxHp}`;
+    const hpStat = document.getElementById('h-hp-stat');
+    const pct = player.hp / player.maxHp;
+    hpStat.className = 'stat' + (pct <= 0.3 ? ' danger' : '');
+
+    // Sidebar stats
+    document.getElementById('s-hp').textContent = player.hp;
+    document.getElementById('s-maxhp').textContent = player.maxHp;
+    document.getElementById('s-gold').textContent = player.gold;
+
+    const bar = document.getElementById('s-hpbar');
+    bar.style.width = Math.max(0, pct * 100) + '%';
+    bar.className = 'hp-fill' + (pct <= 0.3 ? ' crit' : pct <= 0.5 ? ' low' : '');
+
+    document.getElementById('s-weapon').innerHTML =
+      player.weapon ? `<span class="badge badge-weapon">${player.weapon}</span>` : '<span class="badge-none">none</span>';
+    document.getElementById('s-armor').innerHTML =
+      player.armor  ? `<span class="badge badge-armor">${player.armor}</span>`  : '<span class="badge-none">none</span>';
+
+    const inv = document.getElementById('s-inventory');
+    if (!player.inventory.length) {
+      inv.innerHTML = '<span class="badge-none">empty</span>';
+    } else {
+      const counts = {};
+      for (const item of player.inventory) counts[item] = (counts[item] || 0) + 1;
+      inv.innerHTML = Object.entries(counts)
+        .map(([item, n]) => `<span class="badge badge-item">${item}${n > 1 ? ' ×' + n : ''}</span>`)
+        .join('');
+    }
+
+    // Grid
+    const gridEl = document.getElementById('grid');
+    gridEl.style.gridTemplateColumns = `repeat(${map.width}, 28px)`;
+
+    // Build lookup maps
+    const monsterMap = {};
+    for (const e of entities) monsterMap[`${e.x},${e.y}`] = e;
+    const itemMap = {};
+    for (const i of items) itemMap[`${i.x},${i.y}`] = i;
+
+    gridEl.innerHTML = '';
+    for (let y = 0; y < map.height; y++) {
+      for (let x = 0; x < map.width; x++) {
+        const key = `${x},${y}`;
+        const div = document.createElement('div');
+        div.className = 'cell';
+
+        if (x === player.x && y === player.y) {
+          div.classList.add('cell-player');
+          div.textContent = '@';
+        } else if (monsterMap[key]) {
+          const m = monsterMap[key];
+          const [sym, cls] = MONSTER_SYMBOLS[m.type] || ['?', 'cell-floor'];
+          div.classList.add(cls);
+          div.textContent = sym;
+          div.title = `${m.type} HP:${m.hp}/${m.maxHp}`;
+        } else if (itemMap[key]) {
+          const [sym, cls] = ITEM_SYMBOLS[itemMap[key].type] || ['.', 'cell-floor'];
+          div.classList.add(cls);
+          div.textContent = sym;
+        } else {
+          const cell = map.cells[y][x];
+          const [sym, cls] = CELL_SYMBOLS[cell] || [' ', 'cell-wall'];
+          div.classList.add(cls);
+          div.textContent = sym;
+        }
+
+        gridEl.appendChild(div);
+      }
+    }
+
+    // Log
+    const logEl = document.getElementById('log-entries');
+    logEl.innerHTML = [...fullLog].reverse().map(line => {
+      let cls = 'log-entry';
+      if (line.startsWith('===')) cls += ' floor';
+      else if (line.includes('defeated')) cls += ' defeat score';
+      else if (line.includes('Picked up')) cls += ' pickup';
+      else if (line.includes('potion')) cls += ' heal';
+      else if (line.includes('died') || line.includes('Game over')) cls += ' death';
+      else if (line.includes('score') || line.includes('Score')) cls += ' score';
+      else if (line.includes('You')) cls += ' highlight';
+      return `<div class="${cls}">${line}</div>`;
+    }).join('');
+  }
+
+  // WebSocket
+  const ws = new WebSocket(`ws://${location.host}`);
+  const connEl = document.getElementById('connection');
+
+  ws.onopen = () => {
+    connEl.textContent = '● live';
+    connEl.className = 'ok';
+  };
+  ws.onclose = () => {
+    connEl.textContent = '○ disconnected';
+    connEl.className = '';
+  };
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'state') render(msg.state);
+  };
+</script>
+</body>
+</html>

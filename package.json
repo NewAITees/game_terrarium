@@ -1,0 +1,17 @@
+{
+  "name": "game-terrarium-electron",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Always-on-top viewer with page switching for city traffic and moss scenes",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^31.0.0"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "ws": "^8.21.0"
+  }
+}
