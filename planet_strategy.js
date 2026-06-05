@@ -565,6 +565,7 @@ function decideAttacks() {
       : ownedPlanets[0] ?? null;
     const enemyPlanets = world.planets.filter(p =>
       p.owner !== empire.id &&
+      p.underConstruction?.empireId !== empire.id &&
       (!base || distance3d(base, p) <= ATTACK_RANGE)
     );
     if (!enemyPlanets.length) continue;
@@ -633,9 +634,16 @@ function capturePlanet(planet, newOwner, fleet) {
 }
 
 function runCombat(dt) {
-  // 攻撃中の船を移動
+  // 攻撃中の船を移動（目標が自軍になっていたら中止）
   for (const ship of world.ships) {
     if (ship.status !== 'attacking') continue;
+    const target = getPlanet(ship.targetPlanetId);
+    if (target && target.owner === ship.owner) {
+      ship.status = 'orbiting';
+      ship.homePlanetId = ship.fromPlanetId;
+      ship.targetPlanetId = null;
+      continue;
+    }
     ship.progress = Math.min(1, ship.progress + dt * ship.speed);
     if (ship.progress >= 1) {
       ship.status   = 'battling';
@@ -651,6 +659,11 @@ function runCombat(dt) {
     const planet    = getPlanet(planetId);
     if (!planet) continue;
     const attackers = world.ships.filter(s => s.status === 'battling' && s.targetPlanetId === planetId);
+    // 目標が自軍になっていたら攻撃艦を帰還させる
+    if (attackers.length && planet.owner === attackers[0].owner) {
+      for (const s of attackers) { s.status = 'orbiting'; s.targetPlanetId = null; s.homePlanetId = planetId; }
+      continue;
+    }
     const defenders = world.ships.filter(s =>
       s.owner === planet.owner && s.homePlanetId === planetId &&
       s.kind !== 'transport' && (s.status === 'orbiting' || s.status === 'battling')
