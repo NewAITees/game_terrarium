@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>AI Planet Strategy</title>
+  <style>
+    *, html, body { margin: 0; overflow: hidden; background: #04070f; }
+    canvas { display: block; }
+    #hud {
+      position: fixed; top: 16px; left: 16px; width: 340px;
+      padding: 14px 16px; border: 1px solid #1f3454; border-radius: 10px;
+      background: rgba(5, 11, 22, 0.88); color: #a7bfd0;
+      font: 12px/1.55 "SF Mono", Menlo, monospace; backdrop-filter: blur(8px);
+    }
+    #hud h1 { margin: 0 0 10px; color: #def2ff; font-size: 14px; letter-spacing: .08em; }
+    .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
+    .stat { padding: 8px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.06); border-radius: 6px; }
+    .stat strong { display: block; color: #ffe7a2; font-size: 17px; line-height: 1.1; }
+    .stat span { color: #6e8ca1; font-size: 10px; text-transform: uppercase; }
+    #summary, #busiest, #empires {
+      margin-top: 8px; padding: 8px; border-radius: 6px;
+      background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.05);
+    }
+    #summary strong, #busiest strong, #empires strong {
+      display: block; margin-bottom: 6px; color: #d8edf7; font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+    }
+    #summary-text { color: #b0d0dd; }
+    #summary-detail, #busiest-route { color: #7391a3; font-size: 10px; margin-top: 4px; }
+    .empire-row { display: grid; grid-template-columns: 10px 1fr auto; gap: 8px; align-items: center; margin-bottom: 6px; }
+    .empire-dot { width: 10px; height: 10px; border-radius: 999px; }
+    .empire-meta { min-width: 0; }
+    .empire-name { color: #ecf6ff; font-size: 11px; }
+    .empire-intent { color: #82a6b7; font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .empire-numbers { color: #ffe7a2; font-size: 10px; text-align: right; }
+    #log-panel {
+      position: fixed; top: 16px; right: 16px; width: 320px; height: calc(100vh - 32px);
+      display: flex; flex-direction: column; padding: 12px; border: 1px solid #1f3454; border-radius: 10px;
+      background: rgba(5, 11, 22, 0.88); color: #9fb8c8; font: 11px/1.55 "SF Mono", Menlo, monospace; backdrop-filter: blur(8px);
+    }
+    #log-panel h2 { margin: 0 0 8px; color: #d8edf7; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; }
+    #log-entries { flex: 1; overflow-y: auto; }
+    .le { padding: 2px 0; word-break: break-word; }
+    .le-info { color: #86a9ba; }
+    .le-empire { color: #9ee3ff; }
+    .le-resource { color: #ffd98a; }
+    .le-warning { color: #ff987e; }
+    #legend {
+      position: fixed; bottom: 14px; left: 16px; color: #567186;
+      font: 11px/1.5 "SF Mono", Menlo, monospace;
+    }
+  </style>
+  <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.162/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.162/examples/jsm/"}}</script>
+</head>
+<body>
+  <div id="hud">
+    <h1>AI PLANET STRATEGY</h1>
+    <div class="stats">
+      <div class="stat"><strong id="elapsed">0</strong><span>elapsed</span></div>
+      <div class="stat"><strong id="planets">0</strong><span>planets</span></div>
+      <div class="stat"><strong id="ships">0</strong><span>transports</span></div>
+      <div class="stat"><strong id="mined">0</strong><span>mined</span></div>
+      <div class="stat"><strong id="moved">0</strong><span>moved</span></div>
+      <div class="stat"><strong id="depleted">0</strong><span>depleted</span></div>
+    </div>
+    <div id="summary">
+      <strong>World Flow</strong>
+      <div id="summary-text">Empires are building their first logistics web.</div>
+      <div id="summary-detail">Factories are waiting for inbound cargo.</div>
+    </div>
+    <div id="busiest">
+      <strong>Busiest Route</strong>
+      <div id="busiest-route">No route established yet.</div>
+    </div>
+    <div id="empires">
+      <strong>Empire Feed</strong>
+      <div id="empire-list"></div>
+    </div>
+  </div>
+  <div id="log-panel">
+    <h2>Log</h2>
+    <div id="log-entries"></div>
+  </div>
+  <div id="legend">Planet size = remaining resources. Ring = local stock. Lines = route traffic.</div>
+
+  <script src="./telemetry-client.js"></script>
+  <script type="module" src="./planet_strategy.js"></script>
+</body>
+</html>

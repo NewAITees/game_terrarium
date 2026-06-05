@@ -1,0 +1,13 @@
+{
+  "personality": "builder",
+  "desc": "領土安定化と拠点強化を優先。ゆっくりだが堅固に広げる",
+  "rules": [
+    { "id": "defend_base",      "when": "baseStrength < 0.7",                          "action": "fortify"  },
+    { "id": "fortify_weak",     "when": "weakOwnedNode && !enemyNearby",               "action": "fortify"  },
+    { "id": "expand_adjacent",  "when": "neutralNearby && food >= 20",                 "action": "expand"   },
+    { "id": "fortify_border",   "when": "enemyNearby && weakOwnedNode",                "action": "fortify"  },
+    { "id": "gather_low",       "when": "food < 30",                                   "action": "gather"   },
+    { "id": "expand_fallback",  "when": "neutralNearby",                               "action": "expand"   },
+    { "id": "gather_default",                                                           "action": "gather"   }
+  ]
+}

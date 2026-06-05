@@ -1,0 +1,12 @@
+{
+  "personality": "hoarder",
+  "desc": "資源備蓄を最優先。争いを避けながら内側を固め、資源が十分になってから慎重に拡張する",
+  "rules": [
+    { "id": "gather_always",     "when": "food < 80",                                  "action": "gather"   },
+    { "id": "fortify_perimeter", "when": "weakOwnedNode && enemyNearby",               "action": "fortify"  },
+    { "id": "fortify_interior",  "when": "weakOwnedNode",                              "action": "fortify"  },
+    { "id": "slow_expand_rich",  "when": "richNeutralNearby && food >= 35",            "action": "expand"   },
+    { "id": "slow_expand",       "when": "neutralNearby && food >= 55",                "action": "expand"   },
+    { "id": "gather_default",                                                           "action": "gather"   }
+  ]
+}

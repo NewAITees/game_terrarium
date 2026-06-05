@@ -2,13 +2,13 @@
   "name": "game-terrarium-electron",
   "version": "0.1.0",
   "private": true,
-  "description": "Always-on-top viewer with page switching for city traffic and moss scenes",
+  "description": "Always-on-top Electron viewer: city/moss/network visualizations, dungeon game, and network defense with Ollama-driven AI strategy",
   "main": "main.js",
   "scripts": {
     "start": "electron ."
   },
   "devDependencies": {
-    "electron": "^31.0.0"
+    "electron": "^42.3.3"
   },
   "dependencies": {
     "express": "^5.2.1",

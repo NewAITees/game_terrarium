@@ -15,6 +15,14 @@ import {
   makeMats,
   tickEdges,
 } from './network-core.js';
+import {
+  applyPersonalitiesToRules,
+  applyPersonalityToAgent,
+  buildObserverSnapshot,
+  pickRankPersonalities,
+} from './network_defense_personality.js';
+import { createObservationEvents } from './network_defense_events.js';
+import { createObservationUi } from './network_defense_ui.js';
 
 const TOTAL = 24 + (Math.random() * 16 | 0);
 const SEED = Math.random() * 1e9 | 0;
@@ -29,7 +37,6 @@ const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 0.5, 70
 camera.position.set(0, 72, 130);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.1;
@@ -46,7 +53,8 @@ controls.target.set(0, 8, 0);
 
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
-composer.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 1.5, 0.5, 0.07));
+const bloomPass = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 1.5, 0.5, 0.07);
+composer.addPass(bloomPass);
 
 scene.add(new THREE.AmbientLight(0x112233, 3));
 const keyLight = new THREE.DirectionalLight(0xfff0cc, 1.6);
@@ -70,6 +78,7 @@ buildEdges(topo, scene, edgeMap, allEdges, mats);
 
 const adj = buildAdj(topo.nodes, edgeMap);
 const rng = new RNG(SEED + 1);
+const rankPersonalities = pickRankPersonalities(rng);
 const terms = topo.lnodes.term;
 const EDGE_SPEED = { min: 0.42, max: 1.08 };
 const WIN_WAVE = 10;
@@ -95,6 +104,12 @@ const game = {
   waveStartKills: 0,
   waveServerHpStart: 120,
   waveActions: {},
+  environmentSpeedMultiplier: 1,
+  lowLoadMode: false,
+  telemetryCooldown: 0,
+  rankIntents: Object.fromEntries(
+    Object.entries(rankPersonalities).map(([rank, personality]) => [rank, personality.summary])
+  ),
 };
 
 const enemyPackets = [];
@@ -103,6 +118,21 @@ const normalPackets = [];
 const scanPackets = [];
 const agents = [];
 const firewalls = new Map();
+const observationUi = createObservationUi({
+  onToggleLowLoadMode: () => toggleLowLoadMode(),
+  onIntervenePulse: () => observerPulseCalm(),
+  onInterveneBreach: () => observerBreachSpike(),
+});
+const observationEvents = createObservationEvents({ game, topo, rng, logEvent, setMessage });
+
+function applyRenderProfile() {
+  renderer.setPixelRatio(Math.min(devicePixelRatio, game.lowLoadMode ? 1 : 2));
+  renderer.setSize(innerWidth, innerHeight);
+  composer.setSize(innerWidth, innerHeight);
+  bloomPass.strength = game.lowLoadMode ? 0.85 : 1.5;
+}
+
+applyRenderProfile();
 
 // 見た目・クールダウンのみ (能力はRank_PROFILEで定義)
 const AGENT_RANKS = {
@@ -345,9 +375,9 @@ function createAgent(rank, index = agents.length) {
   };
 }
 
-agents.push(createAgent('senior', 0));
-agents.push(createAgent('mid', 1));
-agents.push(createAgent('junior', 2));
+agents.push(applyPersonalityToAgent(createAgent('senior', 0), rankPersonalities));
+agents.push(applyPersonalityToAgent(createAgent('mid', 1), rankPersonalities));
+agents.push(applyPersonalityToAgent(createAgent('junior', 2), rankPersonalities));
 
 function firewallKey(edge) {
   return edgeKey(edge.an.id, edge.bn.id);
@@ -435,7 +465,7 @@ function updateFirewalls(now, dt) {
 }
 
 function edgeTravelFactor(edge) {
-  return edge?.speedFactor ?? 0.72;
+  return (edge?.speedFactor ?? 0.72) * game.environmentSpeedMultiplier;
 }
 
 function hottestNode() {
@@ -516,11 +546,20 @@ const DEFAULT_RULES = {
   ],
 };
 
-const agentRules = {
+const baseAgentRules = {
   senior: [...DEFAULT_RULES.senior],
   mid:    [...DEFAULT_RULES.mid],
   junior: [...DEFAULT_RULES.junior],
 };
+
+const agentRules = applyPersonalitiesToRules(baseAgentRules, rankPersonalities);
+
+function refreshAgentRules() {
+  const nextRules = applyPersonalitiesToRules(baseAgentRules, rankPersonalities);
+  for (const rank of Object.keys(nextRules)) {
+    agentRules[rank] = nextRules[rank];
+  }
+}
 
 let nextRuleReload = 3;
 let rulesLoadedAt = null;
@@ -567,13 +606,14 @@ async function loadAgentRules() {
       if (!res.ok) continue;
       const data = await res.json();
       if (Array.isArray(data.rules)) {
-        agentRules[rank] = data.rules;
+        baseAgentRules[rank] = data.rules.map(rule => ({ ...rule }));
         anyLoaded = true;
       }
     } catch (_) {
       // keep existing rules on fetch failure
     }
   }
+  refreshAgentRules();
   if (anyLoaded) {
     rulesLoadedAt = new Date().toLocaleTimeString();
     const el = document.getElementById('rules-status');
@@ -761,6 +801,7 @@ function runAgentRules(agent, snap) {
   for (const rule of agentRules[agent.rank] ?? []) {
     if (rule.when && !evalCondition(rule.when, snap)) continue;
     if (execAction(agent, rule.action, snap)) {
+      game.rankIntents[agent.rank] = rule.id ?? rule.action;
       logEvent(`${agent.rank} › ${rule.id ?? rule.action}`, 'agent');
       game.waveActions[agent.rank] = (game.waveActions[agent.rank] || 0) + 1;
       return;
@@ -771,9 +812,11 @@ function runAgentRules(agent, snap) {
   if (cur && cur !== topo.server && cur.infection > 0.15) {
     cur.infection = Math.max(0, cur.infection - 0.28);
     cur.hp = Math.min(cur.maxHp, cur.hp + 15);
+    game.rankIntents[agent.rank] = 'self-repair current sector';
     agent.cooldown = 0.8;
     return;
   }
+  game.rankIntents[agent.rank] = 'scan for the next opening';
   agent.cooldown = AGENT_RANKS[agent.rank].cooldown + rng.next() * 0.5;
 }
 
@@ -1133,6 +1176,14 @@ function updateHud() {
   document.getElementById('buy-senior').disabled = game.credits < AGENT_COSTS.senior;
   document.getElementById('harden').style.opacity = game.credits < 20 ? '0.4' : '1';
   document.getElementById('reboot').style.opacity = game.credits < 40 ? '0.4' : '1';
+  const summary = buildObserverSummary();
+  observationUi.update({
+    lowLoadMode: game.lowLoadMode,
+    eventState: observationEvents.getHudState(),
+    rankSnapshots: buildObserverSnapshot(agents, rankPersonalities, game.rankIntents),
+    summary,
+    hotspots: buildObserverHotspots(),
+  });
 }
 
 function updateWave(dt) {
@@ -1223,6 +1274,7 @@ function updateSeniorStrategy(dt) {
       game.rule = nextRule;
       document.getElementById('rules').textContent = `rules: ${nextRule}`;
       setMessage(`Senior alert: rules.txt -> ${nextRule}`);
+      game.rankIntents.senior = `adapt network posture to ${nextRule}`;
     }
   });
 }
@@ -1238,6 +1290,91 @@ function logEvent(text, type = 'info') {
   el.appendChild(div);
   while (el.children.length > 400) el.removeChild(el.firstChild);
   el.scrollTop = el.scrollHeight;
+}
+
+function buildObserverHotspots() {
+  return topo.nodes
+    .filter(node => !node.isServer)
+    .sort((a, b) => (b.infection + (1 - b.hp / b.maxHp)) - (a.infection + (1 - a.hp / a.maxHp)))
+    .slice(0, 3)
+    .map(node => ({
+      label: `${node.layer.toUpperCase()} ${node.id}`,
+      value: `inf ${Math.round(node.infection * 100)} / hp ${Math.round(node.hp)}`,
+    }));
+}
+
+function buildObserverSummary() {
+  const hotspots = buildObserverHotspots();
+  const hottest = topo.nodes.reduce((best, node) => (node.infection > best.infection ? node : best), topo.nodes[0]);
+  if (topo.server.hp < 70) {
+    return {
+      text: 'The server core is taking visible pressure.',
+      detail: 'Defenders are being forced into emergency containment.',
+    };
+  }
+  if (enemyPackets.length > defensePackets.length + 2) {
+    return {
+      text: 'Enemy packet flow is outrunning the local defense rhythm.',
+      detail: 'Watch the front line before the next wave compounds it.',
+    };
+  }
+  if ((hottest?.infection ?? 0) > 0.48) {
+    return {
+      text: `Infection pressure is peaking around node ${hottest.id}.`,
+      detail: 'A single unstable cluster is shaping the whole grid.',
+    };
+  }
+  if (hotspots.length) {
+    return {
+      text: 'Defense is holding, but a few lanes are still running hot.',
+      detail: `Top pressure point: ${hotspots[0].label}.`,
+    };
+  }
+  return {
+    text: 'The grid is stable enough for personalities to shape the flow.',
+    detail: 'Most interesting changes are now coming from route choices and event timing.',
+  };
+}
+
+function observerPulseCalm() {
+  const targets = topo.nodes
+    .filter(node => !node.isServer)
+    .sort((a, b) => b.infection - a.infection)
+    .slice(0, 3);
+  if (!targets.length) return;
+  for (const node of targets) {
+    node.infection = Math.max(0, node.infection - 0.18);
+    node.hardenUntil = Math.max(node.hardenUntil, performance.now() / 1000 + 6);
+  }
+  setMessage('Observer intervention: Pulse Calm cooled the hottest sectors.');
+  logEvent('Observer: Pulse Calm reduced infection on the top pressure nodes.', 'player');
+}
+
+function observerBreachSpike() {
+  const targets = topo.nodes
+    .filter(node => !node.isServer && node.infection < 0.45)
+    .sort((a, b) => b.degree - a.degree)
+    .slice(0, 2);
+  if (!targets.length) return;
+  for (const node of targets) {
+    node.infection = Math.min(1, node.infection + 0.26);
+    node.targetedUntil = performance.now() / 1000 + 8;
+  }
+  setMessage('Observer intervention: Breach Spike forced a new frontline.');
+  logEvent('Observer: Breach Spike created a fresh infection spike.', 'player');
+}
+
+function toggleLowLoadMode(force) {
+  const next = typeof force === 'boolean' ? force : !game.lowLoadMode;
+  if (next === game.lowLoadMode) return;
+  game.lowLoadMode = next;
+  game.telemetryCooldown = 0;
+  applyRenderProfile();
+  setMessage(next ? 'Low-load observation enabled.' : 'Full observation restored.');
+  logEvent(
+    next ? 'Observer mode switched to low-load rendering.' : 'Observer mode returned to full rendering.',
+    'summary'
+  );
 }
 
 function showEndOverlay(isVictory) {
@@ -1273,7 +1410,7 @@ function buyAgent(rank) {
     return;
   }
   game.credits -= cost;
-  agents.push(createAgent(rank, agents.length));
+  agents.push(applyPersonalityToAgent(createAgent(rank, agents.length), rankPersonalities));
   setMessage(`${rank.toUpperCase()} agent deployed.`);
   logEvent(`Player: bought ${rank} agent (−${cost}cr)`, 'player');
 }
@@ -1301,7 +1438,7 @@ function reportTelemetry() {
     return acc;
   }, {});
 
-  window.Telemetry?.report('network_defense', {
+  window.Telemetry?.report('network_defense_observer', {
     elapsed: Math.round(game.elapsed),
     gameOver: game.gameOver,
     kills: game.kills,
@@ -1326,6 +1463,14 @@ function reportTelemetry() {
     },
     agentRanks,
     hotspots,
+    observer: {
+      lowLoadMode: game.lowLoadMode,
+      event: observationEvents.getHudState().label,
+      personalities: Object.fromEntries(
+        Object.entries(rankPersonalities).map(([rank, personality]) => [rank, personality.label])
+      ),
+      intents: game.rankIntents,
+    },
   });
 }
 
@@ -1378,12 +1523,14 @@ window.addEventListener('pointerdown', event => {
 
 const clock = new THREE.Clock();
 let elapsed = 0;
+let frameCount = 0;
 
 function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.05);
   const now = performance.now() / 1000;
   elapsed += dt;
+  frameCount++;
 
   nextRuleReload -= dt;
   if (nextRuleReload <= 0) {
@@ -1397,6 +1544,7 @@ function animate() {
     game.nextAttack -= dt;
     updateWave(dt);
     updateSeniorStrategy(dt);
+    observationEvents.update(dt, now);
     if (game.nextAttack <= 0 && game.waveRemaining > 0) {
       spawnEnemy();
       game.nextAttack = Math.max(0.32, 1.35 - game.wave * 0.035) + rng.next() * 0.65;
@@ -1443,18 +1591,27 @@ function animate() {
   updateFirewalls(now, dt);
   updateNodes(dt, now);
   updateHud();
-  reportTelemetry();
+  game.telemetryCooldown -= dt;
+  if (game.telemetryCooldown <= 0) {
+    reportTelemetry();
+    game.telemetryCooldown = game.lowLoadMode ? 1.2 : 0.35;
+  }
   tickEdges(allEdges, mats, now);
-  controls.update();
-  composer.render();
+  const shouldRender = !game.lowLoadMode || frameCount % 2 === 0;
+  if (shouldRender) {
+    controls.update();
+    composer.render();
+  }
 }
 
 loadAgentRules();
+for (const [rank, personality] of Object.entries(rankPersonalities)) {
+  logEvent(`${rank} personality: ${personality.label} — ${personality.summary}`, 'summary');
+}
 animate();
 
 window.addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight);
-  composer.setSize(innerWidth, innerHeight);
+  applyRenderProfile();
 });

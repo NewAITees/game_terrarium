@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>AI Colony Sandbox</title>
+  <style>
+    *, html, body { margin: 0; overflow: hidden; background: #050810; }
+    canvas { display: block; }
+
+    /* ── HUD ─────────────────────────────────────────── */
+    #hud {
+      position: fixed; top: 16px; left: 16px; width: 260px;
+      font: 12px/1.55 "SF Mono", Menlo, monospace;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    #world-header {
+      padding: 8px 12px; border: 1px solid #1a2a40; border-radius: 8px;
+      background: rgba(5,10,22,0.84); backdrop-filter: blur(8px);
+      color: #5a7a90; font-size: 11px;
+    }
+    #world-header strong { color: #a0c8de; font-size: 13px; letter-spacing: .1em; }
+
+    /* ── Faction Panels ──────────────────────────────── */
+    .fp {
+      padding: 10px 12px; border-radius: 8px;
+      background: rgba(5,10,22,0.84); backdrop-filter: blur(8px);
+      border-left: 3px solid #1a3050;
+    }
+    .fp-head {
+      display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+    }
+    .fp-dot  { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+    .fp-name { font-size: 13px; letter-spacing: .08em; font-weight: bold; }
+    .fp-personality { font-size: 10px; opacity: 0.55; margin-left: auto; text-transform: uppercase; }
+    .fp-stats {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; margin-bottom: 7px;
+    }
+    .fp-stat { text-align: center; }
+    .fp-stat strong { display: block; font-size: 15px; }
+    .fp-stat span   { font-size: 9px; text-transform: uppercase; opacity: 0.5; }
+    .fp-bar-wrap { height: 3px; background: rgba(255,255,255,.08); border-radius: 2px; margin-bottom: 6px; }
+    .fp-bar      { height: 100%; border-radius: 2px; transition: width .5s; }
+    .fp-intent   { font-size: 10px; color: #5a7a8a; min-height: 14px; }
+
+    /* ── Intervention ────────────────────────────────── */
+    #interventions {
+      padding: 10px 12px; border: 1px solid #1a2a40; border-radius: 8px;
+      background: rgba(5,10,22,0.84); backdrop-filter: blur(8px);
+    }
+    #interventions h2 {
+      font-size: 10px; text-transform: uppercase; letter-spacing: .1em;
+      color: #3a5a6a; margin: 0 0 8px;
+    }
+    .iv-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    .iv-btn {
+      padding: 7px 6px; border-radius: 6px; border: 1px solid #1e3a50;
+      background: #081826; color: #7aaabb; cursor: pointer;
+      font: 11px "SF Mono", Menlo, monospace; transition: background .12s;
+    }
+    .iv-btn:hover { background: #0e2a3c; color: #a0d8e8; }
+
+    /* ── Log Panel ───────────────────────────────────── */
+    #log-panel {
+      position: fixed; top: 16px; right: 16px; width: 290px;
+      height: calc(100vh - 32px);
+      display: flex; flex-direction: column;
+      padding: 12px; border: 1px solid #1a2a40; border-radius: 8px;
+      background: rgba(5,10,22,0.84); backdrop-filter: blur(8px);
+      font: 11px/1.55 "SF Mono", Menlo, monospace;
+    }
+    #log-panel h2 {
+      font-size: 10px; text-transform: uppercase; letter-spacing: .1em;
+      color: #3a5a6a; margin: 0 0 8px; flex-shrink: 0;
+    }
+    #log-entries { flex: 1; overflow-y: auto; }
+    .le { padding: 1px 0; word-break: break-all; }
+
+    /* Faction 0: blue / Faction 1: red / Faction 2: green */
+    .le-f0          { color: #5a9fea; }
+    .le-f1          { color: #e07060; }
+    .le-f2          { color: #5ad080; }
+    .le-capture     { color: #f0c040; font-weight: bold; }
+    .le-eliminated  { color: #ff5050; font-weight: bold; }
+    .le-event       { color: #b070e0; }
+    .le-intervention{ color: #f0e050; }
+    .le-info        { color: #3a5060; }
+  </style>
+  <script type="importmap">{"imports":{
+    "three":"https://cdn.jsdelivr.net/npm/three@0.162/build/three.module.js",
+    "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.162/examples/jsm/"
+  }}</script>
+</head>
+<body>
+
+<div id="hud">
+  <div id="world-header">
+    <strong>AI COLONY SANDBOX</strong><br>
+    <span id="world-time">00:00  tick: 0</span>
+  </div>
+
+  <!-- Faction 0: CYGNUS (builder, blue) -->
+  <div class="fp" id="f0-panel" style="border-left-color:#3a7fea">
+    <div class="fp-head">
+      <span class="fp-dot" style="background:#3a7fea"></span>
+      <span class="fp-name" style="color:#3a7fea">CYGNUS</span>
+      <span class="fp-personality">builder</span>
+    </div>
+    <div class="fp-stats">
+      <div class="fp-stat"><strong id="f0-territory" style="color:#3a7fea">1</strong><span>territory</span></div>
+      <div class="fp-stat"><strong id="f0-food"      style="color:#a8d870">65</strong><span>food</span></div>
+      <div class="fp-stat"><strong id="f0-material"  style="color:#d8b870">40</strong><span>avg str</span></div>
+    </div>
+    <div class="fp-bar-wrap"><div class="fp-bar" id="f0-bar" style="width:3%;background:#3a7fea"></div></div>
+    <div class="fp-intent" id="f0-intent">initializing…</div>
+  </div>
+
+  <!-- Faction 1: VORTEX (raider, red) -->
+  <div class="fp" id="f1-panel" style="border-left-color:#e03a3a">
+    <div class="fp-head">
+      <span class="fp-dot" style="background:#e03a3a"></span>
+      <span class="fp-name" style="color:#e03a3a">VORTEX</span>
+      <span class="fp-personality">raider</span>
+    </div>
+    <div class="fp-stats">
+      <div class="fp-stat"><strong id="f1-territory" style="color:#e03a3a">1</strong><span>territory</span></div>
+      <div class="fp-stat"><strong id="f1-food"      style="color:#a8d870">65</strong><span>food</span></div>
+      <div class="fp-stat"><strong id="f1-material"  style="color:#d8b870">40</strong><span>avg str</span></div>
+    </div>
+    <div class="fp-bar-wrap"><div class="fp-bar" id="f1-bar" style="width:3%;background:#e03a3a"></div></div>
+    <div class="fp-intent" id="f1-intent">initializing…</div>
+  </div>
+
+  <!-- Faction 2: VERDANT (hoarder, green) -->
+  <div class="fp" id="f2-panel" style="border-left-color:#3ac060">
+    <div class="fp-head">
+      <span class="fp-dot" style="background:#3ac060"></span>
+      <span class="fp-name" style="color:#3ac060">VERDANT</span>
+      <span class="fp-personality">hoarder</span>
+    </div>
+    <div class="fp-stats">
+      <div class="fp-stat"><strong id="f2-territory" style="color:#3ac060">1</strong><span>territory</span></div>
+      <div class="fp-stat"><strong id="f2-food"      style="color:#a8d870">65</strong><span>food</span></div>
+      <div class="fp-stat"><strong id="f2-material"  style="color:#d8b870">40</strong><span>avg str</span></div>
+    </div>
+    <div class="fp-bar-wrap"><div class="fp-bar" id="f2-bar" style="width:3%;background:#3ac060"></div></div>
+    <div class="fp-intent" id="f2-intent">initializing…</div>
+  </div>
+
+  <!-- Interventions -->
+  <div id="interventions">
+    <h2>Interventions</h2>
+    <div class="iv-grid">
+      <button class="iv-btn" id="btn-resource">Resource Drop</button>
+      <button class="iv-btn" id="btn-storm">Storm</button>
+      <button class="iv-btn" id="btn-invader">Invader Wave</button>
+      <button class="iv-btn" id="btn-neutral">Return to Wild</button>
+    </div>
+  </div>
+</div>
+
+<div id="log-panel">
+  <h2>EVENT LOG</h2>
+  <div id="log-entries"></div>
+</div>
+
+<script src="./telemetry-client.js"></script>
+<script type="module" src="./colony.js"></script>
+</body>
+</html>

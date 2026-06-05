@@ -5,14 +5,16 @@ const { startServer } = require('./server');
 app.commandLine.appendSwitch('disable-features', 'HardwareMediaKeyHandling,MediaSessionService');
 
 const PAGES = {
-  city:       path.join(__dirname, 'city_traffic_tiltshift_alpha.html'),
-  moss:       path.join(__dirname, 'moss_alpha.html'),
-  net_tree:   path.join(__dirname, 'network_tree.html'),
-  net_sw:     path.join(__dirname, 'network_sw.html'),
-  net_defense: path.join(__dirname, 'network_defense.html'),
-  net_ecosystem: path.join(__dirname, 'network_ecosystem.html'),
-  submarine:  path.join(__dirname, 'submarine_cables.html'),
-  submarine_3d: path.join(__dirname, 'submarine_network_3d.html'),
+  city:          path.join(__dirname, 'city_traffic_tiltshift_alpha.html'),
+  moss:          path.join(__dirname, 'moss_alpha.html'),
+  net_tree:      path.join(__dirname, 'network_tree.html'),
+  net_sw:        path.join(__dirname, 'network_sw.html'),
+  net_defense:   'http://localhost:3000/network_defense.html',
+  planet_strategy: 'http://localhost:3000/planet_strategy.html',
+  net_ecosystem: 'http://localhost:3000/network_ecosystem.html',
+  colony:        'http://localhost:3000/colony.html',
+  submarine:     path.join(__dirname, 'submarine_cables.html'),
+  submarine_3d:  path.join(__dirname, 'submarine_network_3d.html'),
 };
 
 let win = null;
@@ -22,7 +24,12 @@ function loadPage(pageKey) {
   if (!win) return;
   if (!PAGES[pageKey]) return;
   currentPage = pageKey;
-  win.loadFile(PAGES[pageKey]);
+  const target = PAGES[pageKey];
+  if (target.startsWith('http')) {
+    win.loadURL(target);
+  } else {
+    win.loadFile(target);
+  }
   refreshMenu();
 }
 
@@ -60,6 +67,13 @@ function refreshMenu() {
           click: () => loadPage('net_sw'),
         },
         {
+          label: 'AI Planet Strategy (0)',
+          type: 'radio',
+          checked: currentPage === 'planet_strategy',
+          accelerator: 'CmdOrCtrl+0',
+          click: () => loadPage('planet_strategy'),
+        },
+        {
           label: 'Network Tower Defense (7)',
           type: 'radio',
           checked: currentPage === 'net_defense',
@@ -86,6 +100,13 @@ function refreshMenu() {
           checked: currentPage === 'submarine_3d',
           accelerator: 'CmdOrCtrl+6',
           click: () => loadPage('submarine_3d'),
+        },
+        {
+          label: 'AI Colony Sandbox (9)',
+          type: 'radio',
+          checked: currentPage === 'colony',
+          accelerator: 'CmdOrCtrl+9',
+          click: () => loadPage('colony'),
         },
         { type: 'separator' },
         {
@@ -159,6 +180,8 @@ app.whenReady().then(() => {
   globalShortcut.register('CmdOrCtrl+6', () => loadPage('submarine_3d'));
   globalShortcut.register('CmdOrCtrl+7', () => loadPage('net_defense'));
   globalShortcut.register('CmdOrCtrl+8', () => loadPage('net_ecosystem'));
+  globalShortcut.register('CmdOrCtrl+9', () => loadPage('colony'));
+  globalShortcut.register('CmdOrCtrl+0', () => loadPage('planet_strategy'));
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();

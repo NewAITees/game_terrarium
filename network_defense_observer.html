@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8">
-  <title>Network — Tower Defense</title>
+  <title>Network Observation Defense</title>
   <style>*, html, body { margin: 0; overflow: hidden; background: #070c18; }
   canvas { display: block; }
   #label { position: fixed; bottom: 14px; right: 16px;
@@ -29,6 +29,44 @@
   #message { min-height: 34px; color: #86a4b4; }
   #message.alert { color: #ff9f86; }
   #hint { color: #587589; font-size: 11px; }
+  #observer {
+    margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,.08);
+  }
+  #observer-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px;
+  }
+  #observer-head strong {
+    font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: #b2d7e8;
+  }
+  #observer-mode-state { font-size: 10px; color: #5f7d90; }
+  #observer button { width: 100%; margin-bottom: 8px; }
+  #observer-event {
+    padding: 8px; margin-bottom: 8px; border-radius: 6px;
+    background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.06);
+  }
+  #observer-event-name { color: #f7d28a; font-size: 12px; }
+  #observer-event-detail { color: #6c8b9c; font-size: 10px; margin-top: 2px; }
+  .observer-rank {
+    display: grid; grid-template-columns: 58px 1fr; gap: 4px 8px;
+    margin-bottom: 6px; padding: 6px 8px; border-radius: 6px;
+    background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.05);
+  }
+  .observer-rank strong { color: #d7edf6; text-transform: uppercase; font-size: 10px; }
+  .observer-rank span { color: #89c8de; font-size: 10px; }
+  .observer-rank em { grid-column: 1 / -1; color: #86a4b4; font-style: normal; }
+  #observer-summary, #observer-hotspots, #observer-intervene {
+    margin-top: 8px; padding: 8px; border-radius: 6px;
+    background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.05);
+  }
+  #observer-summary strong, #observer-hotspots strong, #observer-intervene strong {
+    display: block; margin-bottom: 6px; color: #d7edf6; font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+  }
+  #observer-summary-text { color: #a8c7d8; }
+  #observer-summary-detail { margin-top: 4px; color: #6f8da0; font-size: 10px; }
+  .hotspot-item { display: flex; justify-content: space-between; gap: 8px; color: #90b8c8; font-size: 10px; padding: 2px 0; }
+  .hotspot-item span:last-child { color: #f7d28a; }
+  .observer-intervene-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .observer-intervene-grid button { height: 28px; margin-bottom: 0; font-size: 11px; }
 
   /* ── Log panel ─────────────────────────────────────── */
   #log-panel {
@@ -86,7 +124,7 @@
 </head>
 <body>
 <div id="hud">
-  <h1>TOWER DEFENSE MODEL</h1>
+  <h1>OBSERVATION DEFENSE</h1>
   <div class="stats">
     <div class="stat"><strong id="credits">50</strong><span>credits</span></div>
     <div class="stat"><strong id="score">0</strong><span>score</span></div>
@@ -108,6 +146,36 @@
   <div id="hint">Credits: +3/s passive, +15 per kill. Harden=20cr, Reboot=40cr, agents cost credits.</div>
   <div id="rules">rules: balanced response</div>
   <div id="rules-status" style="color:#3a5570;font-size:10px;margin-top:4px">rules: loading...</div>
+  <div id="observer">
+    <div id="observer-head">
+      <strong>Observer Feed</strong>
+      <span id="observer-mode-state">full observation</span>
+    </div>
+    <button id="observer-mode">Low-Load Observe</button>
+    <div id="observer-event">
+      <div id="observer-event-name">Idle Grid</div>
+      <div id="observer-event-detail">next anomaly in 20s</div>
+    </div>
+    <div id="observer-rank-senior" class="observer-rank"></div>
+    <div id="observer-rank-mid" class="observer-rank"></div>
+    <div id="observer-rank-junior" class="observer-rank"></div>
+    <div id="observer-summary">
+      <strong>Frontline Summary</strong>
+      <div id="observer-summary-text">The grid is settling into patrol lanes.</div>
+      <div id="observer-summary-detail">No pressure spike detected.</div>
+    </div>
+    <div id="observer-hotspots">
+      <strong>Danger Zones</strong>
+      <div id="observer-hotspot-list"></div>
+    </div>
+    <div id="observer-intervene">
+      <strong>Intervene</strong>
+      <div class="observer-intervene-grid">
+        <button id="observer-pulse">Pulse Calm</button>
+        <button id="observer-breach">Breach Spike</button>
+      </div>
+    </div>
+  </div>
 </div>
 <div id="log-panel">
   <h2>EVENT LOG</h2>
@@ -123,6 +191,6 @@
 </div>
 
 <script src="./telemetry-client.js"></script>
-<script type="module" src="./network_defense.js"></script>
+<script type="module" src="./network_defense_observer.js"></script>
 </body>
 </html>

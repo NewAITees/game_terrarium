@@ -1,0 +1,13 @@
+{
+  "personality": "raider",
+  "desc": "攻撃的。弱い相手や資源豊富な領域を積極的に狙う",
+  "rules": [
+    { "id": "strike_weak_enemy", "when": "weakEnemyNearby && food >= 18",              "action": "attack"   },
+    { "id": "grab_rich_neutral", "when": "richNeutralNearby",                          "action": "expand"   },
+    { "id": "restock_urgent",    "when": "food < 12",                                  "action": "gather"   },
+    { "id": "expand_neutral",    "when": "neutralNearby",                              "action": "expand"   },
+    { "id": "raid_any_enemy",    "when": "enemyNearby && food >= 18",                  "action": "attack"   },
+    { "id": "gather_mid",        "when": "food < 35",                                  "action": "gather"   },
+    { "id": "raid_fallback",    "when": "food >= 10",                                   "action": "attack"   }
+  ]
+}
