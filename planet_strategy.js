@@ -1,5 +1,7 @@
 import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { createPlanetStrategyRenderer } from './planet_strategy_render.js';
+import { createPlanetStrategyUi } from './planet_strategy_ui.js';
+import { reportPlanetStrategyTelemetry } from './planet_strategy_telemetry.js';
 
 const COLORS = ['#7de8ff', '#ff9f80', '#c8ff8a'];
 const PERSONALITIES = [
@@ -8,56 +10,25 @@ const PERSONALITIES = [
   { key: 'expansionist', summary: 'claim rich frontier worlds through logistics' },
   { key: 'fortifier', summary: 'favor safe short routes and stable supply' },
 ];
+const MATCH_END_SECONDS = 8 * 60;
+const MATCH_FORCE_END_SECONDS = 10 * 60;
+const FACTORY_MAINTENANCE_COST = 8;
+const FACTORY_STALL_COLLAPSE_SECONDS = 45;
+const SHIP_BUILD_COST = 20;
+const TIE_BREAK_DELTA = 0.5;
+const ATTACK_RANGE = 200;
 
 const rng = mulberry32(Math.floor(Math.random() * 1e9));
 const world = createWorld();
-
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x06101c);
-scene.fog = new THREE.FogExp2(0x06101c, 0.0036);
-
-const camera = new THREE.PerspectiveCamera(44, innerWidth / innerHeight, 0.5, 1200);
-camera.position.set(0, 160, 240);
-
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-renderer.setSize(innerWidth, innerHeight);
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.12;
-document.body.appendChild(renderer.domElement);
-
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true;
-controls.dampingFactor = 0.045;
-controls.autoRotate = true;
-controls.autoRotateSpeed = 0.15;
-controls.minDistance = 120;
-controls.maxDistance = 520;
-controls.target.set(0, 0, 0);
-
-scene.add(new THREE.AmbientLight(0x244060, 2.4));
-const keyLight = new THREE.DirectionalLight(0xfff0d0, 1.7);
-keyLight.position.set(80, 120, 60);
-scene.add(keyLight);
-const fillLight = new THREE.DirectionalLight(0x3355aa, 0.85);
-fillLight.position.set(-90, 60, -80);
-scene.add(fillLight);
-scene.add(new THREE.GridHelper(520, 24, 0x112034, 0x0b1626));
-
-const planetGroup = new THREE.Group();
-scene.add(planetGroup);
-const routeGroup = new THREE.Group();
-scene.add(routeGroup);
-const shipGroup = new THREE.Group();
-scene.add(shipGroup);
-
+const ui = createPlanetStrategyUi();
+const rendererView = createPlanetStrategyRenderer({ world, rng, getPlanet, distance3d, routeKey });
 const clock = new THREE.Clock();
 let aiTick = 0;
 let mineTick = 0;
 let factoryTick = 0;
 let telemetryTick = 0;
+let attackTick = 0;
 
-buildSceneObjects();
 seedInitialRoutes();
 logEvent('Planet strategy initialized. Logistics web coming online.', 'info');
 
@@ -67,6 +38,7 @@ function createWorld() {
   const ships = [];
   const routes = new Map();
   const routeStats = [];
+  let shipSerial = 0;
 
   const empireConfigs = [
     { name: 'Aster Union', color: COLORS[0] },
@@ -74,25 +46,32 @@ function createWorld() {
     { name: 'Verdant Ring', color: COLORS[2] },
   ];
 
-  const radius = 170;
   const count = 15;
+  const positions = generatePlanetPositions(count, {
+    minRadius: 80,
+    maxRadius: 300,
+    minDistance: 72,
+    verticalRange: 120,
+    maxAttempts: 120,
+  });
   for (let i = 0; i < count; i++) {
-    const angle = (i / count) * Math.PI * 2 + (rng() - 0.5) * 0.35;
-    const dist = radius + (rng() - 0.5) * 70;
+    const initialResources = 500 + Math.floor(rng() * 1000);
     planets.push({
       id: `p${i}`,
       label: `P-${i + 1}`,
-      x: Math.cos(angle) * dist,
-      z: Math.sin(angle) * dist,
-      resources: 220 + Math.floor(rng() * 520),
-      maxResources: 220 + Math.floor(rng() * 520),
-      mineRate: 2 + rng() * 3,
+      x: positions[i].x,
+      y: positions[i].y,
+      z: positions[i].z,
+      resources: initialResources,
+      maxResources: initialResources,
+      mineRate: 8 + rng() * 12,
       owner: -1,
       stock: 0,
       type: 'neutral',
       structures: { mine: 0, factory: 0 },
       productionQueue: 0,
       trafficIn: 0,
+      stalled: false,
       mesh: null,
       ring: null,
       labelGlow: null,
@@ -102,15 +81,16 @@ function createWorld() {
   const used = new Set();
   empireConfigs.forEach((config, empireId) => {
     const personality = PERSONALITIES[empireId % PERSONALITIES.length];
-    const homeMine = pickFreePlanet(planets, used, empireId * 2, 'mine');
+    const homeMine = pickSectorMinePlanet(planets, used, empireId);
     const homeFactory = pickClosestFreePlanet(planets, used, homeMine, 'factory');
     homeMine.owner = empireId;
     homeMine.type = 'mine';
     homeMine.structures.mine = 1;
-    homeMine.stock = 30;
+    homeMine.stock = 150;
     homeFactory.owner = empireId;
     homeFactory.type = 'factory';
     homeFactory.structures.factory = 1;
+    homeFactory.stock = 100;
     homeFactory.productionQueue = 20;
 
     const empire = {
@@ -122,14 +102,18 @@ function createWorld() {
       intent: 'bring ore into the first factory',
       mined: 0,
       delivered: 0,
+      producedShips: 0,
+      stalledTime: 0,
+      collapsed: false,
+      collapseReason: null,
       homeMineId: homeMine.id,
       homeFactoryId: homeFactory.id,
-      shipCap: personality.key === 'industrialist' ? 12 : personality.key === 'fortifier' ? 8 : 10,
+      shipCap: 30,
     };
     empires.push(empire);
 
     for (let i = 0; i < 2; i++) {
-      ships.push(createTransportShip(empire, homeMine.id, homeFactory.id, i * 0.5));
+      ships.push(createTransportShip(empire, homeMine.id, homeFactory.id, shipSerial++, i * 0.5));
     }
   });
 
@@ -143,21 +127,86 @@ function createWorld() {
     minedTotal: 0,
     deliveredTotal: 0,
     logCooldowns: new Map(),
+    shipSerial,
+    kills: 0,
+    gameOver: false,
+    endReason: null,
+    winnerId: null,
+    finalSummary: '',
+    finalDetail: '',
+    finalScores: [],
+    oreFalloffStart: null,
   };
 }
 
-function pickFreePlanet(planets, used, indexBias, type) {
-  const candidates = planets.filter((_, index) => !used.has(index));
-  const picked = candidates[indexBias % candidates.length];
-  const index = planets.indexOf(picked);
-  used.add(index);
-  picked.type = type;
-  return picked;
+function generatePlanetPositions(count, options) {
+  const positions = [];
+  const {
+    minRadius = 60,
+    maxRadius = 260,
+    minDistance = 60,
+    verticalRange = 90,
+    maxAttempts = 80,
+  } = options;
+
+  for (let i = 0; i < count; i++) {
+    let accepted = null;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const angle = rng() * Math.PI * 2;
+      const radius = minRadius + Math.sqrt(rng()) * (maxRadius - minRadius);
+      const heightScale = 0.35 + (1 - radius / maxRadius) * 0.65;
+      const candidate = {
+        x: Math.cos(angle) * radius,
+        y: (rng() - 0.5) * verticalRange * heightScale,
+        z: Math.sin(angle) * radius,
+      };
+      const hasRoom = positions.every((position) => distance3d(position, candidate) >= minDistance);
+      if (hasRoom) {
+        accepted = candidate;
+        break;
+      }
+    }
+
+    if (!accepted) {
+      const angle = rng() * Math.PI * 2;
+      const radius = minRadius + Math.sqrt(rng()) * (maxRadius - minRadius);
+      const heightScale = 0.35 + (1 - radius / maxRadius) * 0.65;
+      accepted = {
+        x: Math.cos(angle) * radius,
+        y: (rng() - 0.5) * verticalRange * heightScale,
+        z: Math.sin(angle) * radius,
+      };
+    }
+
+    positions.push(accepted);
+  }
+
+  return positions;
+}
+
+function pickSectorMinePlanet(planets, used, sectorIndex) {
+  const sectorAngle = (Math.PI * 2) / 3;
+  const sectorStart = sectorIndex * sectorAngle;
+  const sectorEnd = sectorStart + sectorAngle;
+  const inSector = planets
+    .map((planet, index) => ({ planet, index }))
+    .filter(({ index }) => !used.has(index))
+    .filter(({ planet }) => {
+      const angle = (Math.atan2(planet.z, planet.x) + Math.PI * 2) % (Math.PI * 2);
+      return angle >= sectorStart && angle < sectorEnd;
+    })
+    .sort((a, b) => Math.hypot(b.planet.x, b.planet.z) - Math.hypot(a.planet.x, a.planet.z));
+  const picked = inSector[0] ?? planets
+    .map((planet, index) => ({ planet, index }))
+    .filter(({ index }) => !used.has(index))[0];
+  used.add(picked.index);
+  picked.planet.type = 'mine';
+  return picked.planet;
 }
 
 function pickClosestFreePlanet(planets, used, origin, type) {
   const picked = planets
-    .map((planet, index) => ({ planet, index, dist: distance2d(origin, planet) }))
+    .map((planet, index) => ({ planet, index, dist: distance3d(origin, planet) }))
     .filter(({ index }) => !used.has(index))
     .sort((a, b) => a.dist - b.dist)[0];
   used.add(picked.index);
@@ -165,74 +214,38 @@ function pickClosestFreePlanet(planets, used, origin, type) {
   return picked.planet;
 }
 
-function createTransportShip(empire, fromPlanetId, toPlanetId, phase = 0) {
+function createTransportShip(empire, fromPlanetId, toPlanetId, serial, phase = 0) {
   return {
-    id: `s${worldLikeCount('ship') + Math.floor(rng() * 9999)}`,
-    kind: 'transport',
-    owner: empire.id,
-    fromPlanetId,
-    toPlanetId,
-    progress: phase,
-    speed: 0.06 + rng() * 0.03,
-    cargo: 0,
-    capacity: 50,
-    status: 'loading',
+    id: `s${serial}`, kind: 'transport', owner: empire.id,
+    fromPlanetId, toPlanetId,
+    homePlanetId: fromPlanetId, targetPlanetId: null,
+    progress: phase, speed: 0.06 + rng() * 0.03,
+    cargo: 0, capacity: 50, status: 'loading',
+    hp: 20, maxHp: 20, attack: 0, defense: 0,
+    orbitAngle: rng() * Math.PI * 2,
+    orbitRadius: 10 + rng() * 8,
+    orbitSpeed: 0.45 + rng() * 0.25,
     mesh: null,
   };
 }
 
-function worldLikeCount(kind) {
-  if (kind === 'ship' && world?.ships) return world.ships.length;
-  return 0;
-}
-
-function buildSceneObjects() {
-  const coreGeo = new THREE.SphereGeometry(1, 18, 18);
-  const ringGeo = new THREE.TorusGeometry(1.55, 0.08, 10, 36);
-  const shipGeo = new THREE.BoxGeometry(1.6, 1, 2.8);
-
-  for (const planet of world.planets) {
-    const color = planet.owner >= 0 ? world.empires[planet.owner].color : '#62758a';
-    const mat = new THREE.MeshStandardMaterial({
-      color,
-      emissive: new THREE.Color(color).multiplyScalar(0.18),
-      metalness: 0.24,
-      roughness: 0.55,
-    });
-    const mesh = new THREE.Mesh(coreGeo, mat);
-    mesh.position.set(planet.x, 0, planet.z);
-    planetGroup.add(mesh);
-
-    const ring = new THREE.Mesh(
-      ringGeo,
-      new THREE.MeshBasicMaterial({
-        color: 0xb9e8ff,
-        transparent: true,
-        opacity: 0.24,
-      })
-    );
-    ring.rotation.x = Math.PI / 2;
-    ring.position.set(planet.x, 0, planet.z);
-    planetGroup.add(ring);
-
-    planet.mesh = mesh;
-    planet.ring = ring;
-  }
-
-  for (const ship of world.ships) {
-    const empire = world.empires[ship.owner];
-    const mesh = new THREE.Mesh(
-      shipGeo,
-      new THREE.MeshStandardMaterial({
-        color: empire.color,
-        emissive: new THREE.Color(empire.color).multiplyScalar(0.2),
-        metalness: 0.35,
-        roughness: 0.45,
-      })
-    );
-    shipGroup.add(mesh);
-    ship.mesh = mesh;
-  }
+function createCombatShip(empire, planetId, kind, serial) {
+  const isAtt = kind === 'attacker';
+  return {
+    id: `s${serial}`, kind, owner: empire.id,
+    fromPlanetId: planetId, toPlanetId: planetId,
+    homePlanetId: planetId, targetPlanetId: null,
+    progress: 0, speed: isAtt ? 0.075 : 0.05,
+    cargo: 0, capacity: 0, status: 'orbiting',
+    hp:    isAtt ? 30  : 55,
+    maxHp: isAtt ? 30  : 55,
+    attack:  isAtt ? 8  : 5,
+    defense: isAtt ? 2  : 7,
+    orbitAngle: rng() * Math.PI * 2,
+    orbitRadius: 16 + rng() * 10,
+    orbitSpeed: isAtt ? 0.9 + rng() * 0.4 : 0.45 + rng() * 0.2,
+    mesh: null,
+  };
 }
 
 function seedInitialRoutes() {
@@ -244,25 +257,9 @@ function seedInitialRoutes() {
 function touchRoute(fromPlanetId, toPlanetId, weight = 1) {
   const key = routeKey(fromPlanetId, toPlanetId);
   if (!world.routes.has(key)) {
-    const from = getPlanet(fromPlanetId);
-    const to = getPlanet(toPlanetId);
-    const geometry = new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(from.x, 0, from.z),
-      new THREE.Vector3(to.x, 0, to.z),
-    ]);
-    const material = new THREE.LineBasicMaterial({
-      color: 0x5ca8c8,
-      transparent: true,
-      opacity: 0.18,
-    });
-    const line = new THREE.Line(geometry, material);
-    routeGroup.add(line);
-    world.routes.set(key, {
-      fromPlanetId,
-      toPlanetId,
-      traffic: 0,
-      line,
-    });
+    const route = { fromPlanetId, toPlanetId, traffic: 0, line: null, curve: null };
+    world.routes.set(key, route);
+    rendererView.ensureRouteVisual(route);
   }
   world.routes.get(key).traffic += weight;
 }
@@ -279,11 +276,15 @@ function getEmpire(id) {
   return world.empires.find((empire) => empire.id === id);
 }
 
-function distance2d(a, b) {
-  return Math.hypot(a.x - b.x, a.z - b.z);
+function distance3d(a, b) {
+  return Math.hypot(a.x - b.x, (a.y ?? 0) - (b.y ?? 0), a.z - b.z);
 }
 
 function updateWorld(dt) {
+  if (world.gameOver) {
+    updateHud();
+    return;
+  }
   world.time += dt;
   aiTick += dt;
   mineTick += dt;
@@ -295,10 +296,15 @@ function updateWorld(dt) {
     runCargoHandling(mineTick);
     mineTick = 0;
   }
+  attackTick += dt;
   if (aiTick >= 2) {
     updateEmpireIntentions();
     assignRoutes();
     aiTick = 0;
+  }
+  if (attackTick >= 5) {
+    decideAttacks();
+    attackTick = 0;
   }
   if (factoryTick >= 5) {
     runFactories(factoryTick);
@@ -306,8 +312,12 @@ function updateWorld(dt) {
   }
 
   updateShips(dt);
+  runCombat(dt);
+  updateOrbiting(dt);
   decayTraffic(dt);
-  updateVisuals();
+  evaluateEmpireCollapse();
+  evaluateMatchState();
+  rendererView.updateVisuals(dt);
   updateHud();
 
   if (telemetryTick >= 0.5) {
@@ -317,9 +327,11 @@ function updateWorld(dt) {
 }
 
 function runMining(step) {
+  const falloffActive = world.oreFalloffStart !== null && world.time - world.oreFalloffStart < 20;
   for (const planet of world.planets) {
     if (planet.owner < 0 || planet.resources <= 0 || planet.structures.mine <= 0) continue;
-    const mined = Math.min(planet.resources, planet.mineRate * (1 + planet.structures.mine * 0.5) * step);
+    const rateScale = falloffActive ? 0.2 : 1;
+    const mined = Math.min(planet.resources, planet.mineRate * (1 + planet.structures.mine * 0.5) * rateScale * step);
     planet.resources -= mined;
     planet.stock += mined;
     const empire = getEmpire(planet.owner);
@@ -358,17 +370,56 @@ function runCargoHandling(step) {
   }
 }
 
+function claimPlanet(empire, planet, type) {
+  planet.owner = empire.id;
+  planet.type = type;
+  if (type === 'mine') planet.structures.mine = 1;
+  else planet.structures.factory = 1;
+  maybeLog(`claim:${empire.id}:${planet.id}`, `${empire.name} claimed ${planet.label} as a ${type}.`, 'empire', 5);
+}
+
 function updateEmpireIntentions() {
   for (const empire of world.empires) {
-    const mine = getPlanet(empire.homeMineId);
-    const factory = getPlanet(empire.homeFactoryId);
-    const ownShips = world.ships.filter((ship) => ship.owner === empire.id);
-    const stockGap = mine.stock - factory.stock;
-    if (factory.stock < 25) {
+    if (empire.collapsed) {
+      empire.intent = 'collapsed and drifting out of contention';
+      continue;
+    }
+    const factory     = getPlanet(empire.homeFactoryId);
+    const ownShips    = world.ships.filter(s => s.owner === empire.id);
+    const ownedMines  = world.planets.filter(p => p.owner === empire.id && p.structures.mine > 0);
+    const ownedFacts  = world.planets.filter(p => p.owner === empire.id && p.structures.factory > 0);
+    const activeMines = ownedMines.filter(m => m.resources > 0);
+    const ref         = factory ?? getPlanet(empire.homeMineId);
+
+    // 先手鉱山拡張：稼働鉱山が2未満 or 残資源40%未満
+    const needsMine = activeMines.length < 2 ||
+      activeMines.some(m => m.resources / Math.max(m.maxResources, 1) < 0.4);
+    if (needsMine && ref) {
+      const candidate = world.planets
+        .filter(p => p.owner < 0 && p.resources > 0)
+        .map(p => ({ p, dist: distance3d(ref, p) }))
+        .filter(({ dist }) => dist <= 260)
+        .sort((a, b) => a.dist - b.dist)[0]?.p;
+      if (candidate) claimPlanet(empire, candidate, 'mine');
+    }
+
+    // 先手工場拡張：工場1つ & 鉱山在庫が潤沢 & 船数が多い
+    const mineStock = ownedMines.reduce((sum, m) => sum + m.stock, 0);
+    if (ownedFacts.length < 2 && mineStock > 300 && ownShips.length > 8 && ref) {
+      const candidate = world.planets
+        .filter(p => p.owner < 0)
+        .map(p => ({ p, dist: distance3d(ref, p) }))
+        .filter(({ dist }) => dist <= 220)
+        .sort((a, b) => a.dist - b.dist)[0]?.p;
+      if (candidate) claimPlanet(empire, candidate, 'factory');
+    }
+
+    // intent テキスト
+    if (factory && factory.stock < 25) {
       empire.intent = 'rescue a hungry factory core';
-    } else if (stockGap > 110) {
-      empire.intent = 'drain ore surplus into production';
-    } else if (ownShips.length < 4) {
+    } else if (needsMine) {
+      empire.intent = 'seeking new ore deposits';
+    } else if (ownShips.length < 5) {
       empire.intent = 'scale the transport wing';
     } else {
       empire.intent = empire.summary;
@@ -378,37 +429,73 @@ function updateEmpireIntentions() {
 
 function assignRoutes() {
   for (const empire of world.empires) {
-    const mine = getPlanet(empire.homeMineId);
-    const factory = getPlanet(empire.homeFactoryId);
-    for (const ship of world.ships.filter((entry) => entry.owner === empire.id && (entry.status === 'loading' || entry.status === 'idle'))) {
-      ship.fromPlanetId = mine.id;
-      ship.toPlanetId = factory.id;
+    if (empire.collapsed) continue;
+    const mines     = world.planets.filter(p => p.owner === empire.id && p.structures.mine > 0 && (p.resources > 0 || p.stock > 0));
+    const factories = world.planets.filter(p => p.owner === empire.id && p.structures.factory > 0);
+    if (!mines.length || !factories.length) continue;
+
+    for (const ship of world.ships.filter(s => s.owner === empire.id && (s.status === 'loading' || s.status === 'idle'))) {
+      const bestMine    = mines.sort((a, b) => (b.stock + b.resources * 0.05) - (a.stock + a.resources * 0.05))[0];
+      const bestFactory = factories.sort((a, b) => distance3d(bestMine, a) - distance3d(bestMine, b))[0];
+      ship.fromPlanetId = bestMine.id;
+      ship.toPlanetId   = bestFactory.id;
     }
   }
 }
 
+// 性格別の船種比率
+const SHIP_RATIOS = {
+  industrialist: { transport: 0.60, attacker: 0.28, defender: 0.12 },
+  raider:        { transport: 0.28, attacker: 0.60, defender: 0.12 },
+  expansionist:  { transport: 0.38, attacker: 0.50, defender: 0.12 },
+  fortifier:     { transport: 0.38, attacker: 0.20, defender: 0.42 },
+};
+
+function chooseShipKind(empire) {
+  const owned = world.ships.filter(s => s.owner === empire.id);
+  const total = owned.length + 1;
+  const t = owned.filter(s => s.kind === 'transport').length / total;
+  const a = owned.filter(s => s.kind === 'attacker').length  / total;
+  const ratio = SHIP_RATIOS[empire.personality] ?? SHIP_RATIOS.industrialist;
+  if (t < ratio.transport) return 'transport';
+  if (a < ratio.attacker)  return 'attacker';
+  return 'defender';
+}
+
 function runFactories(step) {
   for (const empire of world.empires) {
-    const factory = getPlanet(empire.homeFactoryId);
-    const ownShips = world.ships.filter((ship) => ship.owner === empire.id);
-    if (factory.stock >= 20 && ownShips.length < empire.shipCap) {
-      factory.stock -= 20;
-      const ship = createTransportShip(empire, empire.homeMineId, empire.homeFactoryId);
-      const mesh = new THREE.Mesh(
-        new THREE.BoxGeometry(1.6, 1, 2.8),
-        new THREE.MeshStandardMaterial({
-          color: empire.color,
-          emissive: new THREE.Color(empire.color).multiplyScalar(0.2),
-          metalness: 0.35,
-          roughness: 0.45,
-        })
-      );
-      ship.mesh = mesh;
-      shipGroup.add(mesh);
-      world.ships.push(ship);
-      maybeLog(`newShip:${empire.id}`, `${empire.name} launched a new transport.`, 'empire', 2);
-    } else if (factory.stock < 5) {
-      maybeLog(`starved:${factory.id}`, `${factory.label} factory is stalling for ore.`, 'warning', 2);
+    if (empire.collapsed) continue;
+    const ownShips      = world.ships.filter(s => s.owner === empire.id);
+    const ownedFactories = world.planets.filter(p => p.owner === empire.id && p.structures.factory > 0);
+
+    for (const factory of ownedFactories) {
+      const isHome = factory.id === empire.homeFactoryId;
+      if (factory.stock >= FACTORY_MAINTENANCE_COST) {
+        factory.stock -= FACTORY_MAINTENANCE_COST;
+        if (factory.stalled) maybeLog(`resume:${factory.id}`, `${factory.label} recovered from ore starvation.`, 'resource', 6);
+        factory.stalled = false;
+        if (isHome) empire.stalledTime = Math.max(0, empire.stalledTime - step * 0.5);
+      } else {
+        factory.stalled = true;
+        if (isHome) empire.stalledTime += step;
+        maybeLog(`starved:${factory.id}`, `${factory.label} factory stalling for ore.`, 'warning', 2);
+        continue;
+      }
+
+      if (factory.stock >= SHIP_BUILD_COST && ownShips.length < empire.shipCap) {
+        factory.stock -= SHIP_BUILD_COST;
+        const kind = chooseShipKind(empire);
+        const bestMine = world.planets
+          .filter(p => p.owner === empire.id && p.structures.mine > 0 && (p.resources > 0 || p.stock > 0))
+          .sort((a, b) => (b.stock + b.resources * 0.05) - (a.stock + a.resources * 0.05))[0];
+        const ship = kind === 'transport'
+          ? createTransportShip(empire, bestMine?.id ?? empire.homeMineId, factory.id, world.shipSerial++)
+          : createCombatShip(empire, factory.id, kind, world.shipSerial++);
+        rendererView.attachShipMesh(ship, empire);
+        world.ships.push(ship);
+        empire.producedShips += 1;
+        maybeLog(`newShip:${empire.id}:${kind}`, `${empire.name} launched a ${kind}.`, 'empire', 2);
+      }
     }
   }
 }
@@ -428,51 +515,187 @@ function updateShips(dt) {
   }
 }
 
+// ── 惑星周回 ────────────────────────────────────────────────────────────────
+function updateOrbiting(dt) {
+  for (const ship of world.ships) {
+    if (ship.status !== 'orbiting' && ship.status !== 'battling') continue;
+    ship.orbitAngle += dt * ship.orbitSpeed;
+    const pid    = ship.status === 'battling' ? ship.targetPlanetId : ship.homePlanetId;
+    const planet = getPlanet(pid ?? ship.fromPlanetId);
+    if (!planet || !ship.mesh) continue;
+    const pSize = 5 + (planet.resources / Math.max(planet.maxResources, 1)) * 8;
+    const r = ship.orbitRadius + pSize * 0.6;
+    ship.mesh.position.set(
+      planet.x + Math.cos(ship.orbitAngle) * r,
+      planet.y + 2 + ship.owner * 1.8,
+      planet.z + Math.sin(ship.orbitAngle) * r
+    );
+    if (ship.kind !== 'defender') {
+      ship.mesh.rotation.y = ship.orbitAngle + Math.PI / 2;
+    } else {
+      ship.mesh.rotation.y += dt * 1.2;
+    }
+    // 戦闘中は明るく
+    const hpFrac = ship.hp / ship.maxHp;
+    ship.mesh.material.emissiveIntensity = ship.status === 'battling'
+      ? 0.6 + Math.sin(performance.now() / 180) * 0.4
+      : 0.25 + (1 - hpFrac) * 0.3;
+    ship.mesh.scale.setScalar(0.9 + hpFrac * 0.4);
+  }
+}
+
+// ── 出撃判断 ────────────────────────────────────────────────────────────────
+function decideAttacks() {
+  for (const empire of world.empires) {
+    const myAttackers = world.ships.filter(s =>
+      s.owner === empire.id && s.kind === 'attacker' && s.status === 'orbiting'
+    );
+    if (myAttackers.length < 3) continue;
+
+    const base = getPlanet(empire.homeFactoryId);
+    const enemyPlanets = world.planets.filter(p =>
+      p.owner !== empire.id &&
+      (!base || distance3d(base, p) <= ATTACK_RANGE)
+    );
+    if (!enemyPlanets.length) continue;
+
+    const scored = enemyPlanets.map(p => {
+      const defCount = world.ships.filter(s =>
+        s.homePlanetId === p.id && s.kind !== 'transport' &&
+        (s.status === 'orbiting' || s.status === 'battling')
+      ).length;
+      return { p, score: defCount * 3 + distance3d(base ?? p, p) * 0.04 };
+    });
+    const target = scored.sort((a, b) => a.score - b.score)[0]?.p;
+    if (!target) continue;
+
+    const fleetSize = Math.max(2, Math.floor(myAttackers.length * 0.65));
+    const fleet = myAttackers.slice(0, fleetSize);
+    if (base) touchRoute(base.id, target.id, 8);
+
+    for (const ship of fleet) {
+      ship.status        = 'attacking';
+      ship.targetPlanetId = target.id;
+      ship.fromPlanetId  = base?.id ?? ship.homePlanetId;
+      ship.toPlanetId    = target.id;
+      ship.progress      = 0;
+    }
+    empire.intent = `attacking ${target.label} (fleet: ${fleetSize})`;
+    logEvent(`${empire.name} launches ${fleetSize} attackers → ${target.label}!`, 'empire');
+  }
+}
+
+// ── 戦闘解決 ────────────────────────────────────────────────────────────────
+function capturePlanet(planet, newOwner, fleet) {
+  const oldName    = planet.owner >= 0 ? (world.empires[planet.owner]?.name ?? '?') : 'neutral';
+  const wasNeutral = planet.owner < 0;
+  planet.owner     = newOwner;
+  const newEmpire  = world.empires[newOwner];
+
+  if (wasNeutral && planet.structures.mine === 0 && planet.structures.factory === 0 && planet.resources > 0) {
+    planet.type = 'mine';
+    planet.structures.mine = 1;
+  }
+
+  for (const ship of fleet) {
+    ship.status         = 'orbiting';
+    ship.homePlanetId   = planet.id;
+    ship.targetPlanetId = null;
+    ship.mesh?.traverse(node => {
+      if (node.material && !Array.isArray(node.material)) {
+        node.material.color?.set(newEmpire.color);
+        node.material.emissive?.set(newEmpire.color);
+      }
+    });
+  }
+  if (planet.mesh) {
+    planet.mesh.material.color.set(newEmpire.color);
+    planet.mesh.material.emissive.set(new THREE.Color(newEmpire.color).multiplyScalar(0.18));
+  }
+  logEvent(`${newEmpire.name} captured ${planet.label} from ${oldName}!`, 'empire');
+}
+
+function runCombat(dt) {
+  // 攻撃中の船を移動
+  for (const ship of world.ships) {
+    if (ship.status !== 'attacking') continue;
+    ship.progress = Math.min(1, ship.progress + dt * ship.speed);
+    if (ship.progress >= 1) {
+      ship.status   = 'battling';
+      ship.progress = 1;
+    }
+  }
+
+  // 惑星ごとに戦闘解決
+  const contested = new Set(
+    world.ships.filter(s => s.status === 'battling').map(s => s.targetPlanetId)
+  );
+  for (const planetId of contested) {
+    const planet    = getPlanet(planetId);
+    if (!planet) continue;
+    const attackers = world.ships.filter(s => s.status === 'battling' && s.targetPlanetId === planetId);
+    const defenders = world.ships.filter(s =>
+      s.owner === planet.owner && s.homePlanetId === planetId &&
+      s.kind !== 'transport' && (s.status === 'orbiting' || s.status === 'battling')
+    );
+
+    if (!defenders.length && attackers.length) {
+      capturePlanet(planet, attackers[0].owner, attackers);
+      continue;
+    }
+
+    // 1隻ずつ相互攻撃（船が減ると攻撃力も落ちる）
+    for (const atk of attackers) {
+      if (!defenders.length) break;
+      const def = defenders[Math.floor(rng() * defenders.length)];
+      def.hp -= Math.max(0, atk.attack - def.defense) * dt;
+    }
+    for (const def of defenders) {
+      if (!attackers.length) break;
+      const atk = attackers[Math.floor(rng() * attackers.length)];
+      atk.hp -= Math.max(0, def.attack - atk.defense) * dt;
+    }
+
+    // 撃破
+    const killed = world.ships.filter(s =>
+      s.hp <= 0 && s.kind !== 'transport' &&
+      (s.status === 'orbiting' || s.status === 'battling' || s.status === 'attacking')
+    );
+    for (const s of killed) {
+      rendererView.removeShipMesh(s);
+      world.kills++;
+      maybeLog(`kill:${s.id}`, `A ${s.kind} ship destroyed near ${planet.label}!`, 'warning', 1);
+    }
+    world.ships = world.ships.filter(s => s.hp > 0 || s.kind === 'transport');
+
+    // 決着チェック
+    const stillAtk = world.ships.filter(s => s.status === 'battling' && s.targetPlanetId === planetId);
+    const stillDef = world.ships.filter(s =>
+      s.owner === planet.owner && s.homePlanetId === planetId &&
+      s.kind !== 'transport' && (s.status === 'orbiting' || s.status === 'battling')
+    );
+    if (!stillDef.length && stillAtk.length) {
+      capturePlanet(planet, stillAtk[0].owner, stillAtk);
+    } else if (!stillAtk.length && defenders.length) {
+      maybeLog(`held:${planetId}`, `${planet.label} held — attack repelled!`, 'empire', 3);
+    }
+  }
+}
+
 function decayTraffic(dt) {
   for (const route of world.routes.values()) {
     route.traffic = Math.max(0, route.traffic - dt * 0.5);
   }
 }
 
-function updateVisuals() {
-  for (const planet of world.planets) {
-    const size = 5 + (planet.resources / Math.max(planet.maxResources, 1)) * 8;
-    planet.mesh.scale.setScalar(size);
-    const color = planet.owner >= 0 ? world.empires[planet.owner].color : '#5a6778';
-    planet.mesh.material.color.set(color);
-    planet.mesh.material.emissive.set(color).multiplyScalar(planet.owner >= 0 ? 0.18 : 0.08);
-    const ringScale = 1.8 + Math.min(planet.stock / 90, 1.8);
-    planet.ring.scale.setScalar(ringScale * size * 0.22);
-    planet.ring.material.opacity = 0.12 + Math.min(planet.stock / 180, 0.35);
-    planet.ring.material.color.set(planet.stock > 15 ? 0xa8ecff : 0x66798d);
-  }
-
-  for (const route of world.routes.values()) {
-    route.line.material.opacity = 0.08 + Math.min(route.traffic / 18, 0.42);
-    route.line.material.color.set(route.traffic > 8 ? 0x8adfff : 0x3f6d89);
-  }
-
-  for (const ship of world.ships) {
-    const from = getPlanet(ship.fromPlanetId);
-    const to = getPlanet(ship.toPlanetId);
-    const origin = ship.status === 'travel_back' ? to : from;
-    const target = ship.status === 'travel_back' ? from : to;
-    const pos = lerpPlanet(origin, target, ship.progress);
-    ship.mesh.position.set(pos.x, 4 + ship.owner * 1.7, pos.z);
-    ship.mesh.rotation.y = Math.atan2(target.x - origin.x, target.z - origin.z);
-    const scale = 0.8 + (ship.cargo / ship.capacity) * 0.5;
-    ship.mesh.scale.set(scale, 0.9, 1.1 + (ship.cargo / ship.capacity) * 0.4);
-  }
-}
-
-function lerpPlanet(a, b, t) {
-  return {
-    x: a.x + (b.x - a.x) * t,
-    z: a.z + (b.z - a.z) * t,
-  };
-}
-
 function buildWorldSummary() {
+  if (world.gameOver) {
+    return {
+      text: world.finalSummary || 'Match finished.',
+      detail: world.finalDetail || 'The empires have stopped competing.',
+      busiest: [...world.routes.values()].sort((a, b) => b.traffic - a.traffic)[0],
+    };
+  }
   const busiest = [...world.routes.values()].sort((a, b) => b.traffic - a.traffic)[0];
   const starvedFactories = world.planets.filter((planet) => planet.type === 'factory' && planet.stock < 10).length;
   const depleted = world.planets.filter((planet) => planet.resources <= 0).length;
@@ -491,37 +714,144 @@ function buildWorldSummary() {
   return { text, detail, busiest };
 }
 
+function computeVictoryScores() {
+  return world.empires.map((empire) => {
+    const planets = world.planets.filter((planet) => planet.owner === empire.id).length;
+    const deliveredScore = empire.delivered / 10;
+    const producedScore = empire.producedShips * 20;
+    const planetScore = planets * 30;
+    const survivalBonus = empire.collapsed ? 0 : 40;
+    return {
+      id: empire.id,
+      name: empire.name,
+      collapsed: empire.collapsed,
+      deliveredScore,
+      producedScore,
+      planetScore,
+      survivalBonus,
+      total: producedScore + deliveredScore + planetScore + survivalBonus,
+    };
+  }).sort((a, b) => b.total - a.total);
+}
+
+function collapseEmpire(empire, reason) {
+  if (empire.collapsed) return;
+  empire.collapsed = true;
+  empire.collapseReason = reason;
+  empire.intent = `collapsed: ${reason}`;
+  maybeLog(`collapse:${empire.id}`, `${empire.name} collapsed after it ${reason}.`, 'warning', 999);
+}
+
+function evaluateEmpireCollapse() {
+  for (const empire of world.empires) {
+    if (empire.collapsed) continue;
+    const ownedPlanets = world.planets.filter((planet) => planet.owner === empire.id).length;
+    const transports = world.ships.filter((ship) => ship.owner === empire.id && ship.kind === 'transport').length;
+    const factory = getPlanet(empire.homeFactoryId);
+    if (factory && factory.owner !== empire.id) collapseEmpire(empire, 'lost its factory planet');
+    else if (ownedPlanets <= 0) collapseEmpire(empire, 'lost all planets');
+    else if (transports <= 0) collapseEmpire(empire, 'lost all transport ships');
+    else if (factory?.stalled && empire.stalledTime >= FACTORY_STALL_COLLAPSE_SECONDS) {
+      collapseEmpire(empire, 'kept its factory stalled too long');
+    }
+  }
+}
+
+function finalizeMatch(reason) {
+  if (world.gameOver) return;
+  const scores = computeVictoryScores();
+  const winner = scores[0] ?? null;
+  const busiest = [...world.routes.values()].sort((a, b) => b.traffic - a.traffic)[0];
+  world.gameOver = true;
+  world.endReason = reason;
+  world.winnerId = winner?.id ?? null;
+  world.finalScores = scores;
+  world.finalSummary = winner
+    ? `${winner.name} wins the sector through logistics efficiency.`
+    : 'No empire could secure the sector.';
+  world.finalDetail = busiest
+    ? `Top lane: ${busiest.fromPlanetId} ⇄ ${busiest.toPlanetId}.`
+    : 'No stable route survived to the finish.';
+  maybeLog('match:end', world.finalSummary, 'empire', 999);
+}
+
+function evaluateMatchState() {
+  if (world.gameOver) return;
+  if (world.time >= 300 && world.oreFalloffStart === null) {
+    world.oreFalloffStart = world.time;
+    logEvent('Sector ore veins exhausted — mining rates collapsing for 20 seconds.', 'warning');
+  }
+  const alive = world.empires.filter((empire) => !empire.collapsed);
+  if (alive.length <= 1) {
+    finalizeMatch('collapse');
+    return;
+  }
+  const scores = computeVictoryScores();
+  const leadGap = (scores[0]?.total ?? 0) - (scores[1]?.total ?? 0);
+  if (world.time >= MATCH_END_SECONDS && leadGap > TIE_BREAK_DELTA) {
+    finalizeMatch('time');
+  } else if (world.time >= MATCH_FORCE_END_SECONDS) {
+    finalizeMatch('forced');
+  }
+}
+
 function updateHud() {
   const summary = buildWorldSummary();
-  document.getElementById('elapsed').textContent = Math.floor(world.time);
-  document.getElementById('planets').textContent = world.planets.length;
-  document.getElementById('ships').textContent = world.ships.length;
-  document.getElementById('mined').textContent = Math.floor(world.minedTotal);
-  document.getElementById('moved').textContent = Math.floor(world.deliveredTotal);
-  document.getElementById('depleted').textContent = world.planets.filter((planet) => planet.resources <= 0).length;
-  document.getElementById('summary-text').textContent = summary.text;
-  document.getElementById('summary-detail').textContent = summary.detail;
-  document.getElementById('busiest-route').textContent = summary.busiest
-    ? `${summary.busiest.fromPlanetId} ⇄ ${summary.busiest.toPlanetId}  traffic ${summary.busiest.traffic.toFixed(1)}`
-    : 'No route established yet.';
-
-  const list = document.getElementById('empire-list');
-  list.innerHTML = world.empires.map((empire) => {
+  const scores = world.gameOver ? world.finalScores : computeVictoryScores();
+  const topDelivery = [...world.empires].sort((a, b) => b.delivered - a.delivered)[0] ?? null;
+  ui.update({
+    elapsed: Math.floor(world.time),
+    planets: world.planets.length,
+    ships: world.ships.length,
+    mined: Math.floor(world.minedTotal),
+    moved: Math.floor(world.deliveredTotal),
+    depleted: world.planets.filter((planet) => planet.resources <= 0).length,
+    kills: world.kills,
+    summaryText: summary.text,
+    summaryDetail: summary.detail,
+    busiestRoute: summary.busiest
+      ? `${summary.busiest.fromPlanetId} ⇄ ${summary.busiest.toPlanetId}  traffic ${summary.busiest.traffic.toFixed(1)}`
+      : 'No route established yet.',
+    busiestRouteLabel: summary.busiest
+      ? `${summary.busiest.fromPlanetId} ⇄ ${summary.busiest.toPlanetId}`
+      : null,
+    phaseLine: world.gameOver
+      ? `Match complete at ${Math.floor(world.time)}s.`
+      : world.time < MATCH_END_SECONDS
+        ? `Running toward ${MATCH_END_SECONDS}s regulation.`
+        : `Overtime until ${MATCH_FORCE_END_SECONDS}s force end.`,
+    winnerLine: world.gameOver
+      ? (scores[0] ? `${scores[0].name} won with ${Math.round(scores[0].total)} points.` : 'No winner decided.')
+      : 'Winner not decided yet.',
+    statusDetail: world.gameOver
+      ? summary.detail
+      : `${world.empires.filter((empire) => empire.collapsed).length} empires collapsed so far.`,
+    gameOver: world.gameOver,
+    winnerName: scores[0]?.name ?? null,
+    topDeliveryEmpire: topDelivery?.name ?? null,
+    depletedCount: world.planets.filter((planet) => planet.resources <= 0).length,
+    scoreRows: scores.slice(0, 3).map((score) => ({
+      name: score.name,
+      collapsed: score.collapsed,
+      value: Math.round(score.total),
+    })),
+    empireRows: world.empires.map((empire) => {
     const planets = world.planets.filter((planet) => planet.owner === empire.id);
     const stock = planets.reduce((sum, planet) => sum + planet.stock, 0);
     const transports = world.ships.filter((ship) => ship.owner === empire.id).length;
-    return [
-      `<div class="empire-row">`,
-      `<div class="empire-dot" style="background:${empire.color}"></div>`,
-      `<div class="empire-meta"><div class="empire-name">${empire.name}</div><div class="empire-intent">${empire.intent}</div></div>`,
-      `<div class="empire-numbers">${planets.length}p / ${transports}s / ${Math.floor(stock)} ore</div>`,
-      `</div>`,
-    ].join('');
-  }).join('');
+      return {
+        color: empire.color,
+        name: empire.name,
+        intent: empire.intent,
+        numbers: `${planets.length}p / ${transports}s / ${Math.floor(stock)} ore${empire.collapsed ? ' / dead' : ''}`,
+      };
+    }),
+  });
 }
 
 function reportTelemetry() {
   const summary = buildWorldSummary();
+  const scores = computeVictoryScores();
   const empires = world.empires.map((empire) => {
     const planets = world.planets.filter((planet) => planet.owner === empire.id);
     return {
@@ -534,14 +864,37 @@ function reportTelemetry() {
       intent: empire.intent,
     };
   });
-  window.Telemetry?.report('planet_strategy', {
+  reportPlanetStrategyTelemetry({
     elapsed: Math.round(world.time),
+    matchEndSeconds: MATCH_END_SECONDS,
+    matchForceEndSeconds: MATCH_FORCE_END_SECONDS,
     planets: world.planets.length,
     ships: world.ships.length,
     minedTotal: Math.round(world.minedTotal),
     deliveredTotal: Math.round(world.deliveredTotal),
     depletedPlanets: world.planets.filter((planet) => planet.resources <= 0).length,
+    gameOver: world.gameOver,
+    endReason: world.endReason,
+    winnerId: world.winnerId,
     empires,
+    scores: scores.map((entry) => ({
+      id: entry.id,
+      name: entry.name,
+      total: Math.round(entry.total),
+      collapsed: entry.collapsed,
+      breakdown: {
+        deliveredScore: Math.round(entry.deliveredScore),
+        producedScore: Math.round(entry.producedScore),
+        planetScore: Math.round(entry.planetScore),
+        survivalBonus: Math.round(entry.survivalBonus),
+      },
+    })),
+    finalScores: world.finalScores.map((entry) => ({
+      id: entry.id,
+      name: entry.name,
+      total: Math.round(entry.total),
+      collapsed: entry.collapsed,
+    })),
     busiestRoute: summary.busiest
       ? {
           from: summary.busiest.fromPlanetId,
@@ -549,7 +902,7 @@ function reportTelemetry() {
           traffic: Number(summary.busiest.traffic.toFixed(2)),
         }
       : null,
-    summary,
+    summary: { text: summary.text, detail: summary.detail },
   });
 }
 
@@ -561,30 +914,20 @@ function maybeLog(key, text, type, intervalSeconds) {
 }
 
 function logEvent(text, type = 'info') {
-  const el = document.getElementById('log-entries');
-  const div = document.createElement('div');
-  div.className = `le le-${type}`;
-  div.textContent = `[${String(Math.floor(world.time)).padStart(4)}s] ${text}`;
-  el.appendChild(div);
-  while (el.children.length > 220) el.removeChild(el.firstChild);
-  el.scrollTop = el.scrollHeight;
+  ui.log(`[${String(Math.floor(world.time)).padStart(4)}s] ${text}`, type);
 }
 
 function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.05);
   updateWorld(dt);
-  controls.update();
-  renderer.render(scene, camera);
+  rendererView.renderFrame();
 }
 
+window.__planetStrategy = { world, computeVictoryScores, finalizeMatch };
 animate();
 
-window.addEventListener('resize', () => {
-  camera.aspect = innerWidth / innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight);
-});
+window.addEventListener('resize', () => rendererView.onResize());
 
 function mulberry32(seed) {
   return function next() {

@@ -21,6 +21,36 @@
       margin-top: 8px; padding: 8px; border-radius: 6px;
       background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.05);
     }
+    #status {
+      margin-top: 8px; padding: 8px; border-radius: 6px;
+      background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.06);
+    }
+    #interventions, #final-report {
+      margin-top: 8px; padding: 8px; border-radius: 6px;
+      background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.06);
+    }
+    #status strong {
+      display: block; margin-bottom: 6px; color: #d8edf7; font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+    }
+    #interventions strong, #final-report strong {
+      display: block; margin-bottom: 6px; color: #d8edf7; font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+    }
+    #phase-line { color: #ffe7a2; }
+    #winner-line, #status-detail { color: #86a9ba; font-size: 10px; margin-top: 4px; }
+    #score-list { margin-top: 6px; }
+    #final-headline { color: #ffe7a2; }
+    #final-detail, #final-meta { color: #86a9ba; font-size: 10px; margin-top: 4px; }
+    .intervention-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .intervention-btn {
+      border: 1px solid #30527a; border-radius: 8px; padding: 8px 10px;
+      background: rgba(30, 56, 88, 0.45); color: #dff4ff; cursor: pointer;
+      font: 10px/1.3 "SF Mono", Menlo, monospace; text-align: left;
+    }
+    .intervention-btn:hover { background: rgba(42, 73, 112, 0.62); }
+    .intervention-btn span { display: block; color: #86a9ba; margin-top: 4px; }
+    .score-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-bottom: 4px; }
+    .score-name { color: #d8edf7; font-size: 10px; }
+    .score-value { color: #ffe7a2; font-size: 10px; }
     #summary strong, #busiest strong, #empires strong {
       display: block; margin-bottom: 6px; color: #d8edf7; font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
     }
@@ -57,10 +87,10 @@
     <div class="stats">
       <div class="stat"><strong id="elapsed">0</strong><span>elapsed</span></div>
       <div class="stat"><strong id="planets">0</strong><span>planets</span></div>
-      <div class="stat"><strong id="ships">0</strong><span>transports</span></div>
+      <div class="stat"><strong id="ships">0</strong><span>ships</span></div>
       <div class="stat"><strong id="mined">0</strong><span>mined</span></div>
       <div class="stat"><strong id="moved">0</strong><span>moved</span></div>
-      <div class="stat"><strong id="depleted">0</strong><span>depleted</span></div>
+      <div class="stat"><strong id="kills">0</strong><span>kills</span></div>
     </div>
     <div id="summary">
       <strong>World Flow</strong>
@@ -70,6 +100,32 @@
     <div id="busiest">
       <strong>Busiest Route</strong>
       <div id="busiest-route">No route established yet.</div>
+    </div>
+    <div id="status">
+      <strong>Match State</strong>
+      <div id="phase-line">Running toward the 8 minute mark.</div>
+      <div id="winner-line">Winner not decided yet.</div>
+      <div id="status-detail">Factories can stall if ore stops arriving.</div>
+      <div id="score-list"></div>
+    </div>
+    <div id="final-report">
+      <strong>Run Summary</strong>
+      <div id="final-headline">Watching early logistics spread across the sector.</div>
+      <div id="final-detail">No final result yet.</div>
+      <div id="final-meta">Waiting for more movement.</div>
+    </div>
+    <div id="interventions">
+      <strong>Interventions</strong>
+      <div class="intervention-row">
+        <button id="resource-burst-btn" class="intervention-btn" type="button">
+          Resource Burst
+          <span>Boost a struggling logistics node.</span>
+        </button>
+        <button id="panic-repair-btn" class="intervention-btn" type="button">
+          Panic Repair
+          <span>Stabilize a stalled factory briefly.</span>
+        </button>
+      </div>
     </div>
     <div id="empires">
       <strong>Empire Feed</strong>
