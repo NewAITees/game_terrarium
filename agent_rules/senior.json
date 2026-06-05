@@ -1,0 +1,74 @@
+{
+  "rank": "senior",
+  "desc": "上級エージェント: 戦略偵察、ネットワーク全体の把握と指揮",
+  "rules": [
+    {
+      "id": "server_emergency",
+      "desc": "サーバー隣接ノードが高感染 → 即座に封じ込め",
+      "when": { "serverNeighborInfection": 0.5 },
+      "action": "containServerNeighbor"
+    },
+    {
+      "id": "mass_enemy_intercept",
+      "desc": "敵が多数来ている場合はファイアウォールガードを展開",
+      "when": { "enemyCount": 3 },
+      "action": "deployFirewallGuard"
+    },
+    {
+      "id": "intercept_solo",
+      "desc": "敵パケットがあれば経路上に先回り",
+      "when": { "enemyCount": 1 },
+      "action": "interceptEnemy"
+    },
+    {
+      "id": "recruit_mid",
+      "desc": "中級エージェントが不足したら補充 (上位から下位への指揮権)",
+      "when": "midCount < 4 && wave >= 2 && credits >= 240",
+      "action": "recruitMid"
+    },
+    {
+      "id": "recruit_junior",
+      "desc": "初級エージェントが不足したら補充",
+      "when": "juniorCount < 2 && credits >= 160",
+      "action": "recruitJunior"
+    },
+    {
+      "id": "scan_patrol",
+      "desc": "平常時は高次数ノードをパトロールして早期感染を発見",
+      "action": "patrol"
+    }
+  ],
+  "_actions": [
+    "containServerNeighbor  : サーバー隣接の最感染ノードへ急行",
+    "interceptEnemy         : 敵パケット経路の前方ノードに先回り",
+    "suppressHottest        : 最感染ノードへ向かい感染を抑制",
+    "repairWeakest          : HP最低ノードを修復",
+    "deployFirewallGuard    : 敵経路末尾にファイアウォール展開",
+    "hardenNode             : 最も脆弱なノードへ移動してハードン (-20cr)",
+    "rebootNode             : 最感染ノードへ移動して強制リブート (-40cr)",
+    "patrol                 : 高次数クリーンノードを順に巡回",
+    "idle                   : 何もしない (クールダウン消費)"
+  ],
+  "_when_format": {
+    "note": "when は文字列式 または オブジェクト辞書のどちらでも書ける",
+    "string_examples": [
+      "enemyCount >= 1 && enemyCount <= 4",
+      "hottestInfection > 0.3 || serverNeighborMaxInfection > 0.2",
+      "wave >= 3 && gameRule !== 'containment'",
+      "serverHp < 60 && credits >= 40",
+      "infectedCount >= 2 && infectedCount <= 6"
+    ],
+    "variables": {
+      "hottestInfection"        : "全ノードの最大感染値 (0.0~1.0)",
+      "avgInfection"            : "全ノードの平均感染値 (0.0~1.0)",
+      "serverHp"                : "サーバーHP (0~120)",
+      "serverNeighborMaxInfection": "サーバー隣接ノードの最大感染値 (0.0~1.0)",
+      "enemyCount"              : "現在の敵パケット数",
+      "infectedCount"           : "感染ノード数",
+      "firewallCount"           : "展開中ファイアウォール数",
+      "gameRule"                : "現在のゲームルール文字列 (balanced/containment/firewall-first/patrol)",
+      "wave"                    : "現在のウェーブ番号",
+      "credits"                 : "所持クレジット"
+    }
+  }
+}

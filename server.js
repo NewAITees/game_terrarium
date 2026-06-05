@@ -6,6 +6,7 @@ const { GameEngine } = require('./game/engine');
 
 const PORT = 3000;
 const game = new GameEngine();
+const telemetry = new Map();
 
 const SUBMARINE_ENDPOINTS = {
   cables: 'https://www.submarinecablemap.com/api/v3/cable/all.json',
@@ -15,8 +16,16 @@ const SUBMARINE_ENDPOINTS = {
 
 function startServer(getElectronState, electronDispatch) {
   const app = express();
+  app.use((req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+    if (req.method === 'OPTIONS') return res.sendStatus(204);
+    next();
+  });
   app.use(express.json());
   app.use(express.static(path.join(__dirname, 'public')));
+  app.use('/agent_rules', express.static(path.join(__dirname, 'agent_rules')));
 
   app.get('/submarine_cables.html', (req, res) => {
     res.sendFile(path.join(__dirname, 'submarine_cables.html'));
@@ -24,6 +33,49 @@ function startServer(getElectronState, electronDispatch) {
 
   app.get('/submarine_network_3d.html', (req, res) => {
     res.sendFile(path.join(__dirname, 'submarine_network_3d.html'));
+  });
+
+  app.get('/network_defense.html', (req, res) => {
+    res.sendFile(path.join(__dirname, 'network_defense.html'));
+  });
+
+  app.get('/network_defense.js', (req, res) => {
+    res.sendFile(path.join(__dirname, 'network_defense.js'));
+  });
+
+  app.get('/network_ecosystem.html', (req, res) => {
+    res.sendFile(path.join(__dirname, 'network_ecosystem.html'));
+  });
+
+  app.get('/network_ecosystem.js', (req, res) => {
+    res.sendFile(path.join(__dirname, 'network_ecosystem.js'));
+  });
+
+  app.get('/network-core.js', (req, res) => {
+    res.sendFile(path.join(__dirname, 'network-core.js'));
+  });
+
+  app.get('/telemetry-client.js', (req, res) => {
+    res.sendFile(path.join(__dirname, 'telemetry-client.js'));
+  });
+
+  app.post('/telemetry/:page', (req, res) => {
+    const page = req.params.page;
+    const snapshot = {
+      page,
+      updatedAt: new Date().toISOString(),
+      data: req.body || {},
+    };
+    telemetry.set(page, snapshot);
+    res.json({ ok: true });
+  });
+
+  app.get('/telemetry', (req, res) => {
+    res.json(Object.fromEntries(telemetry));
+  });
+
+  app.get('/telemetry/:page', (req, res) => {
+    res.json(telemetry.get(req.params.page) || null);
   });
 
   app.get('/submarine-data/:kind', async (req, res) => {
