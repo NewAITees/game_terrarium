@@ -79,10 +79,17 @@ Final evaluation of "fun" belongs to the human, not the AI.
 - `apps/`: browser-served interactive experiences grouped by feature
 - `pages/`: Electron-loaded standalone visualization pages
 - `shared/`: shared browser modules such as telemetry and network helpers
+- `shared/types/`: TypeScript domain contracts and browser/module shims
 - `game/`: server-side game engine code
 - `agent_rules/`, `faction_rules/`, `assets/`: runtime data and art assets
 - `docs/`: planning notes and design documents
 - `scripts/`: helper scripts for manual testing
+
+## TypeScript Migration
+
+- `npm run build`: compile migrated `.ts` browser modules to adjacent `.js`
+- `npm run typecheck`: run TypeScript checks without emitting files
+- `planet_strategy_render`, `planet_strategy_ui`, and `planet_strategy_telemetry` are the first migrated modules
 
 ## Design Implications For Agents
 

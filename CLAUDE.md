@@ -5,12 +5,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
+# Build TypeScript-generated browser modules
+npm run build
+
+# Run TypeScript checks without emitting JS
+npm run typecheck
+
 # Start the Electron app (also starts the Express server on port 3000)
 npm start
-
-# No build step — all JS is vanilla Node.js or ES modules loaded via CDN in HTML
-# No tests or linter configured
 ```
+
+Browser code is still loaded as ES modules in HTML, but `planet_strategy_render`, `planet_strategy_ui`, and `planet_strategy_telemetry` now compile from `.ts` sources to adjacent `.js` files.
 
 ## Architecture
 
@@ -24,14 +29,30 @@ This is an **Electron desktop app** (`main.js`) that hosts an always-on-top wind
 | `server.js` | Express server (port 3000) + WebSocket; started by main.js |
 | `game/engine.js` | Roguelike dungeon GameEngine class (server-side, Node.js) |
 | `shared/network-core.js` | Shared ES module for Three.js network topology — imported by network visualization pages |
-| `apps/network-defense/network_defense.js` | Network defense game logic — ES module imported by network_defense.html |
 | `shared/telemetry-client.js` | Thin client-side shim; sets `window.Telemetry.report()`, POSTs to `/telemetry/<page>` |
+| `apps/network-defense/network_defense.js` | Network defense game core logic |
+| `apps/network-defense/network_defense_ui.js` | UI rendering helpers |
+| `apps/network-defense/network_defense_events.js` | Input/event handling |
+| `apps/network-defense/network_defense_personality.js` | Agent personality logic |
+| `apps/network-defense/network_defense_observer.js` | Observer-mode page logic |
+| `apps/colony/colony.js` | Colony sandbox game logic |
+| `apps/planet-strategy/planet_strategy.js` | Planet strategy game core |
+| `apps/planet-strategy/planet_strategy_render.js` | 3D render helpers |
+| `apps/planet-strategy/planet_strategy_ui.js` | UI helpers |
+| `apps/planet-strategy/planet_strategy_telemetry.js` | Telemetry integration |
+| `apps/planet-strategy/planet_strategy_ai_*.js` | AI faction strategies (industrialist, raider, expansionist, fortifier) |
+| `apps/network-ecosystem/network_ecosystem.js` | Network ecosystem visualization logic |
 
 ### Directory layout
 
 - `apps/` — browser-served experiences grouped by feature (`colony`, `network-defense`, `network-ecosystem`, `planet-strategy`)
 - `pages/` — standalone Electron-loaded HTML pages (`city`, `moss`, `network_tree`, `network_sw`, submarine views)
 - `shared/` — shared browser-side modules
+- `game/` — server-side roguelike engine
+- `public/` — WebSocket dungeon game client (`index.html`)
+- `agent_rules/` — JSON rule files for network-defense agents (`senior.json`, `mid.json`, `junior.json`)
+- `faction_rules/` — JSON rule files for colony faction behaviors (`builder.json`, `hoarder.json`, `raider.json`)
+- `assets/` — 3D model assets (`ships/`, `structures/`, `kenney_space_kit/`)
 - `docs/` — planning and design notes
 - `scripts/` — helper scripts for manual testing
 
@@ -55,11 +76,11 @@ REST endpoints on `server.js`:
 
 Actions: `move` (dir), `attack` (dir), `pickup`, `use_item` (item), `equip` (item), `descend`. Directions: `north`, `south`, `east`, `west`.
 
-### Network Defense game (`apps/network-defense/network_defense.html` / `apps/network-defense/network_defense.js`) — Ctrl+7
+### Network Defense game (`apps/network-defense/`) — Ctrl+7
 
 Served via `http://localhost:3000/` (not file://) because `fetch('./agent_rules/...')` requires HTTP context.
 
-
+Files: `network_defense.html` (main), `network_defense_observer.html` (spectator view), plus modules `network_defense.js`, `network_defense_ui.js`, `network_defense_events.js`, `network_defense_personality.js`, `network_defense_observer.js`.
 
 A wave-based Three.js network defense game where AI agents patrol and defend a hierarchical network topology (layers: `core → dist → acc → term`, with one terminal node designated as the server).
 
@@ -78,6 +99,22 @@ Available actions (any rank can execute any action — rank only affects speed/c
 `containServerNeighbor`, `interceptEnemy`, `suppressHottest`, `repairWeakest`, `deployFirewallGuard`, `hardenNode`, `rebootNode`, `patrol`, `idle`, `recruitMid`, `recruitJunior`, `clearPathTo`
 
 `callLLM()` in `network_defense.js` calls `POST /api/strategy` on the Express server, which proxies to Ollama (`http://192.168.10.182:11436/api/generate`). The Ollama URL and model are defined as `OLLAMA_URL` / `OLLAMA_MODEL` constants at the top of `server.js`. On timeout or error it falls back to a local heuristic. The response sets `game.rule` (`balanced` / `containment` / `firewall-first` / `patrol`) which `evalCondition` exposes to rules as `gameRule`.
+
+### Colony Sandbox (`apps/colony/`) — Ctrl+9
+
+Served via `http://localhost:3000/colony.html`. Files: `colony.html`, `colony.js`.
+
+Faction behavior is driven by JSON files in `faction_rules/` (`builder.json`, `hoarder.json`, `raider.json`), served as static files under `/faction_rules/`.
+
+REST endpoints:
+- `GET /colony/state` — current colony telemetry snapshot
+- `POST /colony/intervention` — trigger an event (`resource_drop`, `storm`, `invader_wave`, `spawn_neutral`)
+
+### Planet Strategy (`apps/planet-strategy/`) — Ctrl+0
+
+Served via `http://localhost:3000/planet_strategy.html`. Core: `planet_strategy.js`. Supporting modules: `planet_strategy_render.js` (Three.js scene), `planet_strategy_ui.js` (HUD), `planet_strategy_telemetry.js`. AI factions each have their own file: `planet_strategy_ai_industrialist.js`, `planet_strategy_ai_raider.js`, `planet_strategy_ai_expansionist.js`, `planet_strategy_ai_fortifier.js`.
+
+3D assets served from `assets/ships/` (attacker, defender, miner, transport GLBs) and `assets/structures/` (station, factory, turret, mine_dish, asteroid, crystals GLBs).
 
 ### Shared network topology (`shared/network-core.js`)
 
