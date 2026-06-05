@@ -7,13 +7,13 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 // ── Config ───────────────────────────────────────────────────────────────────
 const NODE_COUNT     = 44;
 const SEED           = Math.random() * 1e9 | 0;
-const TICK_SEC       = 2.2;   // ゆっくり進行
+const TICK_SEC       = 1.6;
 const DECAY_RATE     = 0.005;
 const DECAY_BY_PERSONALITY = { builder: 0.003, raider: 0.010, hoarder: 0.004 };
 const SPREAD         = 136;
 const BG             = 0x050810;
 const K_NEIGHBORS    = 4;
-const NEUTRAL_RESIST = 0.42;  // 中立ノードの初期抵抗値（これを削りきると占領）
+const NEUTRAL_RESIST = 0.30;  // 中立ノードの初期抵抗値（これを削りきると占領）
 
 // ── RNG ──────────────────────────────────────────────────────────────────────
 class RNG {
@@ -369,7 +369,7 @@ function execAction(faction, action) {
       const target = cands.reduce((b, n) => n.food + n.material > b.food + b.material ? n : b);
       const src = cluster.find(o => o.neighbors.includes(target)) ?? cluster[0];
       if (src) spawnPulse(src, target, faction.id);
-      applyInfluence(faction, target, 0.28 * dominanceMult(faction));
+      applyInfluence(faction, target, 0.32 * dominanceMult(faction));
       faction.food -= COST.expand;
       faction.intent = `expanding → [${target.id}]`;
       logEvent(`${faction.name}: expand → node ${target.id} (food+mat: ${Math.round(target.food + target.material)})`, `f${faction.id}`);
