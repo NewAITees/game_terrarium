@@ -170,9 +170,10 @@
   </aside>
   <div id="tooltip" class="tooltip"></div>
 
-  <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js"></script>
-  <script>
+	  <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+	  <script src="https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js"></script>
+	  <script src="./telemetry-client.js"></script>
+	  <script>
     const API = {
       cables: ['http://localhost:3000/submarine-data/cables', 'https://www.submarinecablemap.com/api/v3/cable/all.json'],
       landings: ['http://localhost:3000/submarine-data/landings', 'https://www.submarinecablemap.com/api/v3/landing-point/landing-point-geo.json'],
@@ -405,8 +406,8 @@
       return feature;
     }
 
-    function renderData() {
-      const visibleRoutes = routeFeatures.filter(routeMatches);
+	    function renderData() {
+	      const visibleRoutes = routeFeatures.filter(routeMatches);
       cableLayer.selectAll('path')
         .data(visibleRoutes, d => d.properties.feature_id || `${d.properties.id}-${d.properties.name}`)
         .join('path')
@@ -428,13 +429,29 @@
         .on('pointerleave', hideTooltip);
 
       document.querySelector('#route-count').textContent = visibleRoutes.length.toLocaleString();
-      if (!routeCableIds.size) {
-        statusEl.textContent = focusedCable
-          ? `${visibleRoutes.length.toLocaleString()} matching routes`
-          : 'Live data loaded';
-        statusEl.className = 'status';
-      }
-    }
+	      if (!routeCableIds.size) {
+	        statusEl.textContent = focusedCable
+	          ? `${visibleRoutes.length.toLocaleString()} matching routes`
+	          : 'Live data loaded';
+	        statusEl.className = 'status';
+	      }
+	      reportTelemetry(visibleRoutes);
+	    }
+
+	    function reportTelemetry(visibleRoutes = routeFeatures.filter(routeMatches)) {
+	      window.Telemetry?.report('submarine_cables', {
+	        cables: cableList.length,
+	        landings: landingFeatures.length,
+	        routes: routeFeatures.length,
+	        visibleRoutes: visibleRoutes.length,
+	        visibleLandings: landingToggle.checked ? landingFeatures.length : 0,
+	        focusedCable,
+	        routedCableIds: [...routeCableIds],
+	        fromCountry: fromCountryEl.value,
+	        toCountry: toCountryEl.value,
+	        animationEnabled: animateToggle.checked,
+	      });
+	    }
 
     function showTooltip(event, text) {
       tooltip

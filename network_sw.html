@@ -3,352 +3,118 @@
 <head>
   <meta charset="utf-8">
   <title>Network — Small World</title>
-  <style>*, html, body { margin: 0; overflow: hidden; background: #070c18; }
-  canvas { display: block; }
-  #label { position: fixed; bottom: 14px; right: 16px;
-    font: 11px/1 "SF Mono", Menlo, monospace; color: #2a4a60;
-    letter-spacing: .1em; }</style>
+  <style>
+    *,html,body{margin:0;overflow:hidden;background:#0d2040;}
+    canvas{display:block;}
+    #label{position:fixed;bottom:14px;right:46px;font:11px/1 "SF Mono",Menlo,monospace;color:#2a4a60;letter-spacing:.1em;}
+    #bg{position:fixed;bottom:12px;right:16px;width:22px;height:22px;border:none;padding:0;cursor:pointer;border-radius:4px;opacity:.5;}
+  </style>
   <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.162/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.162/examples/jsm/"}}</script>
 </head>
 <body>
 <div id="label">SMALL WORLD TOPOLOGY</div>
-<input type="color" id="bg" value="#0d2040" title="Background color"
-  style="position:fixed;bottom:14px;right:16px;width:24px;height:24px;
-         border:none;padding:0;cursor:pointer;border-radius:4px;opacity:0.55;">
+<input type="color" id="bg" value="#0d2040" title="Background">
+<script src="./telemetry-client.js"></script>
 <script type="module">
 import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { OrbitControls }   from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer }  from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass }      from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { buildTopology, buildScene, buildEdges, buildPackets,
+         makeMats, tickEdges, tickPackets, initFlash, tickFlash,
+         buildAdj, findShortestPath } from './network-core.js';
 
-const TOTAL      = 24 + (Math.random() * 16 | 0);
-const SEED       = Math.random() * 1e9 | 0;
-const REWIRE_PCT = 28;   // shortcut edges as % of total nodes
+const TOTAL      = 24+(Math.random()*16|0);
+const SEED       = Math.random()*1e9|0;
+const REWIRE_PCT = 28;
+const BG         = 0x0d2040;
 
 // ── Scene ────────────────────────────────────────────────────────
-const BG = 0x0d2040;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(BG);
 scene.fog = new THREE.FogExp2(BG, 0.0042);
 
-const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 0.5, 700);
-camera.position.set(0, 72, 130);
+const camera = new THREE.PerspectiveCamera(42, innerWidth/innerHeight, 0.5, 700);
+camera.position.set(0,72,130);
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-renderer.setSize(innerWidth, innerHeight);
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth,innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.1;
 document.body.appendChild(renderer.domElement);
 
 const controls = new OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true; controls.dampingFactor = 0.04;
-controls.autoRotate = true; controls.autoRotateSpeed = 0.28;
-controls.minDistance = 35; controls.maxDistance = 300;
-controls.target.set(0, 8, 0);
+controls.enableDamping=true; controls.dampingFactor=.04;
+controls.autoRotate=true; controls.autoRotateSpeed=.28;
+controls.minDistance=35; controls.maxDistance=300;
+controls.target.set(0,8,0);
 
 const composer = new EffectComposer(renderer);
-composer.addPass(new RenderPass(scene, camera));
-composer.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 1.5, 0.5, 0.07));
+composer.addPass(new RenderPass(scene,camera));
+composer.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth,innerHeight),1.5,.5,.07));
 
-scene.add(new THREE.AmbientLight(0x112233, 3));
-const kl = new THREE.DirectionalLight(0xfff0cc, 1.6);
-kl.position.set(20, 60, 30); scene.add(kl);
-const fl = new THREE.DirectionalLight(0x2244aa, 0.8);
-fl.position.set(-30, 20, -40); scene.add(fl);
+scene.add(new THREE.AmbientLight(0x112233,3));
+const kl=new THREE.DirectionalLight(0xfff0cc,1.6); kl.position.set(20,60,30); scene.add(kl);
+const fl=new THREE.DirectionalLight(0x2244aa,.8); fl.position.set(-30,20,-40); scene.add(fl);
 
-// ── RNG ──────────────────────────────────────────────────────────
-class RNG {
-  constructor(s) { this.s = ((s || Math.random()*2**32) ^ 0xDEADBEEF) >>> 0; }
-  next() { let x=this.s; x^=x<<13; x^=x>>17; x^=x<<5; return(this.s=x>>>0)/0x100000000; }
-  range(a,b){ return a+this.next()*(b-a); }
-  int(a,b)  { return a+(this.next()*(b-a+1)|0); }
-  pick(arr)  { return arr[this.next()*arr.length|0]; }
+// ── Build topology & scene ────────────────────────────────────────
+const topo     = buildTopology(TOTAL, SEED, 'smallworld', REWIRE_PCT);
+const spinData = [], edgeMap = new Map(), allEdges = [];
+const mats     = makeMats();
+const srvGlow  = buildScene(topo, scene, spinData);
+buildEdges(topo, scene, edgeMap, allEdges, mats);
+
+// BFS adjacency (uses tree + shortcut edges)
+const adj = buildAdj(topo.nodes, edgeMap);
+const route = (s,d) => findShortestPath(s,d,adj);
+
+const glowMap  = initFlash(topo.nodes);
+const {packets,respawn} = buildPackets(55, scene, topo, SEED+1, route);
+
+const grid=new THREE.GridHelper(200,40,0x0f2030,0x0a1820); grid.position.y=-26; scene.add(grid);
+
+function reportTelemetry(now){
+  window.Telemetry?.report('network_smallworld', {
+    mode: 'smallworld',
+    seed: SEED,
+    rewirePct: REWIRE_PCT,
+    elapsed: Math.round(elapsed),
+    nodes: topo.nodes.length,
+    treeEdges: topo.treeEdges.length,
+    shortcutEdges: topo.shortcutEdges.length,
+    packets: packets.length,
+    activeEdges: allEdges.filter(edge => edge.activeUntil > now).length,
+    glowingNodes: [...glowMap.values()].filter(value => value > 0.05).length,
+    serverNode: topo.server.id,
+  });
 }
 
-// ── Topology ─────────────────────────────────────────────────────
-const LAYERS = ['core','dist','acc','term'];
-const YL = { core:36, dist:20, acc:4, term:-16 };
-
-function layerCounts(n) {
-  const core=1, dist=Math.max(2,Math.min(4,Math.floor(n*.10)));
-  const acc=Math.max(3,Math.min(10,Math.floor(n*.25)));
-  return {core,dist,acc,term:Math.max(1,n-core-dist-acc)};
-}
-function ek(a,b){ return `${Math.min(a,b)}-${Math.max(a,b)}`; }
-
-function buildTopology(total, seed, rewirePct) {
-  const rng=new RNG(seed), counts=layerCounts(total);
-  const SPREAD=Math.max(110,counts.term*14);
-  const nodes=[], lnodes={};
-
-  for(const layer of LAYERS){
-    const n=counts[layer]; lnodes[layer]=[];
-    for(let i=0;i<n;i++){
-      const x=((i+1)/(n+1)-.5)*SPREAD+rng.range(-4,4), z=rng.range(-12,12);
-      const node={id:nodes.length,layer,x,z,y:YL[layer],parent:null,children:[],isServer:false};
-      nodes.push(node); lnodes[layer].push(node);
-    }
-  }
-
-  // Mark server early so we can isolate its switch
-  const terms=lnodes['term'];
-  const server=terms.reduce((b,t)=>Math.abs(t.x)<Math.abs(b.x)?t:b);
-  server.isServer=true;
-
-  const accNodes=lnodes['acc'];
-  const srvSwitch=accNodes.reduce((b,s)=>Math.abs(s.x-server.x)<Math.abs(b.x-server.x)?s:b);
-  const freeAcc=accNodes.filter(s=>s!==srvSwitch);
-
-  const treeEdges=[];
-
-  // core→dist, dist→acc
-  for(let li=1;li<LAYERS.length-1;li++){
-    const parents=lnodes[LAYERS[li-1]], children=lnodes[LAYERS[li]];
-    for(const child of children){
-      const par=parents.reduce((b,p)=>Math.abs(p.x-child.x)<Math.abs(b.x-child.x)?p:b);
-      child.parent=par; par.children.push(child); treeEdges.push({a:par,b:child,kind:'tree'});
-    }
-    for(const p of parents) if(!p.children.length){
-      const c=rng.pick(children); p.children.push(c); treeEdges.push({a:p,b:c,kind:'tree'});
-    }
-  }
-
-  // acc→term: server → srvSwitch only; others → freeAcc
-  server.parent=srvSwitch; srvSwitch.children.push(server); treeEdges.push({a:srvSwitch,b:server,kind:'tree'});
-  const otherTerms=terms.filter(t=>!t.isServer);
-  for(const t of otherTerms){
-    const pool=freeAcc.length?freeAcc:accNodes;
-    const par=pool.reduce((b,p)=>Math.abs(p.x-t.x)<Math.abs(b.x-t.x)?p:b);
-    t.parent=par; par.children.push(t); treeEdges.push({a:par,b:t,kind:'tree'});
-  }
-  for(const p of freeAcc) if(!p.children.length){
-    const c=rng.pick(otherTerms); if(c){p.children.push(c); treeEdges.push({a:p,b:c,kind:'tree'});}
-  }
-
-  assignRadialPositions(lnodes, rng);
-
-  // Small world shortcuts: skip ≥2 layers
-  const shortcutEdges=[];
-  const existing=new Set(treeEdges.map(e=>ek(e.a.id,e.b.id)));
-  const k=Math.max(1,Math.round(nodes.length*rewirePct/100));
-  let added=0, attempts=0;
-  while(added<k && attempts<k*30){
-    attempts++;
-    const u=rng.pick(nodes), v=rng.pick(nodes);
-    if(u===v) continue;
-    const key=ek(u.id,v.id);
-    if(existing.has(key)) continue;
-    // Shortcuts only between dist/acc — not core (already central) or term (endpoints)
-    if(u.layer==='core'||u.layer==='term'||v.layer==='core'||v.layer==='term') continue;
-    existing.add(key);
-    shortcutEdges.push({a:u,b:v,kind:'shortcut'});
-    added++;
-  }
-
-  return {nodes,treeEdges,shortcutEdges,lnodes,server};
-}
-
-// Crossing-free radial layout: arc width proportional to subtree leaf count
-function assignRadialPositions(lnodes, rng) {
-  const R = { dist:27, acc:56, term:86 };
-  const J = { dist:2,  acc:3,  term:4  };
-
-  const lc = new Map();
-  function leafCount(n) {
-    if(lc.has(n.id)) return lc.get(n.id);
-    const v = n.children.length ? n.children.reduce((s,c)=>s+leafCount(c),0) : 1;
-    lc.set(n.id,v); return v;
-  }
-
-  function assignArc(n, lo, hi) {
-    n._a = (lo+hi)/2;
-    if(!n.children.length) return;
-    const total = n.children.reduce((s,c)=>s+leafCount(c),0);
-    let a = lo;
-    for(const c of n.children) {
-      const arc = (leafCount(c)/total)*(hi-lo);
-      assignArc(c, a, a+arc);
-      a += arc;
-    }
-  }
-
-  for(const n of lnodes['core']) {
-    n.x=rng.range(-2,2); n.z=rng.range(-2,2); n._a=0;
-    assignArc(n, 0, Math.PI*2);
-  }
-
-  for(const layer of ['dist','acc','term']) {
-    for(const n of lnodes[layer]) {
-      const r = R[layer]+rng.range(-J[layer],J[layer]);
-      n.x=Math.cos(n._a)*r; n.z=Math.sin(n._a)*r;
-    }
-  }
-}
-
-function findPath(from,to){
-  const pA=[]; let n=from; while(n){pA.push(n);n=n.parent;}
-  const pB=[]; n=to; while(n){pB.push(n);n=n.parent;}
-  const setA=new Set(pA);
-  let ia=pA.length-1, ib=0;
-  for(let i=0;i<pB.length;i++) if(setA.has(pB[i])){ia=pA.indexOf(pB[i]);ib=i;break;}
-  return [...pA.slice(0,ia+1),...pB.slice(0,ib).reverse()];
-}
-
-// ── Styles ───────────────────────────────────────────────────────
-const STYLE = {
-  core:  {color:0x3B8BD4,em:0x0d2d55,emI:1.4,geo:()=>new THREE.TorusGeometry(4,1.1,12,26),halo:10,hOp:.06,rx:.18,rz:.10},
-  dist:  {color:0x1D9E75,em:0x073d2c,emI:1.3,geo:()=>new THREE.TorusGeometry(2.6,.72,10,20),halo:6.5,hOp:.05,rx:.22,rz:.14},
-  acc:   {color:0xBA7517,em:0x4a2c06,emI:1.1,geo:()=>new THREE.BoxGeometry(4.8,.85,2.6),halo:5,hOp:.04},
-  term:  {color:0xb4c8de,em:0x2a3c50,emI:1.2, geo:()=>new THREE.ConeGeometry(1.0,2.5,6),halo:3.2,hOp:.04,ry:.28},
-  server:{color:0xFFD060,em:0x7a4a00,emI:1.8,geo:()=>new THREE.CylinderGeometry(1.9,2.3,5.5,10),halo:9,hOp:.07,ry:.12},
-};
-
-// ── Build ────────────────────────────────────────────────────────
-const topo = buildTopology(TOTAL, SEED, REWIRE_PCT);
-const edgeMap = new Map();
-const spinData = [], allEdges = [];
-
-for(const node of topo.nodes){
-  const sk=node.isServer?'server':node.layer;
-  const s=STYLE[sk];
-  const geo=s.geo();
-  const mat=new THREE.MeshStandardMaterial({color:s.color,emissive:s.em,emissiveIntensity:s.emI,metalness:.45,roughness:.25});
-  const mesh=new THREE.Mesh(geo,mat);
-  mesh.position.set(node.x,node.y,node.z);
-  const hMat=new THREE.MeshBasicMaterial({color:s.color,transparent:true,opacity:s.hOp,side:THREE.BackSide});
-  mesh.add(new THREE.Mesh(new THREE.SphereGeometry(s.halo,12,12),hMat));
-  scene.add(mesh); node.mesh=mesh; spinData.push({mesh,s});
-}
-
-for(let i=0;i<3;i++){
-  const r=new THREE.Mesh(new THREE.TorusGeometry(2.6,.07,6,22),
-    new THREE.MeshBasicMaterial({color:0xFFD060,transparent:true,opacity:.3}));
-  r.rotation.x=Math.PI/2;
-  r.position.set(topo.server.x,topo.server.y-1.5+i*1.5,topo.server.z);
-  scene.add(r);
-}
-const serverGlow=new THREE.PointLight(0xFFD060,3.5,80);
-serverGlow.position.set(topo.server.x,topo.server.y+5,topo.server.z); scene.add(serverGlow);
-
-// Per-edge color lerp: idle → active as packets pass through
-const CT_ACTIVE=new THREE.Color(0x88ddff), CT_IDLE=new THREE.Color(0x0d1e33);
-const CS_ACTIVE=new THREE.Color(0xff8833), CS_IDLE=new THREE.Color(0x401508);
-
-function addEdgeLine(a, b, shortcut) {
-  const p0=new THREE.Vector3(a.x,a.y,a.z), p2=new THREE.Vector3(b.x,b.y,b.z);
-  const mid=p0.clone().lerp(p2,.5); mid.y+=shortcut?22:6;
-  const curve=new THREE.QuadraticBezierCurve3(p0,mid,p2);
-  const geo=new THREE.BufferGeometry().setFromPoints(curve.getPoints(70));
-  const mat=shortcut
-    ? new THREE.LineDashedMaterial({color:0x401508,dashSize:3,gapSize:1,transparent:true,opacity:.5})
-    : new THREE.LineBasicMaterial({color:0x0d1e33,transparent:true,opacity:.22});
-  const line=new THREE.Line(geo,mat);
-  if(shortcut) line.computeLineDistances();
-  scene.add(line);
-  const edge={line,curve,an:a,bn:b,activeUntil:0,shortcut,brightness:0};
-  allEdges.push(edge); edgeMap.set(ek(a.id,b.id),edge);
-}
-
-topo.treeEdges.forEach(e=>addEdgeLine(e.a,e.b,false));
-topo.shortcutEdges.forEach(e=>addEdgeLine(e.a,e.b,true));
-
-const grid = new THREE.GridHelper(200, 40, 0x0f2030, 0x0a1820);
-grid.position.y = -26;
-scene.add(grid);
-
-// ── BFS routing (uses tree + shortcut edges) ─────────────────────
-const adj = new Map();
-for(const n of topo.nodes) adj.set(n.id,[]);
-for(const [,e] of edgeMap){ adj.get(e.an.id).push(e.bn); adj.get(e.bn.id).push(e.an); }
-
-function findShortestPath(from, to){
-  if(from===to) return [from];
-  const visited=new Set([from.id]), prev=new Map([[from.id,null]]), queue=[from];
-  while(queue.length){
-    const curr=queue.shift();
-    if(curr===to){
-      const path=[]; let n=to;
-      while(n!==null){path.unshift(n);n=prev.get(n.id);}
-      return path;
-    }
-    for(const nb of (adj.get(curr.id)||[])){
-      if(!visited.has(nb.id)){ visited.add(nb.id); prev.set(nb.id,curr); queue.push(nb); }
-    }
-  }
-  return findPath(from,to); // fallback
-}
-
-// ── Packets ──────────────────────────────────────────────────────
-const terms = topo.lnodes['term'];
-const PCOLS = [0xFFD060,0x38aaff,0xffffff,0x44ffaa,0xff8855];
-const rng2 = new RNG(SEED+1);
-
-function spawnPacket(p){
-  const src=rng2.pick(terms);
-  const dst=rng2.next()<.8?topo.server:(()=>{let d;do{d=rng2.pick(terms);}while(d===src);return d;})();
-  let path=findShortestPath(src,dst);  // BFS: actually uses shortcuts
-  if(rng2.next()<.5) path=[...path].reverse();
-  p.path=path; p.seg=0; p.t=rng2.next(); p.speed=.3+rng2.next()*.35;
-}
-
-const packets=Array.from({length:55},()=>{
-  const c=PCOLS[rng2.int(0,PCOLS.length-1)];
-  const mesh=new THREE.Mesh(new THREE.SphereGeometry(.37,7,7),new THREE.MeshBasicMaterial({color:c}));
-  scene.add(mesh);
-  const p={mesh,path:[],seg:0,t:rng2.next(),speed:.3};
-  spawnPacket(p); return p;
-});
-
-// ── Animate ──────────────────────────────────────────────────────
+// ── Animate ───────────────────────────────────────────────────────
 const clock=new THREE.Clock(); let elapsed=0;
 function animate(){
   requestAnimationFrame(animate);
   const dt=Math.min(clock.getDelta(),.05), now=performance.now()/1000;
   elapsed+=dt;
-
   for(const {mesh,s} of spinData){
     if(s.rx) mesh.rotation.x+=dt*s.rx;
     if(s.rz) mesh.rotation.z+=dt*s.rz;
     if(s.ry) mesh.rotation.y+=dt*s.ry;
   }
-  serverGlow.intensity=3+Math.sin(elapsed*1.3)*.8;
-
-  for(const p of packets){
-    p.t+=dt*p.speed;
-    if(p.t>=1){p.t=0;p.seg++;if(p.seg>=p.path.length-1){spawnPacket(p);continue;}}
-    const a=p.path[p.seg],b=p.path[p.seg+1];
-    if(!a||!b){spawnPacket(p);continue;}
-    const e=edgeMap.get(ek(a.id,b.id));
-    if(!e){spawnPacket(p);continue;}
-    const fwd=e.an===a;
-    p.mesh.position.copy(e.curve.getPoint(fwd?p.t:1-p.t));
-    e.activeUntil=Math.max(e.activeUntil,now+.5);
-  }
-
-  for(const e of allEdges){
-    const want=e.activeUntil>now;
-    e.brightness=Math.max(0,Math.min(1,e.brightness+dt*(want?10:-2.5)));
-    const b=e.brightness;
-    if(e.shortcut){
-      e.line.material.color.lerpColors(CS_IDLE,CS_ACTIVE,b);
-      e.line.material.opacity=0.4+b*0.6;
-    } else {
-      e.line.material.color.lerpColors(CT_IDLE,CT_ACTIVE,b);
-      e.line.material.opacity=0.18+b*0.82;
-    }
-  }
+  srvGlow.intensity=3+Math.sin(elapsed*1.3)*.8;
+  tickPackets(packets,respawn,edgeMap,glowMap,dt,now);
+  tickEdges(allEdges,mats,now);
+  tickFlash(topo.nodes,glowMap,dt);
+  reportTelemetry(now);
   controls.update(); composer.render();
 }
 animate();
 
-const bgEl = document.getElementById('bg');
-bgEl.addEventListener('input', e => {
-  const c = new THREE.Color(e.target.value);
+document.getElementById('bg').addEventListener('input',e=>{
+  const c=new THREE.Color(e.target.value);
   scene.background.set(c); scene.fog.color.set(c);
 });
-
 window.addEventListener('resize',()=>{
   camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix();
   renderer.setSize(innerWidth,innerHeight); composer.setSize(innerWidth,innerHeight);

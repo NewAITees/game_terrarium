@@ -34,6 +34,7 @@
   </script>
 </head>
 <body>
+  <script src="./telemetry-client.js"></script>
   <script type="module">
     import * as THREE from 'three';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -287,9 +288,24 @@
       composer.addPass(bokehPass);
     }
 
-    const clock = new THREE.Clock();
+	    const clock = new THREE.Clock();
 
-    function animate() {
+	    function reportTelemetry(now) {
+	      const typeCounts = nodeData.reduce((acc, node) => {
+	        acc[node.type] = (acc[node.type] || 0) + 1;
+	        return acc;
+	      }, {});
+	      window.Telemetry?.report('moss', {
+	        nodes: nodeData.length,
+	        edges: edges.length,
+	        packets: packets.length,
+	        activeEdges: edges.filter(edge => edge.activeUntil > now).length,
+	        typeCounts,
+	        avgDegree: Number((edges.length * 2 / nodeData.length).toFixed(2)),
+	      });
+	    }
+
+	    function animate() {
       requestAnimationFrame(animate);
 
       const delta = Math.min(clock.getDelta(), 0.05);
@@ -305,11 +321,12 @@
         packet.update(delta, now);
       }
 
-      for (const edge of edges) {
-        edge.line.material = edge.activeUntil > now ? activeEdgeMaterial : edgeMaterial;
-      }
+	      for (const edge of edges) {
+	        edge.line.material = edge.activeUntil > now ? activeEdgeMaterial : edgeMaterial;
+	      }
 
-      controls.update();
+	      reportTelemetry(now);
+	      controls.update();
       if (composer) {
         composer.render();
       } else {

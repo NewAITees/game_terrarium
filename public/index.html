@@ -219,7 +219,8 @@
   </div>
 </aside>
 
-<script>
+  <script src="/telemetry-client.js"></script>
+  <script>
   const CELL_SYMBOLS = {
     wall: ['#', 'cell-wall'],
     floor: ['.', 'cell-floor'],
@@ -341,10 +342,23 @@
     connEl.textContent = '○ disconnected';
     connEl.className = '';
   };
-  ws.onmessage = (e) => {
-    const msg = JSON.parse(e.data);
-    if (msg.type === 'state') render(msg.state);
-  };
+	  ws.onmessage = (e) => {
+	    const msg = JSON.parse(e.data);
+	    if (msg.type === 'state') {
+	      render(msg.state);
+	      window.Telemetry?.report('dungeon', {
+	        floor: msg.state.floor,
+	        score: msg.state.score,
+	        gameOver: msg.state.gameOver,
+	        player: msg.state.player,
+	        currentCell: msg.state.currentCell,
+	        monsters: msg.state.entities.length,
+	        items: msg.state.items.length,
+	        availableActions: msg.state.availableActions,
+	        recentLog: msg.state.recentLog,
+	      });
+	    }
+	  };
 </script>
 </body>
 </html>

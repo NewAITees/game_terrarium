@@ -37,6 +37,18 @@
     .stat span { color: #8ba3a1; font-size: 10px; text-transform: uppercase; }
     .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
     input[type=range] { width: 100%; accent-color: #54d0c6; }
+    .control-block { margin-top: 10px; }
+    .button-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+    button {
+      height: 30px;
+      border: 1px solid rgba(174, 222, 216, 0.18);
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.07);
+      color: #d9f4ef;
+      font: inherit;
+      cursor: pointer;
+    }
+    button:hover { background: rgba(255, 255, 255, 0.12); }
     #top-list { margin-top: 10px; color: #c9d8d4; }
     #top-list div { display: flex; justify-content: space-between; gap: 12px; border-top: 1px solid rgba(255,255,255,.06); padding: 4px 0; }
     #status { margin-top: 8px; min-height: 18px; color: #8fa9a6; }
@@ -90,6 +102,18 @@
       <div class="row"><span>Visible relay nodes</span><strong id="limit-value">220</strong></div>
       <input id="limit" type="range" min="80" max="360" step="20" value="220">
     </label>
+    <label class="control-block">
+      <div class="row"><span>Node height scale</span><strong id="height-value">100%</strong></div>
+      <input id="height-scale" type="range" min="0" max="100" step="5" value="100">
+    </label>
+    <label class="control-block">
+      <div class="row"><span>Cable arc height</span><strong id="arc-value">100%</strong></div>
+      <input id="arc-scale" type="range" min="20" max="140" step="5" value="100">
+    </label>
+    <div class="button-row">
+      <button id="ground-nodes">Ground nodes</button>
+      <button id="restore-height">Restore height</button>
+    </div>
     <div id="top-list"></div>
     <div id="status">Loading cable topology...</div>
   </section>
@@ -97,7 +121,8 @@
   <div id="map-label">floor map: world coastline / country borders</div>
   <div id="caption">PageRank-like centrality: high relay nodes rise, country anchors sit below.</div>
 
-  <script type="module">
+	  <script src="./telemetry-client.js"></script>
+	  <script type="module">
     import * as THREE from 'three';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
@@ -111,7 +136,13 @@
     const tooltip = document.querySelector('#tooltip');
     const limitEl = document.querySelector('#limit');
     const limitValueEl = document.querySelector('#limit-value');
+    const heightScaleEl = document.querySelector('#height-scale');
+    const heightValueEl = document.querySelector('#height-value');
+    const arcScaleEl = document.querySelector('#arc-scale');
+    const arcValueEl = document.querySelector('#arc-value');
     const topListEl = document.querySelector('#top-list');
+    const FLOOR_Y = -41.2;
+    const NODE_GROUND_Y = -38.6;
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x10181d);
@@ -156,10 +187,11 @@
     let worldData = null;
     let graph = null;
     let topojson = null;
-    let currentPositions = new Map();
-    let visibleNodeIds = new Set();
-    let packets = [];
-    let packetClock = 0;
+	    let currentPositions = new Map();
+	    let visibleNodeIds = new Set();
+	    let packets = [];
+	    let packetClock = 0;
+	    let lastGraphTelemetry = null;
 
     async function fetchFirst(urls) {
       let lastError;
@@ -307,12 +339,12 @@
       const floorMaterial = new THREE.MeshBasicMaterial({
         color: 0xf0f2e8,
         transparent: true,
-        opacity: 1,
+        opacity: 0.82,
         side: THREE.DoubleSide
       });
       const floor = new THREE.Mesh(floorGeometry, floorMaterial);
       floor.rotation.x = -Math.PI / 2;
-      floor.position.y = -41.2;
+      floor.position.y = FLOOR_Y;
       floor.renderOrder = -10;
       group.add(floor);
 
@@ -402,7 +434,7 @@
       const tubePoints = closed ? points.slice(0, -1) : points;
       if (tubePoints.length < 2) return;
       const curve = new THREE.CatmullRomCurve3(tubePoints, closed, 'centripetal', 0.35);
-      const geometry = new THREE.TubeGeometry(curve, Math.max(2, tubePoints.length - 1), radius, 5, closed);
+      const geometry = new THREE.TubeGeometry(curve, Math.max(2, Math.min(36, tubePoints.length - 1)), radius, 5, closed);
       const tube = new THREE.Mesh(geometry, material);
       tube.userData.sharedMaterial = true;
       tube.renderOrder = renderOrder;
@@ -413,7 +445,8 @@
       const lon = node.lon;
       const lat = node.lat;
       const rankNorm = rankMax === rankMin ? 0 : (node.rank - rankMin) / (rankMax - rankMin);
-      const y = -30 + Math.pow(rankNorm, 0.55) * 92;
+      const heightScale = Number(heightScaleEl.value) / 100;
+      const y = NODE_GROUND_Y + Math.pow(rankNorm, 0.55) * 104 * heightScale;
       const pull = 1 - rankNorm * 0.58;
       return new THREE.Vector3(lon * 1.02 * pull, y, -lat * 1.05 * pull);
     }
@@ -425,9 +458,17 @@
         countries.get(node.country).push(node);
       }
       return [...countries.entries()].map(([country, landings]) => {
-        const lon = landings.reduce((sum, node) => sum + node.lon, 0) / landings.length;
-        const lat = landings.reduce((sum, node) => sum + node.lat, 0) / landings.length;
-        return { id: `country:${country}`, type: 'country', name: country, country, lon, lat, landings };
+        const anchor = [...landings].sort((a, b) => b.rank - a.rank || b.degree - a.degree)[0];
+        return {
+          id: `country:${country}`,
+          type: 'country',
+          name: country,
+          country,
+          lon: anchor.lon,
+          lat: anchor.lat,
+          anchorName: anchor.name,
+          landings
+        };
       });
     }
 
@@ -436,6 +477,54 @@
       const material = new THREE.LineBasicMaterial({ color, transparent: true, opacity });
       const line = new THREE.Line(geometry, material);
       group.add(line);
+    }
+
+    function parabolicPoints(a, b, height, segments = 18) {
+      const points = [];
+      for (let i = 0; i <= segments; i++) {
+        const t = i / segments;
+        const point = a.clone().lerp(b, t);
+        point.y += 4 * height * t * (1 - t);
+        points.push(point);
+      }
+      return points;
+    }
+
+    function addCableLink(a, b, strength = 1) {
+      const arcScale = Number(arcScaleEl.value) / 100;
+      const height = (10 + strength * 12) * arcScale;
+      const points = parabolicPoints(a, b, height);
+      const coreMaterial = new THREE.MeshBasicMaterial({
+        color: 0x2df6ff,
+        transparent: true,
+        opacity: 0.82,
+        depthTest: false
+      });
+      const glowMaterial = new THREE.MeshBasicMaterial({
+        color: 0x8fffff,
+        transparent: true,
+        opacity: 0.18,
+        depthTest: false
+      });
+      addNeonTube(points, 0.14 + strength * 0.08, coreMaterial, 24);
+      addNeonTube(points, 0.38 + strength * 0.14, glowMaterial, 23);
+    }
+
+    function addAnchorLink(a, b) {
+      const coreMaterial = new THREE.MeshBasicMaterial({
+        color: 0xf0d25b,
+        transparent: true,
+        opacity: 0.72,
+        depthTest: false
+      });
+      const glowMaterial = new THREE.MeshBasicMaterial({
+        color: 0xfff3a0,
+        transparent: true,
+        opacity: 0.16,
+        depthTest: false
+      });
+      addNeonTube([a, b], 0.22, coreMaterial, 26);
+      addNeonTube([a, b], 0.56, glowMaterial, 25);
     }
 
     function addNode(node, position, size, color) {
@@ -453,6 +542,24 @@
       group.add(mesh);
       hitObjects.push(mesh);
       return mesh;
+    }
+
+    function addDensityMarker(node, position, rankNorm) {
+      if (node.degree < 4) return;
+      const radius = 2.8 + Math.min(9, node.degree * 0.7);
+      const geometry = new THREE.TorusGeometry(radius, 0.08 + rankNorm * 0.08, 8, 36);
+      const material = new THREE.MeshBasicMaterial({
+        color: rankNorm > 0.72 ? 0xf0d25b : 0x2df6ff,
+        transparent: true,
+        opacity: 0.34,
+        depthTest: false
+      });
+      const ring = new THREE.Mesh(geometry, material);
+      ring.position.copy(position);
+      ring.position.y = Math.max(position.y + 0.08, NODE_GROUND_Y + 0.08);
+      ring.rotation.x = Math.PI / 2;
+      ring.renderOrder = 28;
+      group.add(ring);
     }
 
     function clearPackets() {
@@ -491,7 +598,7 @@
       const points = buildPacketPath(startId);
       if (points.length < 2) return;
       const geometry = new THREE.SphereGeometry(1.15, 12, 8);
-      const material = new THREE.MeshBasicMaterial({ color: 0xffffff });
+      const material = new THREE.MeshBasicMaterial({ color: 0xdfffff });
       const mesh = new THREE.Mesh(geometry, material);
       packetGroup.add(mesh);
       packets.push({
@@ -527,12 +634,14 @@
       }
     }
 
-    function renderGraph() {
-      if (!graph) return;
+	    function renderGraph() {
+	      if (!graph) return;
       clearGroup();
       clearPackets();
       const limit = Number(limitEl.value);
       limitValueEl.textContent = limit;
+      heightValueEl.textContent = `${heightScaleEl.value}%`;
+      arcValueEl.textContent = `${arcScaleEl.value}%`;
       const allLandings = [...graph.nodes.values()].filter(node => node.degree > 0);
       const sorted = allLandings.sort((a, b) => b.rank - a.rank || b.degree - a.degree);
       const visibleLandings = sorted.slice(0, limit);
@@ -553,17 +662,20 @@
 
       for (const edge of graph.edges.values()) {
         if (!visibleIds.has(edge.a) || !visibleIds.has(edge.b)) continue;
-        addLine(positions.get(edge.a), positions.get(edge.b), 0x37bcb3, 0.22);
+        const source = graph.nodes.get(edge.a);
+        const target = graph.nodes.get(edge.b);
+        const strength = Math.min(1.5, ((source?.rank || 0) + (target?.rank || 0)) * 420);
+        addCableLink(positions.get(edge.a), positions.get(edge.b), strength);
       }
 
       const countryNodes = buildCountryNodes(visibleLandings);
       for (const country of countryNodes) {
         const countryPosition = mapPosition(country.lon, country.lat);
-        countryPosition.y = -34;
+        countryPosition.y = NODE_GROUND_Y;
         positions.set(country.id, countryPosition);
         addNode(country, countryPosition, 1.9, 0xf0d25b);
         for (const landing of country.landings.slice(0, 8)) {
-          addLine(countryPosition, positions.get(landing.id), 0xf0d25b, 0.16);
+          addAnchorLink(countryPosition, positions.get(landing.id));
         }
       }
 
@@ -572,31 +684,62 @@
         const size = 0.7 + Math.pow(rankNorm, 0.65) * 2.5;
         const color = rankNorm > 0.82 ? 0xf0d25b : rankNorm > 0.52 ? 0x78d6c8 : 0x4a8aa2;
         addNode(node, positions.get(node.id), size, color);
+        addDensityMarker(node, positions.get(node.id), rankNorm);
       }
 
       document.querySelector('#landing-count').textContent = visibleLandings.length.toLocaleString();
       document.querySelector('#country-count').textContent = countryNodes.length.toLocaleString();
-      document.querySelector('#edge-count').textContent = [...graph.edges.values()]
-        .filter(edge => visibleIds.has(edge.a) && visibleIds.has(edge.b)).length.toLocaleString();
+	      const visibleEdges = [...graph.edges.values()]
+	        .filter(edge => visibleIds.has(edge.a) && visibleIds.has(edge.b));
+	      document.querySelector('#edge-count').textContent = visibleEdges.length.toLocaleString();
 
-      topListEl.replaceChildren(...sorted.slice(0, 5).map((node, index) => {
-        const row = document.createElement('div');
-        const name = document.createElement('span');
-        const degree = document.createElement('span');
+	      const topNodes = sorted.slice(0, 5);
+	      topListEl.replaceChildren(...topNodes.map((node, index) => {
+	        const row = document.createElement('div');
+	        const name = document.createElement('span');
+	        const degree = document.createElement('span');
         name.textContent = `${index + 1}. ${node.name}`;
         degree.textContent = node.degree;
         row.append(name, degree);
         return row;
-      }));
-      statusEl.textContent = 'Physical cable topology, arranged by centrality';
-    }
+	      }));
+	      statusEl.textContent = 'Physical cable topology, arranged by centrality';
+	      lastGraphTelemetry = { visibleLandings, visibleEdges, countryNodes, topNodes };
+	      reportTelemetry();
+	    }
+
+	    function reportTelemetry() {
+	      const visibleLandings = lastGraphTelemetry?.visibleLandings || [];
+	      const visibleEdges = lastGraphTelemetry?.visibleEdges || [];
+	      const countryNodes = lastGraphTelemetry?.countryNodes || [];
+	      const topNodes = lastGraphTelemetry?.topNodes || [];
+	      window.Telemetry?.report('submarine_network_3d', {
+	        landings: landingFeatures.length,
+	        routes: routeFeatures.length,
+	        graphNodes: graph ? graph.nodes.size : 0,
+	        graphEdges: graph ? graph.edges.size : 0,
+	        visibleLandings: visibleLandings.length || visibleNodeIds.size,
+	        visibleEdges: visibleEdges.length,
+	        countryAnchors: countryNodes.length,
+	        packets: packets.length,
+	        limit: Number(limitEl.value),
+	        heightScale: Number(heightScaleEl.value),
+	        arcScale: Number(arcScaleEl.value),
+	        topNodes: topNodes.map(node => ({
+	          id: node.id,
+	          name: node.name,
+	          degree: node.degree,
+	          rank: Number(node.rank.toFixed(5)),
+	        })),
+	      });
+	    }
 
     function showTooltip(event, node) {
       tooltip.style.left = `${event.clientX}px`;
       tooltip.style.top = `${event.clientY}px`;
       tooltip.style.opacity = '1';
       tooltip.textContent = node.type === 'country'
-        ? `${node.name} / country anchor`
+        ? `${node.name} / anchor: ${node.anchorName || 'landing point'}`
         : `${node.name} / centrality ${(node.rank * 1000).toFixed(2)} / degree ${node.degree}`;
     }
 
@@ -636,6 +779,18 @@
     }
 
     limitEl.addEventListener('input', renderGraph);
+    heightScaleEl.addEventListener('input', renderGraph);
+    arcScaleEl.addEventListener('input', renderGraph);
+    document.querySelector('#ground-nodes').addEventListener('click', () => {
+      heightScaleEl.value = 0;
+      arcScaleEl.value = Math.max(Number(arcScaleEl.value), 100);
+      renderGraph();
+    });
+    document.querySelector('#restore-height').addEventListener('click', () => {
+      heightScaleEl.value = 100;
+      arcScaleEl.value = 100;
+      renderGraph();
+    });
     window.addEventListener('pointermove', onPointerMove);
     window.addEventListener('pointerleave', hideTooltip);
     window.addEventListener('resize', () => {
@@ -646,10 +801,11 @@
 
     function animate() {
       requestAnimationFrame(animate);
-      group.rotation.y += 0.00045;
-      packetGroup.rotation.y = group.rotation.y;
-      updatePackets();
-      controls.update();
+	      group.rotation.y += 0.00045;
+	      packetGroup.rotation.y = group.rotation.y;
+	      updatePackets();
+	      reportTelemetry();
+	      controls.update();
       renderer.render(scene, camera);
     }
 

@@ -9,6 +9,8 @@ const PAGES = {
   moss:       path.join(__dirname, 'moss_alpha.html'),
   net_tree:   path.join(__dirname, 'network_tree.html'),
   net_sw:     path.join(__dirname, 'network_sw.html'),
+  net_defense: path.join(__dirname, 'network_defense.html'),
+  net_ecosystem: path.join(__dirname, 'network_ecosystem.html'),
   submarine:  path.join(__dirname, 'submarine_cables.html'),
   submarine_3d: path.join(__dirname, 'submarine_network_3d.html'),
 };
@@ -56,6 +58,20 @@ function refreshMenu() {
           checked: currentPage === 'net_sw',
           accelerator: 'CmdOrCtrl+4',
           click: () => loadPage('net_sw'),
+        },
+        {
+          label: 'Network Tower Defense (7)',
+          type: 'radio',
+          checked: currentPage === 'net_defense',
+          accelerator: 'CmdOrCtrl+7',
+          click: () => loadPage('net_defense'),
+        },
+        {
+          label: 'Network Ecosystem (8)',
+          type: 'radio',
+          checked: currentPage === 'net_ecosystem',
+          accelerator: 'CmdOrCtrl+8',
+          click: () => loadPage('net_ecosystem'),
         },
         {
           label: 'Submarine Cables (5)',
@@ -141,6 +157,8 @@ app.whenReady().then(() => {
   globalShortcut.register('CmdOrCtrl+4', () => loadPage('net_sw'));
   globalShortcut.register('CmdOrCtrl+5', () => loadPage('submarine'));
   globalShortcut.register('CmdOrCtrl+6', () => loadPage('submarine_3d'));
+  globalShortcut.register('CmdOrCtrl+7', () => loadPage('net_defense'));
+  globalShortcut.register('CmdOrCtrl+8', () => loadPage('net_ecosystem'));
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();

@@ -51,6 +51,7 @@
     <button data-tilt="weak3">弱3</button>
   </div>
 </div>
+<script src="./telemetry-client.js"></script>
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -775,6 +776,32 @@ function laneGapAhead(car, other) {
 
 const clock = new THREE.Clock();
 
+function reportTelemetry() {
+  const totals = cars.reduce((acc, car) => {
+    acc.speed += car.speedNow || 0;
+    if ((car.speedNow || 0) < 0.05) acc.stopped += 1;
+    acc.heading[car.heading] = (acc.heading[car.heading] || 0) + 1;
+    return acc;
+  }, { speed: 0, stopped: 0, heading: {} });
+  const signalStates = intersections.reduce((acc, inter) => {
+    const state = inter.state === 0 ? 'nsGreen' : inter.state === 1 ? 'nsYellow' : inter.state === 2 ? 'ewGreen' : 'ewYellow';
+    acc[state] = (acc[state] || 0) + 1;
+    return acc;
+  }, {});
+
+  window.Telemetry?.report('city_traffic', {
+    cars: cars.length,
+    roads: N,
+    intersections: intersections.length,
+    avgSpeed: Number((totals.speed / cars.length).toFixed(2)),
+    stoppedCars: totals.stopped,
+    congestion: Number((totals.stopped / cars.length).toFixed(3)),
+    headings: totals.heading,
+    signalStates,
+    tiltMode,
+  });
+}
+
 function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.05);
@@ -846,6 +873,7 @@ function animate() {
     syncCarMesh(car);
   }
 
+  reportTelemetry();
   ctrl.update();
   if (tiltShiftPass) {
     targetAperture = APERTURE_LEVELS[tiltMode] ?? APERTURE_LEVELS.off;
