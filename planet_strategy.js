@@ -2,6 +2,17 @@ import * as THREE from 'three';
 import { createPlanetStrategyRenderer } from './planet_strategy_render.js';
 import { createPlanetStrategyUi } from './planet_strategy_ui.js';
 import { reportPlanetStrategyTelemetry } from './planet_strategy_telemetry.js';
+import { updateStrategy as industrialistStrategy } from './planet_strategy_ai_industrialist.js';
+import { updateStrategy as raiderStrategy } from './planet_strategy_ai_raider.js';
+import { updateStrategy as expansionistStrategy } from './planet_strategy_ai_expansionist.js';
+import { updateStrategy as fortifierStrategy } from './planet_strategy_ai_fortifier.js';
+
+const AI_STRATEGIES = {
+  industrialist: industrialistStrategy,
+  raider:        raiderStrategy,
+  expansionist:  expansionistStrategy,
+  fortifier:     fortifierStrategy,
+};
 
 const COLORS = ['#7de8ff', '#ff9f80', '#c8ff8a'];
 const PERSONALITIES = [
@@ -379,51 +390,14 @@ function claimPlanet(empire, planet, type) {
 }
 
 function updateEmpireIntentions() {
+  const ctx = { world, getPlanet, distance3d, claimPlanet, maybeLog };
   for (const empire of world.empires) {
     if (empire.collapsed) {
       empire.intent = 'collapsed and drifting out of contention';
       continue;
     }
-    const factory     = getPlanet(empire.homeFactoryId);
-    const ownShips    = world.ships.filter(s => s.owner === empire.id);
-    const ownedMines  = world.planets.filter(p => p.owner === empire.id && p.structures.mine > 0);
-    const ownedFacts  = world.planets.filter(p => p.owner === empire.id && p.structures.factory > 0);
-    const activeMines = ownedMines.filter(m => m.resources > 0);
-    const ref         = factory ?? getPlanet(empire.homeMineId);
-
-    // 先手鉱山拡張：稼働鉱山が2未満 or 残資源40%未満
-    const needsMine = activeMines.length < 2 ||
-      activeMines.some(m => m.resources / Math.max(m.maxResources, 1) < 0.4);
-    if (needsMine && ref) {
-      const candidate = world.planets
-        .filter(p => p.owner < 0 && p.resources > 0)
-        .map(p => ({ p, dist: distance3d(ref, p) }))
-        .filter(({ dist }) => dist <= 260)
-        .sort((a, b) => a.dist - b.dist)[0]?.p;
-      if (candidate) claimPlanet(empire, candidate, 'mine');
-    }
-
-    // 先手工場拡張：工場1つ & 鉱山在庫が潤沢 & 船数が多い
-    const mineStock = ownedMines.reduce((sum, m) => sum + m.stock, 0);
-    if (ownedFacts.length < 2 && mineStock > 300 && ownShips.length > 8 && ref) {
-      const candidate = world.planets
-        .filter(p => p.owner < 0)
-        .map(p => ({ p, dist: distance3d(ref, p) }))
-        .filter(({ dist }) => dist <= 220)
-        .sort((a, b) => a.dist - b.dist)[0]?.p;
-      if (candidate) claimPlanet(empire, candidate, 'factory');
-    }
-
-    // intent テキスト
-    if (factory && factory.stock < 25) {
-      empire.intent = 'rescue a hungry factory core';
-    } else if (needsMine) {
-      empire.intent = 'seeking new ore deposits';
-    } else if (ownShips.length < 5) {
-      empire.intent = 'scale the transport wing';
-    } else {
-      empire.intent = empire.summary;
-    }
+    const strategy = AI_STRATEGIES[empire.personality];
+    if (strategy) strategy(empire, ctx);
   }
 }
 
