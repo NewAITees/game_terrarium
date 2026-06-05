@@ -24,7 +24,7 @@ const PERSONALITIES = [
 const MATCH_END_SECONDS = 8 * 60;
 const MATCH_FORCE_END_SECONDS = 10 * 60;
 const FACTORY_MAINTENANCE_COST = 8;
-const FACTORY_STALL_COLLAPSE_SECONDS = 45;
+const FACTORY_STALL_COLLAPSE_SECONDS = 90;
 const SHIP_BUILD_COST = 20;
 const TIE_BREAK_DELTA = 0.5;
 const ATTACK_RANGE = 200;
@@ -75,11 +75,13 @@ function createWorld() {
       z: positions[i].z,
       resources: initialResources,
       maxResources: initialResources,
-      mineRate: 8 + rng() * 12,
+      mineRate: 4 + rng() * 6,
       owner: -1,
       stock: 0,
       type: 'neutral',
       structures: { mine: 0, factory: 0 },
+      factoryHp: 0,
+      underConstruction: null,
       productionQueue: 0,
       trafficIn: 0,
       stalled: false,
@@ -101,6 +103,7 @@ function createWorld() {
     homeFactory.owner = empireId;
     homeFactory.type = 'factory';
     homeFactory.structures.factory = 1;
+    homeFactory.factoryHp = 100;
     homeFactory.stock = 100;
     homeFactory.productionQueue = 20;
 
@@ -119,7 +122,7 @@ function createWorld() {
       collapseReason: null,
       homeMineId: homeMine.id,
       homeFactoryId: homeFactory.id,
-      shipCap: 30,
+      shipCap: 999,
     };
     empires.push(empire);
 
@@ -368,10 +371,15 @@ function runCargoHandling(step) {
     } else if (ship.status === 'unloading') {
       const amount = Math.min(ship.cargo, 18 * step);
       ship.cargo -= amount;
-      to.stock += amount;
-      const empire = getEmpire(ship.owner);
-      empire.delivered += amount;
-      world.deliveredTotal += amount;
+      if (to.underConstruction?.empireId === ship.owner) {
+        to.underConstruction.progress += amount;
+        if (to.underConstruction.progress >= to.underConstruction.needed) completeConstruction(to);
+      } else {
+        to.stock += amount;
+        const empire = getEmpire(ship.owner);
+        empire.delivered += amount;
+        world.deliveredTotal += amount;
+      }
       if (ship.cargo <= 0.01) {
         ship.cargo = 0;
         ship.status = 'travel_back';
@@ -381,16 +389,29 @@ function runCargoHandling(step) {
   }
 }
 
-function claimPlanet(empire, planet, type) {
-  planet.owner = empire.id;
+function queueConstruction(empire, planet, type) {
+  if (planet.underConstruction || planet.owner >= 0) return;
+  planet.underConstruction = { empireId: empire.id, type, progress: 0, needed: 200 };
+  maybeLog(`build:${empire.id}:${planet.id}`, `${empire.name} targets ${planet.label} for ${type} construction.`, 'empire', 5);
+}
+
+function completeConstruction(planet) {
+  const { empireId, type } = planet.underConstruction;
+  const empire = getEmpire(empireId);
+  planet.owner = empireId;
   planet.type = type;
-  if (type === 'mine') planet.structures.mine = 1;
-  else planet.structures.factory = 1;
-  maybeLog(`claim:${empire.id}:${planet.id}`, `${empire.name} claimed ${planet.label} as a ${type}.`, 'empire', 5);
+  if (type === 'mine') {
+    planet.structures.mine = 1;
+  } else {
+    planet.structures.factory = 1;
+    planet.factoryHp = 100;
+  }
+  planet.underConstruction = null;
+  logEvent(`${empire?.name ?? '?'} completed ${type} on ${planet.label}!`, 'resource');
 }
 
 function updateEmpireIntentions() {
-  const ctx = { world, getPlanet, distance3d, claimPlanet, maybeLog };
+  const ctx = { world, getPlanet, distance3d, queueConstruction, maybeLog };
   for (const empire of world.empires) {
     if (empire.collapsed) {
       empire.intent = 'collapsed and drifting out of contention';
@@ -404,16 +425,27 @@ function updateEmpireIntentions() {
 function assignRoutes() {
   for (const empire of world.empires) {
     if (empire.collapsed) continue;
-    const mines     = world.planets.filter(p => p.owner === empire.id && p.structures.mine > 0 && (p.resources > 0 || p.stock > 0));
-    const factories = world.planets.filter(p => p.owner === empire.id && p.structures.factory > 0);
+    const mines         = world.planets.filter(p => p.owner === empire.id && p.structures.mine > 0 && (p.resources > 0 || p.stock > 0));
+    const factories     = world.planets.filter(p => p.owner === empire.id && p.structures.factory > 0);
+    const constructions = world.planets.filter(p => p.underConstruction?.empireId === empire.id);
     if (!mines.length || !factories.length) continue;
 
-    for (const ship of world.ships.filter(s => s.owner === empire.id && (s.status === 'loading' || s.status === 'idle'))) {
-      const bestMine    = mines.sort((a, b) => (b.stock + b.resources * 0.05) - (a.stock + a.resources * 0.05))[0];
-      const bestFactory = factories.sort((a, b) => distance3d(bestMine, a) - distance3d(bestMine, b))[0];
-      ship.fromPlanetId = bestMine.id;
-      ship.toPlanetId   = bestFactory.id;
-    }
+    const idleShips = world.ships.filter(s => s.owner === empire.id && (s.status === 'loading' || s.status === 'idle'));
+    const factoryStock = factories.reduce((sum, f) => sum + f.stock, 0);
+    const canBuild = constructions.length > 0 && factoryStock > 50;
+    idleShips.forEach((ship, i) => {
+      const bestMine = mines.sort((a, b) => (b.stock + b.resources * 0.05) - (a.stock + a.resources * 0.05))[0];
+      // 工場stockが50以上の時だけ5隻に1隻を建設地へ
+      const constTarget = canBuild && i % 5 === 0 ? constructions[0] : null;
+      if (constTarget) {
+        ship.fromPlanetId = bestMine.id;
+        ship.toPlanetId   = constTarget.id;
+      } else {
+        const bestFactory = factories.sort((a, b) => distance3d(bestMine, a) - distance3d(bestMine, b))[0];
+        ship.fromPlanetId = bestMine.id;
+        ship.toPlanetId   = bestFactory.id;
+      }
+    });
   }
 }
 
@@ -509,11 +541,11 @@ function updateOrbiting(dt) {
     } else {
       ship.mesh.rotation.y += dt * 1.2;
     }
-    // 戦闘中は明るく
     const hpFrac = ship.hp / ship.maxHp;
-    ship.mesh.material.emissiveIntensity = ship.status === 'battling'
+    const intensity = ship.status === 'battling'
       ? 0.6 + Math.sin(performance.now() / 180) * 0.4
       : 0.25 + (1 - hpFrac) * 0.3;
+    ship.mesh.traverse(node => { if (node.material && !Array.isArray(node.material)) node.material.emissiveIntensity = intensity; });
     ship.mesh.scale.setScalar(0.9 + hpFrac * 0.4);
   }
 }
@@ -526,7 +558,11 @@ function decideAttacks() {
     );
     if (myAttackers.length < 3) continue;
 
-    const base = getPlanet(empire.homeFactoryId);
+    // 工場が占領済みの場合は自軍惑星の重心を基準にする
+    const ownedPlanets = world.planets.filter(p => p.owner === empire.id);
+    const base = getPlanet(empire.homeFactoryId)?.owner === empire.id
+      ? getPlanet(empire.homeFactoryId)
+      : ownedPlanets[0] ?? null;
     const enemyPlanets = world.planets.filter(p =>
       p.owner !== empire.id &&
       (!base || distance3d(base, p) <= ATTACK_RANGE)
@@ -566,9 +602,16 @@ function capturePlanet(planet, newOwner, fleet) {
   planet.owner     = newOwner;
   const newEmpire  = world.empires[newOwner];
 
+  // 中立星で資源あり → 自動鉱山化
   if (wasNeutral && planet.structures.mine === 0 && planet.structures.factory === 0 && planet.resources > 0) {
     planet.type = 'mine';
     planet.structures.mine = 1;
+  }
+  // 敵工場は破壊済み（runCombatで処理）、念のためリセット
+  planet.factoryHp = 0;
+  // 前の帝国の建設計画を破棄
+  if (planet.underConstruction && planet.underConstruction.empireId !== newOwner) {
+    planet.underConstruction = null;
   }
 
   for (const ship of fleet) {
@@ -613,16 +656,42 @@ function runCombat(dt) {
       s.kind !== 'transport' && (s.status === 'orbiting' || s.status === 'battling')
     );
 
+    const factoryAlive = () => planet.structures.factory > 0 && planet.factoryHp > 0;
+
     if (!defenders.length && attackers.length) {
-      capturePlanet(planet, attackers[0].owner, attackers);
+      if (!factoryAlive()) {
+        capturePlanet(planet, attackers[0].owner, attackers);
+      } else {
+        // 守備船なし・工場のみ残存 → 工場を直接攻撃
+        for (const atk of attackers) {
+          planet.factoryHp -= atk.attack * 0.2 * dt;
+        }
+        if (planet.factoryHp <= 0) {
+          planet.factoryHp = 0;
+          planet.structures.factory = 0;
+          planet.stalled = false;
+          maybeLog(`factoryDown:${planet.id}`, `${planet.label} factory destroyed!`, 'warning', 1);
+          capturePlanet(planet, attackers[0].owner, attackers);
+        }
+      }
       continue;
     }
 
-    // 1隻ずつ相互攻撃（船が減ると攻撃力も落ちる）
+    // 1隻ずつ相互攻撃 + 工場ダメージ
     for (const atk of attackers) {
-      if (!defenders.length) break;
-      const def = defenders[Math.floor(rng() * defenders.length)];
-      def.hp -= Math.max(0, atk.attack - def.defense) * dt;
+      if (defenders.length) {
+        const def = defenders[Math.floor(rng() * defenders.length)];
+        def.hp -= Math.max(0, atk.attack - def.defense) * dt;
+      }
+      if (factoryAlive()) {
+        planet.factoryHp -= atk.attack * 0.1 * dt;
+        if (planet.factoryHp <= 0) {
+          planet.factoryHp = 0;
+          planet.structures.factory = 0;
+          planet.stalled = false;
+          maybeLog(`factoryDown:${planet.id}`, `${planet.label} factory destroyed!`, 'warning', 1);
+        }
+      }
     }
     for (const def of defenders) {
       if (!attackers.length) break;
@@ -648,7 +717,7 @@ function runCombat(dt) {
       s.owner === planet.owner && s.homePlanetId === planetId &&
       s.kind !== 'transport' && (s.status === 'orbiting' || s.status === 'battling')
     );
-    if (!stillDef.length && stillAtk.length) {
+    if (!stillDef.length && stillAtk.length && !factoryAlive()) {
       capturePlanet(planet, stillAtk[0].owner, stillAtk);
     } else if (!stillAtk.length && defenders.length) {
       maybeLog(`held:${planetId}`, `${planet.label} held — attack repelled!`, 'empire', 3);
@@ -900,6 +969,31 @@ function animate() {
 
 window.__planetStrategy = { world, computeVictoryScores, finalizeMatch };
 animate();
+
+// バックグラウンドタブでも動作するようにMessageChannelでループを補完
+{
+  const mc = new MessageChannel();
+  let lastBg = performance.now();
+  mc.port1.onmessage = () => {
+    if (document.visibilityState !== 'hidden') { mc.port2.postMessage(0); return; }
+    const now = performance.now();
+    const dt = Math.min((now - lastBg) / 1000, 0.05);
+    lastBg = now;
+    if (!world.gameOver) updateWorld(dt);
+    mc.port2.postMessage(0);
+  };
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      lastBg = performance.now();
+      mc.port2.postMessage(0);
+    }
+  });
+  // ロード時点で既にhiddenの場合も即起動
+  if (document.visibilityState === 'hidden') {
+    lastBg = performance.now();
+    mc.port2.postMessage(0);
+  }
+}
 
 window.addEventListener('resize', () => rendererView.onResize());
 

@@ -1,5 +1,5 @@
 export function updateStrategy(empire, ctx) {
-  const { world, getPlanet, distance3d, claimPlanet } = ctx;
+  const { world, getPlanet, distance3d, queueConstruction } = ctx;
   const factory     = getPlanet(empire.homeFactoryId);
   const ownShips    = world.ships.filter(s => s.owner === empire.id);
   const ownedMines  = world.planets.filter(p => p.owner === empire.id && p.structures.mine > 0);
@@ -21,7 +21,7 @@ export function updateStrategy(empire, ctx) {
         const scoreB = b.p.resources / Math.max(b.p.maxResources, 1) - b.dist / 600;
         return scoreB - scoreA;
       })[0]?.p;
-    if (candidate) claimPlanet(empire, candidate, 'mine');
+    if (candidate) queueConstruction(empire, candidate, 'mine');
   }
 
   // 積極的工場展開: 在庫150+・船5+で第2工場、在庫400+・船12+で第3工場
@@ -33,7 +33,7 @@ export function updateStrategy(empire, ctx) {
       .map(p => ({ p, dist: distance3d(ref, p) }))
       .filter(({ dist }) => dist <= 260)
       .sort((a, b) => a.dist - b.dist)[0]?.p;
-    if (candidate) claimPlanet(empire, candidate, 'factory');
+    if (candidate) queueConstruction(empire, candidate, 'factory');
   }
 
   if (factory && factory.stock < 20) {

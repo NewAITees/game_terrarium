@@ -490,6 +490,36 @@ export function createPlanetStrategyRenderer({ world, rng, getPlanet, distance3d
     });
   }
 
+  function createLabelSprite(text) {
+    const texture = new THREE.CanvasTexture(document.createElement('canvas'));
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false });
+    const sprite = new THREE.Sprite(material);
+    sprite.scale.set(15, 4.2, 1);
+    updateLabelSprite(sprite, text);
+    return sprite;
+  }
+
+  function updateLabelSprite(sprite, text) {
+    const canvas = sprite.material.map.image;
+    const ctx = canvas.getContext('2d');
+    canvas.width = 256;
+    canvas.height = 72;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = 'rgba(7, 14, 24, 0.72)';
+    ctx.fillRect(8, 10, 240, 52);
+    ctx.strokeStyle = 'rgba(166, 224, 255, 0.55)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(8, 10, 240, 52);
+    ctx.fillStyle = '#e8f8ff';
+    ctx.font = 'bold 26px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, 128, 37);
+    sprite.material.map.needsUpdate = true;
+  }
+
   return {
     attachShipMesh,
     ensureRouteVisual,
@@ -572,32 +602,3 @@ function lerpPlanet(a, b, t) {
   };
 }
 
-function createLabelSprite(text) {
-  const texture = new THREE.CanvasTexture(document.createElement('canvas'));
-  texture.minFilter = THREE.LinearFilter;
-  texture.magFilter = THREE.LinearFilter;
-  const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false });
-  const sprite = new THREE.Sprite(material);
-  sprite.scale.set(15, 4.2, 1);
-  updateLabelSprite(sprite, text);
-  return sprite;
-}
-
-function updateLabelSprite(sprite, text) {
-  const canvas = sprite.material.map.image;
-  const ctx = canvas.getContext('2d');
-  canvas.width = 256;
-  canvas.height = 72;
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = 'rgba(7, 14, 24, 0.72)';
-  ctx.fillRect(8, 10, 240, 52);
-  ctx.strokeStyle = 'rgba(166, 224, 255, 0.55)';
-  ctx.lineWidth = 2;
-  ctx.strokeRect(8, 10, 240, 52);
-  ctx.fillStyle = '#e8f8ff';
-  ctx.font = 'bold 26px monospace';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(text, 128, 37);
-  sprite.material.map.needsUpdate = true;
-}
