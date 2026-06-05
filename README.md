@@ -73,6 +73,17 @@ The human may also:
 
 Final evaluation of "fun" belongs to the human, not the AI.
 
+## Repository Layout
+
+- `main.js`, `server.js`, `package.json`: Electron and Express entry points
+- `apps/`: browser-served interactive experiences grouped by feature
+- `pages/`: Electron-loaded standalone visualization pages
+- `shared/`: shared browser modules such as telemetry and network helpers
+- `game/`: server-side game engine code
+- `agent_rules/`, `faction_rules/`, `assets/`: runtime data and art assets
+- `docs/`: planning notes and design documents
+- `scripts/`: helper scripts for manual testing
+
 ## Design Implications For Agents
 
 When making changes, prefer directions that support the main goal:

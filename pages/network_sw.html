@@ -14,7 +14,7 @@
 <body>
 <div id="label">SMALL WORLD TOPOLOGY</div>
 <input type="color" id="bg" value="#0d2040" title="Background">
-<script src="./telemetry-client.js"></script>
+<script src="../shared/telemetry-client.js"></script>
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls }   from 'three/addons/controls/OrbitControls.js';
@@ -23,7 +23,7 @@ import { RenderPass }      from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { buildTopology, buildScene, buildEdges, buildPackets,
          makeMats, tickEdges, tickPackets, initFlash, tickFlash,
-         buildAdj, findShortestPath } from './network-core.js';
+         buildAdj, findShortestPath } from '../shared/network-core.js';
 
 const TOTAL      = 24+(Math.random()*16|0);
 const SEED       = Math.random()*1e9|0;

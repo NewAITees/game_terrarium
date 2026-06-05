@@ -20,6 +20,14 @@ const SUBMARINE_ENDPOINTS = {
   routes: 'https://www.submarinecablemap.com/api/v3/cable/cable-geo.json',
 };
 
+function registerFileRoutes(app, rootDir, routes) {
+  for (const [route, relativePath] of Object.entries(routes)) {
+    app.get(route, (req, res) => {
+      res.sendFile(path.join(rootDir, relativePath));
+    });
+  }
+}
+
 function startServer(getElectronState, electronDispatch) {
   const app = express();
   app.use((req, res, next) => {
@@ -33,19 +41,32 @@ function startServer(getElectronState, electronDispatch) {
   app.use(express.static(path.join(__dirname, 'public')));
   app.use('/agent_rules',    express.static(path.join(__dirname, 'agent_rules')));
   app.use('/faction_rules',  express.static(path.join(__dirname, 'faction_rules')));
-
-  app.get('/colony.html', (req, res) => res.sendFile(path.join(__dirname, 'colony.html')));
-  app.get('/colony.js',   (req, res) => res.sendFile(path.join(__dirname, 'colony.js')));
-  app.get('/planet_strategy.html', (req, res) => res.sendFile(path.join(__dirname, 'planet_strategy.html')));
-  app.get('/planet_strategy.js',   (req, res) => res.sendFile(path.join(__dirname, 'planet_strategy.js')));
-  app.get('/planet_strategy_render.js', (req, res) => res.sendFile(path.join(__dirname, 'planet_strategy_render.js')));
-  app.get('/planet_strategy_ui.js', (req, res) => res.sendFile(path.join(__dirname, 'planet_strategy_ui.js')));
-  app.get('/planet_strategy_telemetry.js', (req, res) => res.sendFile(path.join(__dirname, 'planet_strategy_telemetry.js')));
   app.use('/assets', express.static(path.join(__dirname, 'assets')));
-  app.get('/planet_strategy_ai_industrialist.js', (req, res) => res.sendFile(path.join(__dirname, 'planet_strategy_ai_industrialist.js')));
-  app.get('/planet_strategy_ai_raider.js',        (req, res) => res.sendFile(path.join(__dirname, 'planet_strategy_ai_raider.js')));
-  app.get('/planet_strategy_ai_expansionist.js',  (req, res) => res.sendFile(path.join(__dirname, 'planet_strategy_ai_expansionist.js')));
-  app.get('/planet_strategy_ai_fortifier.js',     (req, res) => res.sendFile(path.join(__dirname, 'planet_strategy_ai_fortifier.js')));
+
+  registerFileRoutes(app, __dirname, {
+    '/colony.html': 'apps/colony/colony.html',
+    '/colony.js': 'apps/colony/colony.js',
+    '/network_defense.html': 'apps/network-defense/network_defense.html',
+    '/network_defense.js': 'apps/network-defense/network_defense.js',
+    '/network_defense_observer.html': 'apps/network-defense/network_defense_observer.html',
+    '/network_defense_observer.js': 'apps/network-defense/network_defense_observer.js',
+    '/network_defense_ui.js': 'apps/network-defense/network_defense_ui.js',
+    '/network_defense_personality.js': 'apps/network-defense/network_defense_personality.js',
+    '/network_defense_events.js': 'apps/network-defense/network_defense_events.js',
+    '/network_ecosystem.html': 'apps/network-ecosystem/network_ecosystem.html',
+    '/network_ecosystem.js': 'apps/network-ecosystem/network_ecosystem.js',
+    '/planet_strategy.html': 'apps/planet-strategy/planet_strategy.html',
+    '/planet_strategy.js': 'apps/planet-strategy/planet_strategy.js',
+    '/planet_strategy_render.js': 'apps/planet-strategy/planet_strategy_render.js',
+    '/planet_strategy_ui.js': 'apps/planet-strategy/planet_strategy_ui.js',
+    '/planet_strategy_telemetry.js': 'apps/planet-strategy/planet_strategy_telemetry.js',
+    '/planet_strategy_ai_industrialist.js': 'apps/planet-strategy/planet_strategy_ai_industrialist.js',
+    '/planet_strategy_ai_raider.js': 'apps/planet-strategy/planet_strategy_ai_raider.js',
+    '/planet_strategy_ai_expansionist.js': 'apps/planet-strategy/planet_strategy_ai_expansionist.js',
+    '/planet_strategy_ai_fortifier.js': 'apps/planet-strategy/planet_strategy_ai_fortifier.js',
+    '/telemetry-client.js': 'shared/telemetry-client.js',
+    '/network-core.js': 'shared/network-core.js',
+  });
 
   app.get('/colony/state', (req, res) => {
     res.json(telemetry.get('colony') || null);
@@ -65,55 +86,11 @@ function startServer(getElectronState, electronDispatch) {
   });
 
   app.get('/submarine_cables.html', (req, res) => {
-    res.sendFile(path.join(__dirname, 'submarine_cables.html'));
+    res.sendFile(path.join(__dirname, 'pages', 'submarine_cables.html'));
   });
 
   app.get('/submarine_network_3d.html', (req, res) => {
-    res.sendFile(path.join(__dirname, 'submarine_network_3d.html'));
-  });
-
-  app.get('/network_defense.html', (req, res) => {
-    res.sendFile(path.join(__dirname, 'network_defense.html'));
-  });
-
-  app.get('/network_defense.js', (req, res) => {
-    res.sendFile(path.join(__dirname, 'network_defense.js'));
-  });
-
-  app.get('/network_defense_observer.html', (req, res) => {
-    res.sendFile(path.join(__dirname, 'network_defense_observer.html'));
-  });
-
-  app.get('/network_defense_observer.js', (req, res) => {
-    res.sendFile(path.join(__dirname, 'network_defense_observer.js'));
-  });
-
-  app.get('/network_defense_ui.js', (req, res) => {
-    res.sendFile(path.join(__dirname, 'network_defense_ui.js'));
-  });
-
-  app.get('/network_defense_personality.js', (req, res) => {
-    res.sendFile(path.join(__dirname, 'network_defense_personality.js'));
-  });
-
-  app.get('/network_defense_events.js', (req, res) => {
-    res.sendFile(path.join(__dirname, 'network_defense_events.js'));
-  });
-
-  app.get('/network_ecosystem.html', (req, res) => {
-    res.sendFile(path.join(__dirname, 'network_ecosystem.html'));
-  });
-
-  app.get('/network_ecosystem.js', (req, res) => {
-    res.sendFile(path.join(__dirname, 'network_ecosystem.js'));
-  });
-
-  app.get('/network-core.js', (req, res) => {
-    res.sendFile(path.join(__dirname, 'network-core.js'));
-  });
-
-  app.get('/telemetry-client.js', (req, res) => {
-    res.sendFile(path.join(__dirname, 'telemetry-client.js'));
+    res.sendFile(path.join(__dirname, 'pages', 'submarine_network_3d.html'));
   });
 
   app.post('/api/strategy', async (req, res) => {

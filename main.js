@@ -4,17 +4,24 @@ const { startServer } = require('./server');
 
 app.commandLine.appendSwitch('disable-features', 'HardwareMediaKeyHandling,MediaSessionService');
 
+const IS_DEBUG_MINIMAL = process.env.ELECTRON_DEBUG_MINIMAL === '1';
+const ENABLE_APP_MENU = process.env.ELECTRON_DISABLE_MENU !== '1';
+const ENABLE_GLOBAL_SHORTCUTS = process.env.ELECTRON_DISABLE_SHORTCUTS !== '1';
+const ENABLE_ALWAYS_ON_TOP = process.env.ELECTRON_DISABLE_ALWAYS_ON_TOP !== '1' && !IS_DEBUG_MINIMAL;
+const ENABLE_ALL_WORKSPACES = process.env.ELECTRON_DISABLE_ALL_WORKSPACES !== '1' && !IS_DEBUG_MINIMAL;
+const ENABLE_SERVER = process.env.ELECTRON_DISABLE_SERVER !== '1';
+
 const PAGES = {
-  city:          path.join(__dirname, 'city_traffic_tiltshift_alpha.html'),
-  moss:          path.join(__dirname, 'moss_alpha.html'),
-  net_tree:      path.join(__dirname, 'network_tree.html'),
-  net_sw:        path.join(__dirname, 'network_sw.html'),
+  city:          path.join(__dirname, 'pages', 'city_traffic_tiltshift_alpha.html'),
+  moss:          path.join(__dirname, 'pages', 'moss_alpha.html'),
+  net_tree:      path.join(__dirname, 'pages', 'network_tree.html'),
+  net_sw:        path.join(__dirname, 'pages', 'network_sw.html'),
   net_defense:   'http://localhost:3000/network_defense.html',
   planet_strategy: 'http://localhost:3000/planet_strategy.html',
   net_ecosystem: 'http://localhost:3000/network_ecosystem.html',
   colony:        'http://localhost:3000/colony.html',
-  submarine:     path.join(__dirname, 'submarine_cables.html'),
-  submarine_3d:  path.join(__dirname, 'submarine_network_3d.html'),
+  submarine:     path.join(__dirname, 'pages', 'submarine_cables.html'),
+  submarine_3d:  path.join(__dirname, 'pages', 'submarine_network_3d.html'),
 };
 
 let win = null;
@@ -34,6 +41,11 @@ function loadPage(pageKey) {
 }
 
 function refreshMenu() {
+  if (!ENABLE_APP_MENU) {
+    Menu.setApplicationMenu(null);
+    return;
+  }
+
   const template = [
     {
       label: 'View',
@@ -137,15 +149,20 @@ function createMainWindow() {
     height: 900,
     autoHideMenuBar: false,
     backgroundColor: '#000000',
-    alwaysOnTop: true,
+    alwaysOnTop: ENABLE_ALWAYS_ON_TOP,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
     },
   });
 
-  win.setAlwaysOnTop(true, 'screen-saver');
-  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  if (ENABLE_ALWAYS_ON_TOP) {
+    win.setAlwaysOnTop(true, 'screen-saver');
+  }
+
+  if (ENABLE_ALL_WORKSPACES) {
+    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  }
 
   loadPage(currentPage);
 
@@ -159,29 +176,33 @@ function createMainWindow() {
 app.whenReady().then(() => {
   createMainWindow();
 
-  startServer(
-    () => ({ currentPage }),
-    (type, payload) => {
-      if (type === 'switch_page') {
-        const { page } = payload;
-        if (!PAGES[page]) return { error: `unknown page: ${page}` };
-        loadPage(page);
-        return { currentPage };
+  if (ENABLE_SERVER) {
+    startServer(
+      () => ({ currentPage }),
+      (type, payload) => {
+        if (type === 'switch_page') {
+          const { page } = payload;
+          if (!PAGES[page]) return { error: `unknown page: ${page}` };
+          loadPage(page);
+          return { currentPage };
+        }
+        return { error: `unknown action: ${type}` };
       }
-      return { error: `unknown action: ${type}` };
-    }
-  );
+    );
+  }
 
-  globalShortcut.register('CmdOrCtrl+1', () => loadPage('city'));
-  globalShortcut.register('CmdOrCtrl+2', () => loadPage('moss'));
-  globalShortcut.register('CmdOrCtrl+3', () => loadPage('net_tree'));
-  globalShortcut.register('CmdOrCtrl+4', () => loadPage('net_sw'));
-  globalShortcut.register('CmdOrCtrl+5', () => loadPage('submarine'));
-  globalShortcut.register('CmdOrCtrl+6', () => loadPage('submarine_3d'));
-  globalShortcut.register('CmdOrCtrl+7', () => loadPage('net_defense'));
-  globalShortcut.register('CmdOrCtrl+8', () => loadPage('net_ecosystem'));
-  globalShortcut.register('CmdOrCtrl+9', () => loadPage('colony'));
-  globalShortcut.register('CmdOrCtrl+0', () => loadPage('planet_strategy'));
+  if (ENABLE_GLOBAL_SHORTCUTS) {
+    globalShortcut.register('CmdOrCtrl+1', () => loadPage('city'));
+    globalShortcut.register('CmdOrCtrl+2', () => loadPage('moss'));
+    globalShortcut.register('CmdOrCtrl+3', () => loadPage('net_tree'));
+    globalShortcut.register('CmdOrCtrl+4', () => loadPage('net_sw'));
+    globalShortcut.register('CmdOrCtrl+5', () => loadPage('submarine'));
+    globalShortcut.register('CmdOrCtrl+6', () => loadPage('submarine_3d'));
+    globalShortcut.register('CmdOrCtrl+7', () => loadPage('net_defense'));
+    globalShortcut.register('CmdOrCtrl+8', () => loadPage('net_ecosystem'));
+    globalShortcut.register('CmdOrCtrl+9', () => loadPage('colony'));
+    globalShortcut.register('CmdOrCtrl+0', () => loadPage('planet_strategy'));
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
@@ -193,5 +214,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('will-quit', () => {
-  globalShortcut.unregisterAll();
+  if (ENABLE_GLOBAL_SHORTCUTS) {
+    globalShortcut.unregisterAll();
+  }
 });

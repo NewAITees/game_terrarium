@@ -23,13 +23,21 @@ This is an **Electron desktop app** (`main.js`) that hosts an always-on-top wind
 | `main.js` | Electron main process; manages the BrowserWindow and page switching |
 | `server.js` | Express server (port 3000) + WebSocket; started by main.js |
 | `game/engine.js` | Roguelike dungeon GameEngine class (server-side, Node.js) |
-| `network-core.js` | Shared ES module for Three.js network topology — imported by network visualization pages |
-| `network_defense.js` | Network defense game logic — ES module imported by network_defense.html |
-| `telemetry-client.js` | Thin client-side shim; sets `window.Telemetry.report()`, POSTs to `/telemetry/<page>` |
+| `shared/network-core.js` | Shared ES module for Three.js network topology — imported by network visualization pages |
+| `apps/network-defense/network_defense.js` | Network defense game logic — ES module imported by network_defense.html |
+| `shared/telemetry-client.js` | Thin client-side shim; sets `window.Telemetry.report()`, POSTs to `/telemetry/<page>` |
+
+### Directory layout
+
+- `apps/` — browser-served experiences grouped by feature (`colony`, `network-defense`, `network-ecosystem`, `planet-strategy`)
+- `pages/` — standalone Electron-loaded HTML pages (`city`, `moss`, `network_tree`, `network_sw`, submarine views)
+- `shared/` — shared browser-side modules
+- `docs/` — planning and design notes
+- `scripts/` — helper scripts for manual testing
 
 ### Page switching
 
-`main.js` defines 6 named pages (`city`, `moss`, `net_tree`, `net_sw`, `submarine`, `submarine_3d`) loaded as local files via Electron. The server also exposes `POST /electron/action` with `{ type: "switch_page", page: "<key>" }` to switch from the browser side. Keyboard shortcuts Ctrl+1–6 and Ctrl+Shift+T (toggle always-on-top) are registered as global shortcuts.
+`main.js` defines 10 named pages (`city`, `moss`, `net_tree`, `net_sw`, `submarine`, `submarine_3d`, `net_defense`, `net_ecosystem`, `colony`, `planet_strategy`). Standalone pages under `pages/` are loaded as local files via Electron; app pages are served over `http://localhost:3000/`. The server also exposes `POST /electron/action` with `{ type: "switch_page", page: "<key>" }` to switch from the browser side. Keyboard shortcuts Ctrl+1–9, Ctrl+0 and Ctrl+Shift+T (toggle always-on-top) are registered as global shortcuts.
 
 ### Game API (roguelike dungeon)
 
@@ -47,7 +55,7 @@ REST endpoints on `server.js`:
 
 Actions: `move` (dir), `attack` (dir), `pickup`, `use_item` (item), `equip` (item), `descend`. Directions: `north`, `south`, `east`, `west`.
 
-### Network Defense game (`network_defense.html` / `network_defense.js`) — Ctrl+7
+### Network Defense game (`apps/network-defense/network_defense.html` / `apps/network-defense/network_defense.js`) — Ctrl+7
 
 Served via `http://localhost:3000/` (not file://) because `fetch('./agent_rules/...')` requires HTTP context.
 
@@ -71,7 +79,7 @@ Available actions (any rank can execute any action — rank only affects speed/c
 
 `callLLM()` in `network_defense.js` calls `POST /api/strategy` on the Express server, which proxies to Ollama (`http://192.168.10.182:11436/api/generate`). The Ollama URL and model are defined as `OLLAMA_URL` / `OLLAMA_MODEL` constants at the top of `server.js`. On timeout or error it falls back to a local heuristic. The response sets `game.rule` (`balanced` / `containment` / `firewall-first` / `patrol`) which `evalCondition` exposes to rules as `gameRule`.
 
-### Shared network topology (`network-core.js`)
+### Shared network topology (`shared/network-core.js`)
 
 ES module (loaded via CDN Three.js import). Key exports:
 - `buildTopology(total, seed, mode, rewirePct)` — generates layered tree with optional small-world shortcuts
