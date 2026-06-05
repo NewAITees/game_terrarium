@@ -41,6 +41,7 @@ function startServer(getElectronState, electronDispatch) {
   app.get('/planet_strategy_render.js', (req, res) => res.sendFile(path.join(__dirname, 'planet_strategy_render.js')));
   app.get('/planet_strategy_ui.js', (req, res) => res.sendFile(path.join(__dirname, 'planet_strategy_ui.js')));
   app.get('/planet_strategy_telemetry.js', (req, res) => res.sendFile(path.join(__dirname, 'planet_strategy_telemetry.js')));
+  app.use('/assets', express.static(path.join(__dirname, 'assets')));
   app.get('/planet_strategy_ai_industrialist.js', (req, res) => res.sendFile(path.join(__dirname, 'planet_strategy_ai_industrialist.js')));
   app.get('/planet_strategy_ai_raider.js',        (req, res) => res.sendFile(path.join(__dirname, 'planet_strategy_ai_raider.js')));
   app.get('/planet_strategy_ai_expansionist.js',  (req, res) => res.sendFile(path.join(__dirname, 'planet_strategy_ai_expansionist.js')));

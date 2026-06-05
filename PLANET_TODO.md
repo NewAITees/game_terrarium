@@ -5,6 +5,57 @@
 
 ---
 
+## 次回セッション実装リスト（優先順）
+
+### 🔴 高優先（ゲームとして成立するために必要）
+
+1. **崩壊帝国の残存船を除去** `planet_strategy.js`
+   - `collapseEmpire()` 呼び出し時に `empire.id` の全船を `removeShipMesh` して `world.ships` から除去
+   - 崩壊後に孤立する攻撃・防衛船が残り続けるバグの修正
+
+2. **枯渇星の視覚改善** `planet_strategy_render.js`
+   - 枯渇時サイズを現行 4.1 → **1.5** に縮小（もっと小さく）
+   - 黒くなっても所属が分かるよう、帝国色の細いリング（torusGeometry）を残す
+   - `depleted=true` 時は `oreRing` を非表示にする（すでに枯渇したことが明確）
+
+3. **工場の上方アイコン表示** `planet_strategy_render.js`
+   - 工場惑星の上方に小さなシンボル（cone または小円）を配置
+   - `structures.factory > 0` の惑星のみ表示
+   - 工場HP が減ると点滅または縮小
+
+### 🟡 中優先（観察体験の改善）
+
+4. **破壊エフェクト** `planet_strategy_render.js`
+   - 船が破壊されたとき：小さなパーティクルバースト or 輝度フラッシュ
+   - 工場が破壊されたとき：赤いフラッシュと縮小アニメーション
+   - `rendererView.removeShipMesh(s)` の呼び出しタイミングで発火
+
+5. **背景星のY方向分散** `planet_strategy_render.js`
+   - `addStarField` 内の `y` 計算を修正
+   - 現状：`y = (rng() - 0.5) * (22 + radius * 0.035)` → 水平に偏っている
+   - 修正：`y` のスケールを 3〜5倍に増やして上下方向にも広がらせる
+
+6. **攻撃の可視化** `planet_strategy_render.js` + `planet_strategy.js`
+   - 攻撃中のルートラインを太く・明るく表示（`traffic` 係数を大きくする）
+   - HUD の empire-intent に攻撃中の目標星ラベルを表示（すでに一部実装済み）
+
+### 🟢 低優先（あると良い）
+
+7. **輸送船の複数表示** `planet_strategy_render.js`
+   - 同一ルートに複数の輸送船がいる場合、進行方向に少しオフセットして並列描画
+   - 惑星に「突然出現」しないよう、loading/unloading 中の船をルート上に留める
+
+8. **船団単位の移動** `planet_strategy.js` / AI ファイル
+   - 攻撃艦3隻以上を同時出撃させるとき、全船が同じ出発タイミングで動く
+   - 現状は `decideAttacks` がすでに一括送出しているが、速度バラつきで分散する
+   - 全艦の速度を揃えるか、先行艦が到着を待つ anchor-ship 機構を入れる
+
+9. **遠距離輸送 AI** AI ファイル
+   - 近隣鉱山がすべて枯渇した場合、ATTACK_RANGE 外の未開拓鉱山へ建設船を派遣する
+   - `expansionist` と `industrialist` の戦略に追加
+
+---
+
 ## 完了済み
 
 - [x] 8分/10分タイマー・終了判定・Victory Score計算
@@ -24,6 +75,155 @@
 - [x] 動的ルーティング（最良鉱山→最寄り工場）
 - [x] 複数工場対応の生産システム
 - [x] HUD overflow修正（max-height + scroll）
+
+---
+
+## v2 ロードマップ（大規模再設計）
+
+### 🚀 移動・状態システムの再設計
+
+現行の「progress バーで惑星間をワープ」から、実在する船が存在する形に変える。
+
+**新しい船の状態マシン：**
+
+```
+docked（工場内待機）
+  → launching（軌道に出る）
+  → orbiting（惑星軌道上を周回）
+  → traveling（別惑星へ直線移動）
+  → approaching（目標惑星の軌道に入る）
+  → orbiting（到着・周回）
+  → engaging（射程内で戦闘開始）
+```
+
+- 船は工場から出撃し、まず惑星軌道に入る
+- 軌道から別惑星へ「直線移動」（放物線でなく直線、またはケプラー軌道に近い緩やかなカーブ）
+- 突然の惑星出現・ワープなし
+- 輸送船は鉱山軌道 → 工場軌道 の間を往復
+
+### 🏭 工場の軌道描写
+
+- 工場は惑星表面でなく**軌道上のステーション**として描写
+- 惑星の周りをゆっくり回転する構造物（Three.js Mesh）
+- 船は工場ステーションからドック/アンドックする
+
+### ⚔️ 戦闘システムの再設計
+
+- 攻撃船が**射程距離に入ったら自動で攻撃開始**（現行は惑星に到達してから）
+- 攻撃はビジュアル的に「プロジェクタイル（直線）」が飛び交う
+- **AIが優先ターゲットを決める**：工場 > 輸送船 > 攻撃船 > 防衛船（AIごとに異なる）
+- 集団戦闘のビジュアル（複数の船が一方向から攻撃）
+
+### 🚢 船団システム
+
+- 船は個別移動から**船団単位**で動く
+- 船団の作成・分割が可能
+- 攻撃船団・防衛船団・輸送艦隊を区別
+- AIが状況に応じて船団を編成・解体
+
+### 🎯 勝利条件の選択
+
+| モード | 説明 |
+|---|---|
+| **スコアモード** | 星を占有するほど秒数でスコアが増える。8分後に最高スコアが勝ち |
+| **殲滅モード** | 他の帝国の工場をすべて破壊した帝国が勝ち |
+
+- スコアモード：`score += owned_planets × 1点/秒`（惑星占有スコア加算）
+- 殲滅モード：全工場破壊で即終了
+
+### 🎨 アセット活用・ビジュアル改善
+
+- 宇宙船のデザインに外部 3D アセットを活用（GLB/GLTF）
+- 惑星のテクスチャを種類別に変える（鉱山・工場・中立で見た目が違う）
+- 破壊エフェクト：パーティクルバースト・爆発フラッシュ
+- 軌道ライン：惑星周囲に薄い軌道リングを常時表示
+
+### 🤖 AI ランダム性の追加
+
+- 同じ性格でも毎回違う挙動になるよう、意思決定にランダム係数を加える
+- `expansionist` が時々 `raider` 的に動くなど、性格の「ブレ」を設計
+- 弱い帝国が連合して強い帝国を攻撃するような動的同盟的挙動
+
+---
+
+## アセット候補
+
+このゲームは「リアルな宇宙戦争シミュレーター」ではなく、惑星・輸送船・資源・工場が**遠目でも読める観察ゲーム**。  
+AAA級アセットより「見ただけで役割がわかるミニマルSFアセット」が相性良い。
+
+### ① 惑星テクスチャ（最重要）
+
+役割別に見た目を変える：
+
+| 種類 | 配色 |
+|---|---|
+| 採掘惑星 | 茶色・岩肌 |
+| 工場惑星 | 青・紫 |
+| 中立惑星 | 灰色 |
+| 枯渇惑星 | 黒・赤 |
+
+- **Kenney Space Kit** https://kenney.nl/assets — プロトタイプ向き、無料
+- **OpenGameArt Space Assets** https://opengameart.org
+
+### ② 宇宙船（物流船デザイン優先）
+
+このゲームは戦艦でなく「物流船」なので小型貨物船・ドローン・シャトル型が合う：
+
+- **Quaternius Space Kit** https://quaternius.com — 無料、統一感が高い
+- **KayKit Space Base Pack** https://kaylousberg.itch.io
+
+### ③ エフェクト（観察性に直結）
+
+輸送開始・資源搬入・工場停止・崩壊を視覚化しないと8分ゲームの観察がつまらなくなる。  
+必要なもの：レーザー / シールド / エネルギー球 / 爆発 / EMP
+
+- **Cartoon FX Remaster Free** — Unity Asset Store（無料）
+- **Stylized Sci-Fi VFX Pack** — Unity Asset Store
+
+> Three.js で使う場合は GLB/GLTF エクスポート or スプライトシートに変換が必要
+
+### ④ UI アイコン（惑星モデルより重要）
+
+必要なもの：鉱石 / 工場 / 輸送船 / 停止 / 警告 / 勝利
+
+- **Game-icons.net** https://game-icons.net — 数千種類、SVG/PNG 無料
+
+### 推奨最小構成
+
+```
+Kenney 惑星 + Quaternius 宇宙船 + Game-icons.net UI + 自作 Three.js パーティクル
+```
+
+### ✅ 取得済み・配置済み（Kenney Space Kit CC0）
+
+`/assets/ships/` と `/assets/structures/` に配置済み。`http://localhost:3000/assets/...` で配信。
+
+| パス | ロール | 元ファイル |
+|---|---|---|
+| `/assets/ships/transport.glb` | 輸送船 | craft_cargoA |
+| `/assets/ships/miner.glb` | 採掘船 | craft_miner |
+| `/assets/ships/attacker.glb` | 攻撃船 | craft_speederA |
+| `/assets/ships/defender.glb` | 防衛船 | craft_speederD |
+| `/assets/structures/factory.glb` | 工場ステーション | hangar_roundA |
+| `/assets/structures/station.glb` | 軌道ステーション | structure_detailed |
+| `/assets/structures/turret.glb` | 防衛タレット | turret_double |
+| `/assets/structures/mine_dish.glb` | 採掘施設 | satelliteDish |
+| `/assets/structures/asteroid.glb` | 採掘惑星デコレーション | meteor |
+| `/assets/structures/crystals.glb` | 資源結晶 | rock_crystals |
+
+**使用方法（Three.js）：**
+
+```js
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+const loader = new GLTFLoader();
+loader.load('/assets/ships/transport.glb', (gltf) => {
+  const mesh = gltf.scene;
+  scene.add(mesh);
+});
+```
+
+このゲームの面白さは「5分経過で工場が止まり始めて物流網が崩れる様子」にあるため、
+アセット数を絞って観察性を優先するのが最短ルート。
 
 ---
 
