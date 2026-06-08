@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "lib": ["ES2022", "DOM"],
+    "outDir": "build-node",
+    "rootDir": ".",
+    "noEmitOnError": true,
+    "skipLibCheck": true,
+    "allowJs": false,
+    "checkJs": false,
+    "strict": false,
+    "noImplicitAny": false,
+    "esModuleInterop": true,
+    "ignoreDeprecations": "6.0",
+    "types": ["node", "electron"]
+  },
+  "include": [
+    "main.ts",
+    "server.ts",
+    "scripts/**/*.ts"
+  ]
+}

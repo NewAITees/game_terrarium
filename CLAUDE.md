@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-# Build TypeScript-generated browser modules
+# Build TypeScript-generated browser modules into `build/`
 npm run build
 
 # Run TypeScript checks without emitting JS
@@ -15,7 +15,9 @@ npm run typecheck
 npm start
 ```
 
-Browser code is still loaded as ES modules in HTML, but `planet_strategy_render`, `planet_strategy_ui`, and `planet_strategy_telemetry` now compile from `.ts` sources to adjacent `.js` files.
+Browser code is still loaded as ES modules in HTML, but migrated modules compile from `.ts` sources into `build/`, and `npm start` rebuilds them via `prestart`. Source-adjacent emitted `.js` files for migrated modules should not be kept.
+
+**Rule: all new browser-side source files must be TypeScript (`.ts`).** Do not create new `.js` files under `apps/` or `shared/`. Add new app directories to the `include` array in `tsconfig.json`, and register the compiled output path (`build/apps/<app>/<file>.js`) in `server.js`.
 
 ## Architecture
 
@@ -27,9 +29,9 @@ This is an **Electron desktop app** (`main.js`) that hosts an always-on-top wind
 |---|---|
 | `main.js` | Electron main process; manages the BrowserWindow and page switching |
 | `server.js` | Express server (port 3000) + WebSocket; started by main.js |
-| `game/engine.js` | Roguelike dungeon GameEngine class (server-side, Node.js) |
-| `shared/network-core.js` | Shared ES module for Three.js network topology — imported by network visualization pages |
-| `shared/telemetry-client.js` | Thin client-side shim; sets `window.Telemetry.report()`, POSTs to `/telemetry/<page>` |
+| `game/engine.ts` | Roguelike dungeon GameEngine class (server-side, Node.js) |
+| `shared/network-core.ts` | Shared ES module for Three.js network topology — imported by network visualization pages |
+| `shared/telemetry-client.ts` | Thin client-side shim; sets `window.Telemetry.report()`, POSTs to `/telemetry/<page>` |
 | `apps/network-defense/network_defense.js` | Network defense game core logic |
 | `apps/network-defense/network_defense_ui.js` | UI rendering helpers |
 | `apps/network-defense/network_defense_events.js` | Input/event handling |
@@ -41,12 +43,12 @@ This is an **Electron desktop app** (`main.js`) that hosts an always-on-top wind
 | `apps/planet-strategy/planet_strategy_ui.js` | UI helpers |
 | `apps/planet-strategy/planet_strategy_telemetry.js` | Telemetry integration |
 | `apps/planet-strategy/planet_strategy_ai_*.js` | AI faction strategies (industrialist, raider, expansionist, fortifier) |
-| `apps/network-ecosystem/network_ecosystem.js` | Network ecosystem visualization logic |
+| `apps/network-ecosystem/network_ecosystem.ts` | Network ecosystem visualization logic |
 
 ### Directory layout
 
 - `apps/` — browser-served experiences grouped by feature (`colony`, `network-defense`, `network-ecosystem`, `planet-strategy`)
-- `pages/` — standalone Electron-loaded HTML pages (`city`, `moss`, `network_tree`, `network_sw`, submarine views)
+- `pages/` — standalone Electron-loaded HTML pages (`city`, `moss`, `network_sw`, submarine views)
 - `shared/` — shared browser-side modules
 - `game/` — server-side roguelike engine
 - `public/` — WebSocket dungeon game client (`index.html`)
@@ -58,7 +60,7 @@ This is an **Electron desktop app** (`main.js`) that hosts an always-on-top wind
 
 ### Page switching
 
-`main.js` defines 10 named pages (`city`, `moss`, `net_tree`, `net_sw`, `submarine`, `submarine_3d`, `net_defense`, `net_ecosystem`, `colony`, `planet_strategy`). Standalone pages under `pages/` are loaded as local files via Electron; app pages are served over `http://localhost:3000/`. The server also exposes `POST /electron/action` with `{ type: "switch_page", page: "<key>" }` to switch from the browser side. Keyboard shortcuts Ctrl+1–9, Ctrl+0 and Ctrl+Shift+T (toggle always-on-top) are registered as global shortcuts.
+`main.js` defines 10 named pages (`city`, `moss`, `escort_td`, `net_sw`, `submarine`, `submarine_3d`, `net_defense`, `net_ecosystem`, `colony`, `planet_strategy`). Standalone pages under `pages/` are loaded as local files via Electron; app pages are served over `http://localhost:3000/`. The server also exposes `POST /electron/action` with `{ type: "switch_page", page: "<key>" }` to switch from the browser side. Keyboard shortcuts Ctrl+1–9, Ctrl+0 and Ctrl+Shift+T (toggle always-on-top) are registered as global shortcuts.
 
 ### Game API (roguelike dungeon)
 
@@ -116,7 +118,7 @@ Served via `http://localhost:3000/planet_strategy.html`. Core: `planet_strategy.
 
 3D assets served from `assets/ships/` (attacker, defender, miner, transport GLBs) and `assets/structures/` (station, factory, turret, mine_dish, asteroid, crystals GLBs).
 
-### Shared network topology (`shared/network-core.js`)
+### Shared network topology (`shared/network-core.ts`)
 
 ES module (loaded via CDN Three.js import). Key exports:
 - `buildTopology(total, seed, mode, rewirePct)` — generates layered tree with optional small-world shortcuts

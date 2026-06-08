@@ -4,6 +4,8 @@
     "module": "ES2022",
     "moduleResolution": "bundler",
     "lib": ["DOM", "ES2022"],
+    "outDir": "build",
+    "rootDir": ".",
     "noEmitOnError": true,
     "skipLibCheck": true,
     "allowJs": false,
@@ -13,9 +15,13 @@
     "verbatimModuleSyntax": true
   },
   "include": [
+    "apps/escort-td/**/*.ts",
     "apps/colony/**/*.ts",
     "apps/network-defense/**/*.ts",
+    "apps/network-ecosystem/**/*.ts",
     "apps/planet-strategy/**/*.ts",
+    "game/**/*.ts",
+    "shared/*.ts",
     "shared/types/**/*.ts",
     "shared/types/**/*.d.ts"
   ]

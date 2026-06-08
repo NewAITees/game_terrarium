@@ -85,11 +85,14 @@ Final evaluation of "fun" belongs to the human, not the AI.
 - `docs/`: planning notes and design documents
 - `scripts/`: helper scripts for manual testing
 
-## TypeScript Migration
+## TypeScript
 
-- `npm run build`: compile migrated `.ts` browser modules to adjacent `.js`
-- `npm run typecheck`: run TypeScript checks without emitting files
-- `planet_strategy_render`, `planet_strategy_ui`, and `planet_strategy_telemetry` are the first migrated modules
+- **New browser-side files must be `.ts`.** Do not create new `.js` files under `apps/` or `shared/`.
+- `npm run build`: compile `.ts` sources into `build/`
+- `npm run typecheck`: type-check without emitting
+- `npm start` runs `prestart` so JS is rebuilt before Electron launches
+- Add new app dirs to `tsconfig.json` include and serve compiled output from `build/` in `server.js`
+- Do not keep source-adjacent emitted `.js` files
 
 ## Design Implications For Agents
 
