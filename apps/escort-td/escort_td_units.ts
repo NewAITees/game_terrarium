@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import { BufferGeometry,DoubleSide,Line,LineBasicMaterial,Mesh,MeshBasicMaterial,RingGeometry,Vector3, } from 'three';
 import { CS, GOLD_KILL, PIECE, type Effect, type Enemy, type Unit } from './escort_td_core.js';
 
 export function createEscortTdUnitCombat(context: {
@@ -71,16 +71,16 @@ export function createEscortTdUnitCombat(context: {
   }
 
   function spawnTracer(fx: number, fz: number, tx: number, tz: number, color: number): void {
-    const pts = [new THREE.Vector3(fx, CS * 0.32, fz), new THREE.Vector3(tx, CS * 0.2, tz)];
-    const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 1 });
-    const mesh = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat);
+    const pts = [new Vector3(fx, CS * 0.32, fz), new Vector3(tx, CS * 0.2, tz)];
+    const mat = new LineBasicMaterial({ color, transparent: true, opacity: 1 });
+    const mesh = new Line(new BufferGeometry().setFromPoints(pts), mat);
     context.scene.add(mesh);
     context.effects.push({ grow: false, life: 0.12, mat, maxLife: 0.12, mesh });
   }
 
   function spawnAOERing(tx: number, tz: number, radius: number, color: number): void {
-    const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.55, side: THREE.DoubleSide });
-    const mesh = new THREE.Mesh(new THREE.RingGeometry(radius * 0.85, radius, 32), mat);
+    const mat = new MeshBasicMaterial({ color, transparent: true, opacity: 0.55, side: DoubleSide });
+    const mesh = new Mesh(new RingGeometry(radius * 0.85, radius, 32), mat);
     mesh.rotation.x = -Math.PI / 2;
     mesh.position.set(tx, 0.25, tz);
     mesh.scale.setScalar(0.05);

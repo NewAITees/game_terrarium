@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import { Color, } from 'three';
 
 export function spawnEnemy(context: any) {
   const { game, topo, rng, enemyFrontierTarget, enemyPackets, route, createPacket, adj } = context;
@@ -172,9 +172,9 @@ export function updatePackets(context: any, list: any[], dt: number, onArrive: (
 
 export function setNodeColor(node: any, now: number) {
   const style = node.baseStyle;
-  const base = new THREE.Color(style.color);
-  const color = base.lerp(new THREE.Color(0xff2e24), node.infection);
-  if (node.hardenUntil > now) color.lerp(new THREE.Color(0x80e8ff), 0.55);
+  const base = new Color(style.color);
+  const color = base.lerp(new Color(0xff2e24), node.infection);
+  if (node.hardenUntil > now) color.lerp(new Color(0x80e8ff), 0.55);
   if (node.rebootUntil > now) color.set(0x566472);
   node.material.color.copy(color);
   node.material.emissive.copy(color).multiplyScalar(node.isServer ? 0.55 : 0.35);

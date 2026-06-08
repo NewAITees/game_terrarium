@@ -15,9 +15,14 @@ npm run typecheck
 npm start
 ```
 
-Browser code is still loaded as ES modules in HTML, but migrated modules compile from `.ts` sources into `build/`, and `npm start` rebuilds them via `prestart`. Source-adjacent emitted `.js` files for migrated modules should not be kept.
+Browser apps are bundled by **Vite** (`vite.config.ts`) into `build/`. Shared vendor chunks (Three.js etc.) go to `build/_vendor/` and are served by Express under `/_vendor/`. The Node.js side (`main.ts`, `server.ts`) is compiled separately by `tsc -p tsconfig.node.json` into `build-node/`.
 
-**Rule: all new browser-side source files must be TypeScript (`.ts`).** Do not create new `.js` files under `apps/` or `shared/`. Add new app directories to the `include` array in `tsconfig.json`, and register the compiled output path (`build/apps/<app>/<file>.js`) in `server.js`.
+**Rules for new browser-side code:**
+- All new source files must be TypeScript (`.ts`). Do not create `.js` files under `apps/` or `shared/`.
+- Add new app entry points to `vite.config.ts` `rollupOptions.input`.
+- Add new app entry points to `tsconfig.json` `include` (for type checking).
+- Use **named imports** from Three.js (`import { Mesh, Scene } from 'three'`) — never `import * as THREE`. Named imports enable tree-shaking.
+- Use `import type` for type-only imports.
 
 ## Architecture
 

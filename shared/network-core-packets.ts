@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import { Mesh,MeshBasicMaterial,SphereGeometry, } from 'three';
 import { RNG, edgeKey } from './network-core-topology.js';
 
 export function spawnPacket(packet: any, terms: any[], server: any, routeFn: any, rng: RNG) {
@@ -21,9 +21,9 @@ export function buildPackets(count: number, scene: any, topo: any, seed: number,
   const rng = new RNG(seed);
   const terms = topo.lnodes.term;
   const packets = Array.from({ length: count }, () => {
-    const mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(.37, 7, 7),
-      new THREE.MeshBasicMaterial({ color: colors[rng.int(0, colors.length - 1)] })
+    const mesh = new Mesh(
+      new SphereGeometry(.37, 7, 7),
+      new MeshBasicMaterial({ color: colors[rng.int(0, colors.length - 1)] })
     );
     scene.add(mesh);
     const packet = { mesh, path: [], seg: 0, t: rng.next(), speed: .3 };

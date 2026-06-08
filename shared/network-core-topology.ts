@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import { BoxGeometry,ConeGeometry,CylinderGeometry,TorusGeometry, } from 'three';
 
 export class RNG {
   s: number;
@@ -204,9 +204,9 @@ export function findShortestPath(from: any, to: any, adj: Map<number, any[]>) {
 }
 
 export const STYLE = {
-  core: { color: 0x3B8BD4, em: 0x0d2d55, emI: 1.4, geo: () => new THREE.TorusGeometry(4, 1.1, 12, 26), halo: 10, hOp: .06, rx: .18, rz: .10 },
-  dist: { color: 0x1D9E75, em: 0x073d2c, emI: 1.3, geo: () => new THREE.TorusGeometry(2.6, .72, 10, 20), halo: 6.5, hOp: .05, rx: .22, rz: .14 },
-  acc: { color: 0xBA7517, em: 0x4a2c06, emI: 1.1, geo: () => new THREE.BoxGeometry(4.8, .85, 2.6), halo: 5, hOp: .04 },
-  term: { color: 0xb4c8de, em: 0x2a3c50, emI: 1.2, geo: () => new THREE.ConeGeometry(1.0, 2.5, 6), halo: 3.2, hOp: .04, ry: .28 },
-  server: { color: 0xFFD060, em: 0x7a4a00, emI: 1.8, geo: () => new THREE.CylinderGeometry(1.9, 2.3, 5.5, 10), halo: 9, hOp: .07, ry: .12 },
+  core: { color: 0x3B8BD4, em: 0x0d2d55, emI: 1.4, geo: () => new TorusGeometry(4, 1.1, 12, 26), halo: 10, hOp: .06, rx: .18, rz: .10 },
+  dist: { color: 0x1D9E75, em: 0x073d2c, emI: 1.3, geo: () => new TorusGeometry(2.6, .72, 10, 20), halo: 6.5, hOp: .05, rx: .22, rz: .14 },
+  acc: { color: 0xBA7517, em: 0x4a2c06, emI: 1.1, geo: () => new BoxGeometry(4.8, .85, 2.6), halo: 5, hOp: .04 },
+  term: { color: 0xb4c8de, em: 0x2a3c50, emI: 1.2, geo: () => new ConeGeometry(1.0, 2.5, 6), halo: 3.2, hOp: .04, ry: .28 },
+  server: { color: 0xFFD060, em: 0x7a4a00, emI: 1.8, geo: () => new CylinderGeometry(1.9, 2.3, 5.5, 10), halo: 9, hOp: .07, ry: .12 },
 };

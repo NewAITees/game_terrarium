@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import { BoxGeometry,ConeGeometry,CylinderGeometry,SphereGeometry,Vector3, } from 'three';
 
 export const GW = 21;
 export const GH = 17;
@@ -48,27 +48,27 @@ export const PIECE: Record<PieceType, PieceDef> = {
   pawn: {
     cost: 40, range: CS * 3.5, fireRate: 0.48, dmg: 14, aoe: 0,
     color: 0x40e0d0, emissive: 0x0a3535,
-    makeGeo: () => new THREE.CylinderGeometry(CS * 0.27, CS * 0.31, CS * 0.48, 8),
+    makeGeo: () => new CylinderGeometry(CS * 0.27, CS * 0.31, CS * 0.48, 8),
   },
   rook: {
     cost: 80, range: CS * 6, fireRate: 1.0, dmg: 38, aoe: CS * 1.6,
     color: 0x8899cc, emissive: 0x111a33,
-    makeGeo: () => new THREE.BoxGeometry(CS * 0.62, CS * 0.55, CS * 0.62),
+    makeGeo: () => new BoxGeometry(CS * 0.62, CS * 0.55, CS * 0.62),
   },
   bishop: {
     cost: 70, range: CS * 8, fireRate: 1.2, dmg: 45, aoe: 0,
     color: 0xcc77ee, emissive: 0x220033,
-    makeGeo: () => new THREE.ConeGeometry(CS * 0.27, CS * 0.72, 8),
+    makeGeo: () => new ConeGeometry(CS * 0.27, CS * 0.72, 8),
   },
   knight: {
     cost: 90, range: CS * 1.8, fireRate: 0.14, dmg: 6, aoe: 0,
     color: 0xdd9944, emissive: 0x331100,
-    makeGeo: () => new THREE.BoxGeometry(CS * 0.52, CS * 0.62, CS * 0.42),
+    makeGeo: () => new BoxGeometry(CS * 0.52, CS * 0.62, CS * 0.42),
   },
   queen: {
     cost: 150, range: CS * 12, fireRate: 4.0, dmg: 160, aoe: CS * 3.2,
     color: 0xffe066, emissive: 0x554400,
-    makeGeo: () => new THREE.SphereGeometry(CS * 0.34, 12, 8),
+    makeGeo: () => new SphereGeometry(CS * 0.34, 12, 8),
   },
 };
 
@@ -142,7 +142,7 @@ export function bfsFlow(g: Uint8Array[], width: number, height: number, goalX: n
 }
 
 export function g2w(gx: number, gy: number) {
-  return new THREE.Vector3((gx - GW / 2 + 0.5) * CS, 0, (gy - GH / 2 + 0.5) * CS);
+  return new Vector3((gx - GW / 2 + 0.5) * CS, 0, (gy - GH / 2 + 0.5) * CS);
 }
 
 export function w2gi(wx: number, wz: number) {

@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import { Clock, } from 'three';
 import { createColonyObservation } from './colony_observation.js';
 import { createColonyRuntime } from './colony_runtime.js';
 import { createColonyScene } from './colony_scene.js';
@@ -224,7 +224,7 @@ const observation = createColonyObservation({
 });
 const { doIntervention, pollInterventions, reportTelemetry, updateHUD, updateVisuals } = observation;
 logEvent = observation.logEvent;
-const clock = new THREE.Clock();
+const clock = new Clock();
 createColonyRuntime({
   camera,
   clock,

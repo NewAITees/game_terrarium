@@ -1,20 +1,20 @@
-import * as THREE from 'three';
+import { AmbientLight,BoxGeometry,Color,CylinderGeometry,DirectionalLight,FogExp2,Mesh,MeshBasicMaterial,MeshLambertMaterial,PerspectiveCamera,Plane,PlaneGeometry,Raycaster,Scene,Vector2,Vector3,WebGLRenderer, } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { bindComposerResize } from '../../shared/browser-runtime.js';
 import { CS, GH, GOLD_KILL, GW, PIECE, ROAD, VISION, g2w, w2gi, type Enemy, type PieceType, type Unit } from './escort_td_core.js';
 
 export function createEscortTdScene(city: any, seed: number) {
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  const renderer = new WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.setSize(innerWidth, innerHeight);
   renderer.shadowMap.enabled = true;
   document.body.appendChild(renderer.domElement);
 
-  const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x0d1117);
-  scene.fog = new THREE.FogExp2(0x0d1117, 0.007);
+  const scene = new Scene();
+  scene.background = new Color(0x0d1117);
+  scene.fog = new FogExp2(0x0d1117, 0.007);
 
-  const camera = new THREE.PerspectiveCamera(48, innerWidth / innerHeight, 0.5, 400);
+  const camera = new PerspectiveCamera(48, innerWidth / innerHeight, 0.5, 400);
   camera.position.set(0, 68, 48);
   camera.lookAt(0, 0, 0);
 
@@ -25,8 +25,8 @@ export function createEscortTdScene(city: any, seed: number) {
   controls.minDistance = 15;
   controls.maxDistance = 160;
 
-  scene.add(new THREE.AmbientLight(0x223355, 3.5));
-  const sun = new THREE.DirectionalLight(0xfff0e0, 2.5);
+  scene.add(new AmbientLight(0x223355, 3.5));
+  const sun = new DirectionalLight(0xfff0e0, 2.5);
   sun.position.set(30, 60, 20);
   sun.castShadow = true;
   sun.shadow.mapSize.setScalar(1024);
@@ -63,12 +63,12 @@ export function bindEscortTdInputs(context: {
     });
   });
 
-  const ray = new THREE.Raycaster();
-  const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-  const hitPt = new THREE.Vector3();
+  const ray = new Raycaster();
+  const plane = new Plane(new Vector3(0, 1, 0), 0);
+  const hitPt = new Vector3();
   context.renderer.domElement.addEventListener('click', (event: MouseEvent) => {
     ray.setFromCamera(
-      new THREE.Vector2((event.clientX / innerWidth) * 2 - 1, -(event.clientY / innerHeight) * 2 + 1),
+      new Vector2((event.clientX / innerWidth) * 2 - 1, -(event.clientY / innerHeight) * 2 + 1),
       context.camera
     );
     if (!ray.ray.intersectPlane(plane, hitPt)) return;
@@ -127,23 +127,23 @@ export function updateEscortTdHud(hud: any, vipHp: number, vipHpMax: number, gol
 
 function buildCityMeshes(scene: any, city: any, seed: number): void {
   const rnd = mkRng(seed + 7);
-  const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(GW * CS, GH * CS),
-    new THREE.MeshLambertMaterial({ color: 0x1a2030 })
+  const ground = new Mesh(
+    new PlaneGeometry(GW * CS, GH * CS),
+    new MeshLambertMaterial({ color: 0x1a2030 })
   );
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = true;
   scene.add(ground);
 
-  const roadMat = new THREE.MeshLambertMaterial({ color: 0x252f3c });
+  const roadMat = new MeshLambertMaterial({ color: 0x252f3c });
   for (let x = 0; x < GW; x += ROAD) {
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(CS * 0.92, GH * CS), roadMat);
+    const mesh = new Mesh(new PlaneGeometry(CS * 0.92, GH * CS), roadMat);
     mesh.rotation.x = -Math.PI / 2;
     mesh.position.set((x - GW / 2 + 0.5) * CS, 0.01, 0);
     scene.add(mesh);
   }
   for (let y = 0; y < GH; y += ROAD) {
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(GW * CS, CS * 0.92), roadMat);
+    const mesh = new Mesh(new PlaneGeometry(GW * CS, CS * 0.92), roadMat);
     mesh.rotation.x = -Math.PI / 2;
     mesh.position.set(0, 0.01, (y - GH / 2 + 0.5) * CS);
     scene.add(mesh);
@@ -155,9 +155,9 @@ function buildCityMeshes(scene: any, city: any, seed: number): void {
       if (city.g[y][x] !== 1) continue;
       const h = 4 + rnd() * 13;
       const w = CS * (0.76 + rnd() * 0.14);
-      const mesh = new THREE.Mesh(
-        new THREE.BoxGeometry(w, h, w),
-        new THREE.MeshLambertMaterial({ color: buildingColors[Math.floor(rnd() * buildingColors.length)] })
+      const mesh = new Mesh(
+        new BoxGeometry(w, h, w),
+        new MeshLambertMaterial({ color: buildingColors[Math.floor(rnd() * buildingColors.length)] })
       );
       mesh.castShadow = true;
       mesh.receiveShadow = true;
@@ -168,9 +168,9 @@ function buildCityMeshes(scene: any, city: any, seed: number): void {
   }
 
   ([[city.start, 0x00ee88], [city.end, 0xff8800]] as [any, number][]).forEach(([pt, color]) => {
-    const mesh = new THREE.Mesh(
-      new THREE.CylinderGeometry(CS * 0.42, CS * 0.42, 0.3, 16),
-      new THREE.MeshLambertMaterial({ color, emissive: color, emissiveIntensity: 0.5 })
+    const mesh = new Mesh(
+      new CylinderGeometry(CS * 0.42, CS * 0.42, 0.3, 16),
+      new MeshLambertMaterial({ color, emissive: color, emissiveIntensity: 0.5 })
     );
     mesh.position.copy(g2w(pt.x, pt.y));
     mesh.position.y = 0.2;
@@ -179,8 +179,8 @@ function buildCityMeshes(scene: any, city: any, seed: number): void {
 }
 
 function buildFogTiles(scene: any): any[] {
-  const fogGeo = new THREE.PlaneGeometry(CS * 0.99, CS * 0.99);
-  const fogMat = new THREE.MeshBasicMaterial({
+  const fogGeo = new PlaneGeometry(CS * 0.99, CS * 0.99);
+  const fogMat = new MeshBasicMaterial({
     color: 0x06080f,
     transparent: true,
     opacity: 0.82,
@@ -189,7 +189,7 @@ function buildFogTiles(scene: any): any[] {
   const fogCells: any[] = [];
   for (let gy = 0; gy < GH; gy++) {
     for (let gx = 0; gx < GW; gx++) {
-      const mesh = new THREE.Mesh(fogGeo, fogMat);
+      const mesh = new Mesh(fogGeo, fogMat);
       mesh.rotation.x = -Math.PI / 2;
       const p = g2w(gx, gy);
       mesh.position.set(p.x, 0.6, p.z);

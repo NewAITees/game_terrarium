@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import { Mesh,MeshBasicMaterial,OctahedronGeometry,SphereGeometry,Vector3, } from 'three';
 import { edgeKey } from './network-core.js';
 import { AGENT_COSTS, AGENT_RANKS, RANK_PROFILE, actionStats } from './network_defense_config.js';
 
@@ -42,9 +42,9 @@ export function safeStagingNode(context: any, target: any, from = context.topo.s
 }
 
 export function createPacket(context: any, color: number, radius: number) {
-  const mesh = new THREE.Mesh(
-    new THREE.SphereGeometry(radius, 9, 9),
-    new THREE.MeshBasicMaterial({ color })
+  const mesh = new Mesh(
+    new SphereGeometry(radius, 9, 9),
+    new MeshBasicMaterial({ color })
   );
   context.scene.add(mesh);
   return mesh;
@@ -52,14 +52,14 @@ export function createPacket(context: any, color: number, radius: number) {
 
 export function agentHomePosition(context: any, index = 1) {
   const { topo } = context;
-  return new THREE.Vector3(topo.server.x + index * 2.6 - 2.6, topo.server.y + 8, topo.server.z);
+  return new Vector3(topo.server.x + index * 2.6 - 2.6, topo.server.y + 8, topo.server.z);
 }
 
 export function createAgent(context: any, rank: any, index = context.agents.length) {
   const spec = AGENT_RANKS[rank];
-  const mesh = new THREE.Mesh(
-    new THREE.OctahedronGeometry(spec.size, 0),
-    new THREE.MeshBasicMaterial({ color: spec.color })
+  const mesh = new Mesh(
+    new OctahedronGeometry(spec.size, 0),
+    new MeshBasicMaterial({ color: spec.color })
   );
   mesh.position.copy(agentHomePosition(context, index));
   context.scene.add(mesh);

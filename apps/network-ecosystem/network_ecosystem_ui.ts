@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import { Color, } from 'three';
 import { balanceScore } from './network_ecosystem_metrics.js';
 import type { EcosystemGameState, EcosystemTotals } from '../../shared/types/network_ecosystem.js';
 
@@ -30,11 +30,11 @@ export function interactEcosystemNode(node: any, game: EcosystemGameState): void
 }
 
 export function updateEcosystemNodeVisuals(topo: any): void {
-  const healthy = new THREE.Color(0x79d984);
-  const immune = new THREE.Color(0x57d7ff);
-  const threat = new THREE.Color(0xff5b3d);
-  const carnivore = new THREE.Color(0xffd35a);
-  const depleted = new THREE.Color(0x4a514b);
+  const healthy = new Color(0x79d984);
+  const immune = new Color(0x57d7ff);
+  const threat = new Color(0xff5b3d);
+  const carnivore = new Color(0xffd35a);
+  const depleted = new Color(0x4a514b);
 
   for (const node of topo.nodes) {
     const color = depleted.clone().lerp(healthy, node.resource);

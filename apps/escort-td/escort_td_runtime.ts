@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import { BoxGeometry,Mesh,MeshLambertMaterial, } from 'three';
 import { startAnimationFrameLoop } from '../../shared/browser-runtime.js';
 import {
   CS,
@@ -51,8 +51,8 @@ export function createEscortTdRuntime(context: any) {
   let won = false;
 
   const spawnCells = buildSpawnCells(context.city);
-  const enemyGeo = new THREE.BoxGeometry(CS * 0.36, CS * 0.36, CS * 0.36);
-  const enemyMat = new THREE.MeshLambertMaterial({ color: 0xee2222, emissive: 0x660000, emissiveIntensity: 0.4 });
+  const enemyGeo = new BoxGeometry(CS * 0.36, CS * 0.36, CS * 0.36);
+  const enemyMat = new MeshLambertMaterial({ color: 0xee2222, emissive: 0x660000, emissiveIntensity: 0.4 });
 
   function placeUnit(gx: number, gy: number, type: PieceType): void {
     const def = PIECE[type];
@@ -61,9 +61,9 @@ export function createEscortTdRuntime(context: any) {
     if (units.some((unit) => unit.gx === gx && unit.gy === gy)) return;
     state.gold -= def.cost;
     const p = g2w(gx, gy);
-    const mesh = new THREE.Mesh(
+    const mesh = new Mesh(
       def.makeGeo(),
-      new THREE.MeshLambertMaterial({ color: def.color, emissive: def.emissive, emissiveIntensity: 0.35 })
+      new MeshLambertMaterial({ color: def.color, emissive: def.emissive, emissiveIntensity: 0.35 })
     );
     mesh.castShadow = true;
     mesh.position.set(p.x, CS * 0.24, p.z);
@@ -217,7 +217,7 @@ export function createEscortTdRuntime(context: any) {
       const p = g2w(c.x, c.y);
       const jx = (Math.random() - 0.5) * CS * 0.3;
       const jz = (Math.random() - 0.5) * CS * 0.3;
-      const mesh = new THREE.Mesh(geo, mat.clone());
+      const mesh = new Mesh(geo, mat.clone());
       mesh.castShadow = true;
       mesh.position.set(p.x + jx, CS * 0.18, p.z + jz);
       context.scene.add(mesh);
@@ -255,9 +255,9 @@ function buildVipPath(flow: Int8Array, start: GridPt, end: GridPt): any[] {
 }
 
 function createVipMesh(scene: any, startPoint: any) {
-  const mesh = new THREE.Mesh(
-    new THREE.BoxGeometry(CS * 0.54, CS * 0.72, CS * 0.54),
-    new THREE.MeshLambertMaterial({ color: 0xffd700, emissive: 0xffaa00, emissiveIntensity: 0.35 })
+  const mesh = new Mesh(
+    new BoxGeometry(CS * 0.54, CS * 0.72, CS * 0.54),
+    new MeshLambertMaterial({ color: 0xffd700, emissive: 0xffaa00, emissiveIntensity: 0.35 })
   );
   mesh.castShadow = true;
   mesh.position.copy(startPoint);

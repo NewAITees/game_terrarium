@@ -5,7 +5,7 @@ export default defineConfig({
   build: {
     outDir: 'build',
     emptyOutDir: false,
-    minify: false,
+    minify: true,
     rollupOptions: {
       input: {
         'apps/escort-td/escort_td':

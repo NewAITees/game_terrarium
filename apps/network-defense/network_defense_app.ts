@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import { Clock, } from 'three';
 import {
   edgeKey,
   tickEdges,
@@ -224,7 +224,7 @@ if (observerMode && rankPersonalities) {
   }
 }
 startNetworkDefenseLoop({
-  clock: new THREE.Clock(),
+  clock: new Clock(),
   game,
   observerMode,
   rng,

@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import { Clock, } from 'three';
 import { D4, GW, GH, buildCity } from './escort_td_core.js';
 import { createEscortTdRuntime } from './escort_td_runtime.js';
 import { bindEscortTdInputs, createEscortTdScene } from './escort_td_scene.js';
@@ -19,4 +19,4 @@ bindEscortTdInputs({
   onRestart: runtime.restartIfFinished,
 });
 
-runtime.start(new THREE.Clock());
+runtime.start(new Clock());

@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import { Mesh,MeshBasicMaterial,SphereGeometry, } from 'three';
 import { edgeKey } from './network-core.js';
 import type { EcosystemRuntimeContext } from '../../shared/types/network_ecosystem.js';
 
@@ -105,9 +105,9 @@ export function spawnPulse(context: EcosystemRuntimeContext): void {
   const edge = edgeMap.get(edgeKey(source.id, target.id));
   if (!edge) return;
 
-  const mesh = new THREE.Mesh(
-    new THREE.SphereGeometry(pulseType === 'threat' ? 0.48 : pulseType === 'carnivore' ? 0.54 : 0.42, 8, 8),
-    new THREE.MeshBasicMaterial({ color: pulseType === 'threat' ? 0xff684d : pulseType === 'carnivore' ? 0xffd35a : 0x77eaff }),
+  const mesh = new Mesh(
+    new SphereGeometry(pulseType === 'threat' ? 0.48 : pulseType === 'carnivore' ? 0.54 : 0.42, 8, 8),
+    new MeshBasicMaterial({ color: pulseType === 'threat' ? 0xff684d : pulseType === 'carnivore' ? 0xffd35a : 0x77eaff }),
   );
   scene.add(mesh);
   pulses.push({ mesh, edge, from: source, t: 0, speed: 0.45 + rng.next() * 0.35, pulseType });

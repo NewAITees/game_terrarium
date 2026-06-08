@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import { ACESFilmicToneMapping,AdditiveBlending,AmbientLight,BackSide,Color,DirectionalLight,FogExp2,GridHelper,Mesh,MeshBasicMaterial,PerspectiveCamera,Raycaster,Scene,SphereGeometry,Vector2,WebGLRenderer, } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
@@ -20,16 +20,16 @@ export function initializeNetworkDefenseRender({
   observerMode: boolean;
   lowLoadMode: boolean;
 }) {
-  const scene = new THREE.Scene();
-  scene.background = new THREE.Color(background);
-  scene.fog = new THREE.FogExp2(background, 0.0042);
+  const scene = new Scene();
+  scene.background = new Color(background);
+  scene.fog = new FogExp2(background, 0.0042);
 
-  const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 0.5, 700);
+  const camera = new PerspectiveCamera(42, innerWidth / innerHeight, 0.5, 700);
   camera.position.set(0, 72, 130);
 
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  const renderer = new WebGLRenderer({ antialias: true });
   renderer.setSize(innerWidth, innerHeight);
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMapping = ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.1;
   document.body.appendChild(renderer.domElement);
 
@@ -44,19 +44,19 @@ export function initializeNetworkDefenseRender({
 
   const composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, camera));
-  const bloomPass = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 1.5, 0.5, 0.07);
+  const bloomPass = new UnrealBloomPass(new Vector2(innerWidth, innerHeight), 1.5, 0.5, 0.07);
   composer.addPass(bloomPass);
 
-  scene.add(new THREE.AmbientLight(0x112233, 3));
-  const keyLight = new THREE.DirectionalLight(0xfff0cc, 1.6);
+  scene.add(new AmbientLight(0x112233, 3));
+  const keyLight = new DirectionalLight(0xfff0cc, 1.6);
   keyLight.position.set(20, 60, 30);
   scene.add(keyLight);
-  const fillLight = new THREE.DirectionalLight(0x2244aa, 0.8);
+  const fillLight = new DirectionalLight(0x2244aa, 0.8);
   fillLight.position.set(-30, 20, -40);
   scene.add(fillLight);
 
-  const raycaster = new THREE.Raycaster();
-  const pointer = new THREE.Vector2();
+  const raycaster = new Raycaster();
+  const pointer = new Vector2();
   const clickable: any[] = [];
   const topo = buildTopology(total, seed, 'smallworld', rewirePct);
   const spinData: any[] = [];
@@ -66,7 +66,7 @@ export function initializeNetworkDefenseRender({
   const serverGlow = buildScene(topo, scene, spinData);
   buildEdges(topo, scene, edgeMap, allEdges, mats);
 
-  const grid = new THREE.GridHelper(200, 40, 0x0f2030, 0x0a1820);
+  const grid = new GridHelper(200, 40, 0x0f2030, 0x0a1820);
   grid.position.y = -26;
   scene.add(grid);
 
@@ -101,10 +101,10 @@ export function initializeNetworkDefenseRender({
 function makeLevelMats(rHDR: number, gHDR: number, bHDR: number, levels = 10) {
   return Array.from({ length: levels }, (_, i) => {
     const b = i / (levels - 1);
-    const mat = new THREE.MeshBasicMaterial({
+    const mat = new MeshBasicMaterial({
       transparent: true,
-      side: THREE.BackSide,
-      blending: THREE.AdditiveBlending,
+      side: BackSide,
+      blending: AdditiveBlending,
       depthWrite: false,
     });
     mat.color.setRGB(rHDR * b, gHDR * b, bHDR * b);
@@ -116,11 +116,11 @@ function makeLevelMats(rHDR: number, gHDR: number, bHDR: number, levels = 10) {
 export function createNetworkDefenseFlashPools(scene: any) {
   const MATS_ATK = makeLevelMats(3.0, 0.08, 0.04);
   const MATS_NORM = makeLevelMats(0.1, 1.5, 3.0);
-  const flashGeo = new THREE.SphereGeometry(9, 8, 8);
+  const flashGeo = new SphereGeometry(9, 8, 8);
 
   function makeSpherePools(mats: any[], count: number) {
     return Array.from({ length: count }, () => {
-      const mesh = new THREE.Mesh(flashGeo, mats[0]);
+      const mesh = new Mesh(flashGeo, mats[0]);
       mesh.visible = false;
       scene.add(mesh);
       return { mesh, t: 0, mats };

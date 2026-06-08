@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import { ACESFilmicToneMapping,AmbientLight,Clock,Color,DirectionalLight,FogExp2,GridHelper,PerspectiveCamera,Raycaster,Scene,Vector2,WebGLRenderer, } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
@@ -34,17 +34,17 @@ const TOTAL = 30 + (Math.random() * 18 | 0);
 const SEED = Math.random() * 1e9 | 0;
 const BG = 0x0b2114;
 
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(BG);
-scene.fog = new THREE.FogExp2(BG, 0.004);
+const scene = new Scene();
+scene.background = new Color(BG);
+scene.fog = new FogExp2(BG, 0.004);
 
-const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 0.5, 700);
+const camera = new PerspectiveCamera(42, innerWidth / innerHeight, 0.5, 700);
 camera.position.set(0, 76, 138);
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+const renderer = new WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMapping = ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
 document.body.appendChild(renderer.domElement);
 
@@ -59,18 +59,18 @@ controls.target.set(0, 8, 0);
 
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
-composer.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 1.15, 0.45, 0.08));
+composer.addPass(new UnrealBloomPass(new Vector2(innerWidth, innerHeight), 1.15, 0.45, 0.08));
 
-scene.add(new THREE.AmbientLight(0x183522, 3));
-const keyLight = new THREE.DirectionalLight(0xf2ffe8, 1.4);
+scene.add(new AmbientLight(0x183522, 3));
+const keyLight = new DirectionalLight(0xf2ffe8, 1.4);
 keyLight.position.set(22, 62, 36);
 scene.add(keyLight);
-const fillLight = new THREE.DirectionalLight(0x2a9c73, 0.9);
+const fillLight = new DirectionalLight(0x2a9c73, 0.9);
 fillLight.position.set(-38, 28, -46);
 scene.add(fillLight);
 
-const raycaster = new THREE.Raycaster();
-const pointer = new THREE.Vector2();
+const raycaster = new Raycaster();
+const pointer = new Vector2();
 const clickable: any[] = [];
 
 const topo = buildTopology(TOTAL, SEED, 'smallworld', 34);
@@ -93,7 +93,7 @@ const game: EcosystemGameState = {
 };
 const runtime: EcosystemRuntimeContext = { topo, adj, rng, edgeMap, scene, pulses, game };
 
-const grid = new THREE.GridHelper(200, 40, 0x163322, 0x0d2116);
+const grid = new GridHelper(200, 40, 0x163322, 0x0d2116);
 grid.position.y = -26;
 scene.add(grid);
 
@@ -123,7 +123,7 @@ window.addEventListener('pointerdown', (event: PointerEvent) => {
   if (hits.length) interactEcosystemNode(hits[0].object.userData.node, game);
 });
 
-const clock = new THREE.Clock();
+const clock = new Clock();
 let elapsed = 0;
 
 function tick(dt: number, now: number): void {
