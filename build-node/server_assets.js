@@ -43,6 +43,7 @@ async function mountBrowserAssetRoutes(app, projectRoot) {
     app.use('/agent_rules', express_1.default.static(path_1.default.join(projectRoot, 'agent_rules')));
     app.use('/faction_rules', express_1.default.static(path_1.default.join(projectRoot, 'faction_rules')));
     app.use('/assets', express_1.default.static(path_1.default.join(projectRoot, 'assets')));
+    app.use('/_vendor', express_1.default.static(path_1.default.join(projectRoot, 'build', '_vendor')));
     registerFileRoutes(app, projectRoot, {
         '/escort_td.html': 'apps/escort-td/escort_td.html',
         '/colony.html': 'apps/colony/colony.html',

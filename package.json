@@ -5,17 +5,20 @@
   "description": "Always-on-top Electron viewer: city/moss/network visualizations, dungeon game, and network defense with Ollama-driven AI strategy",
   "main": "build-node/main.js",
   "scripts": {
-    "build": "node_modules/.bin/tsc -p tsconfig.json && node_modules/.bin/tsc -p tsconfig.node.json",
+    "build": "node_modules/.bin/vite build && node_modules/.bin/tsc -p tsconfig.node.json",
     "prestart": "npm run build",
     "typecheck": "node_modules/.bin/tsc -p tsconfig.json --noEmit && node_modules/.bin/tsc -p tsconfig.node.json --noEmit",
     "start": "electron ."
   },
   "devDependencies": {
+    "@types/three": "^0.184.1",
     "electron": "^42.3.3",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vite": "^8.0.16"
   },
   "dependencies": {
     "express": "^5.2.1",
+    "three": "^0.184.0",
     "ws": "^8.21.0"
   }
 }
