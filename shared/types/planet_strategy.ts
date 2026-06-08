@@ -36,9 +36,14 @@ export interface PlanetStrategyPlanet extends PlanetStrategyPosition {
   ring?: any | null;
   labelGlow?: any | null;
   oreRing?: any | null;
+  ownershipRing?: any | null;
   alertRing?: any | null;
   homeAura?: any | null;
   roleGlow?: any | null;
+  factoryIcon?: any | null;
+  factoryLight?: any | null;
+  factoryLightGroup?: any | null;
+  structureAsset?: any | null;
   labelSprite?: any | null;
   labelText?: string;
   decorRing?: any | null;
@@ -165,6 +170,8 @@ export interface PlanetStrategyRenderer {
   attachShipMesh: (ship: PlanetStrategyShip, empire: PlanetStrategyEmpire) => void;
   ensureRouteVisual: (route: PlanetStrategyRoute) => void;
   removeShipMesh: (ship: PlanetStrategyShip) => void;
+  triggerPlanetFlash: (planet: PlanetStrategyPlanet, kind?: 'damage' | 'destroyed') => void;
+  triggerShipFlash: (ship: PlanetStrategyShip) => void;
   renderFrame: () => void;
   updateVisuals: (dt?: number) => void;
   onResize: () => void;

@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import { Clock, } from 'three';
 import { bindComposerResize, startAnimationFrameLoop, startHiddenTabLoop } from '../../shared/browser-runtime.js';
 import { createPlanetStrategyRenderer } from './planet_strategy_render.js';
 import { createPlanetStrategyUi } from './planet_strategy_ui.js';
@@ -58,7 +58,7 @@ const {
   rng,
 });
 const rendererView = createPlanetStrategyRenderer({ world, rng, getPlanet, distance3d, routeKey });
-const clock = new THREE.Clock();
+const clock = new Clock();
 let aiTick = 0;
 let mineTick = 0;
 let factoryTick = 0;
@@ -172,6 +172,7 @@ const {
   matchEndSeconds: MATCH_END_SECONDS,
   matchForceEndSeconds: MATCH_FORCE_END_SECONDS,
   maybeLog,
+  rendererView,
   tieBreakDelta: TIE_BREAK_DELTA,
   ui,
   world,

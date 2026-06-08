@@ -1,9 +1,9 @@
-import * as THREE from 'three';
+import { BoxGeometry,BufferGeometry,Color,ConeGeometry,DoubleSide,EdgesGeometry,Group,Line,LineBasicMaterial,LineSegments,Mesh,MeshBasicMaterial,MeshStandardMaterial,PlaneGeometry,QuadraticBezierCurve3,SphereGeometry,Vector3, } from 'three';
 
 export function createPlanetStrategyShipVisuals(context: any) {
   function makeShipMesh(empire: any, kind = 'transport') {
-    const color = new THREE.Color(empire.color);
-    const material = new THREE.MeshStandardMaterial({
+    const color = new Color(empire.color);
+    const material = new MeshStandardMaterial({
       color,
       emissive: color,
       emissiveIntensity: 0.25,
@@ -12,14 +12,14 @@ export function createPlanetStrategyShipVisuals(context: any) {
     });
 
     if (kind === 'transport') {
-      const hull = new THREE.Group();
-      const body = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.68, 2.9), material);
+      const hull = new Group();
+      const body = new Mesh(new BoxGeometry(1.1, 0.68, 2.9), material);
       body.userData.shipPart = 'body';
       hull.add(body);
 
-      const frameMaterial = new THREE.LineBasicMaterial({ color: 0xbfe2ff, transparent: true, opacity: 0.42 });
-      const frame = new THREE.LineSegments(
-        new THREE.EdgesGeometry(new THREE.BoxGeometry(1.16, 0.74, 2.96)),
+      const frameMaterial = new LineBasicMaterial({ color: 0xbfe2ff, transparent: true, opacity: 0.42 });
+      const frame = new LineSegments(
+        new EdgesGeometry(new BoxGeometry(1.16, 0.74, 2.96)),
         frameMaterial
       );
       frame.userData.shipPart = 'frame';
@@ -28,24 +28,24 @@ export function createPlanetStrategyShipVisuals(context: any) {
     }
 
     if (kind === 'attacker') {
-      const geometry = new THREE.ConeGeometry(0.55, 4.2, 5);
+      const geometry = new ConeGeometry(0.55, 4.2, 5);
       geometry.rotateX(Math.PI / 2);
-      return new THREE.Mesh(geometry, material);
+      return new Mesh(geometry, material);
     }
 
-    const hull = new THREE.Group();
-    hull.add(new THREE.Mesh(new THREE.BoxGeometry(1.45, 1.45, 1.45), material));
-    hull.add(new THREE.LineSegments(
-      new THREE.EdgesGeometry(new THREE.BoxGeometry(1.52, 1.52, 1.52)),
-      new THREE.LineBasicMaterial({ color: 0xe6f4ff, transparent: true, opacity: 0.9 })
+    const hull = new Group();
+    hull.add(new Mesh(new BoxGeometry(1.45, 1.45, 1.45), material));
+    hull.add(new LineSegments(
+      new EdgesGeometry(new BoxGeometry(1.52, 1.52, 1.52)),
+      new LineBasicMaterial({ color: 0xe6f4ff, transparent: true, opacity: 0.9 })
     ));
 
-    const faceGeo = new THREE.PlaneGeometry(0.46, 0.46);
-    const faceMat = new THREE.MeshBasicMaterial({
+    const faceGeo = new PlaneGeometry(0.46, 0.46);
+    const faceMat = new MeshBasicMaterial({
       color: 0xc8f2ff,
       transparent: true,
       opacity: 0.5,
-      side: THREE.DoubleSide,
+      side: DoubleSide,
     });
     const offsets = [
       [0, 0, 0.77, 0, 0, 0],
@@ -56,7 +56,7 @@ export function createPlanetStrategyShipVisuals(context: any) {
       [0, -0.77, 0, Math.PI / 2, 0, 0],
     ];
     for (const [x, y, z, rx, ry, rz] of offsets) {
-      const panel = new THREE.Mesh(faceGeo, faceMat.clone());
+      const panel = new Mesh(faceGeo, faceMat.clone());
       panel.position.set(x, y, z);
       panel.rotation.set(rx, ry, rz);
       hull.add(panel);
@@ -99,17 +99,17 @@ export function createPlanetStrategyShipVisuals(context: any) {
     const from = context.getPlanet(route.fromPlanetId);
     const to = context.getPlanet(route.toPlanetId);
     if (!from || !to) return;
-    const p0 = new THREE.Vector3(from.x, from.y, from.z);
-    const p2 = new THREE.Vector3(to.x, to.y, to.z);
+    const p0 = new Vector3(from.x, from.y, from.z);
+    const p2 = new Vector3(to.x, to.y, to.z);
     const mid = p0.clone().lerp(p2, 0.5);
     mid.y += 18 + context.distance3d(from, to) * 0.06;
-    const curve = new THREE.QuadraticBezierCurve3(p0, mid, p2);
-    const geometry = new THREE.BufferGeometry().setFromPoints(curve.getPoints(52));
-    const material = new THREE.LineBasicMaterial({ color: 0x35627c, transparent: true, opacity: 0.15 });
-    const line = new THREE.Line(geometry, material);
-    const glow = new THREE.Line(
+    const curve = new QuadraticBezierCurve3(p0, mid, p2);
+    const geometry = new BufferGeometry().setFromPoints(curve.getPoints(52));
+    const material = new LineBasicMaterial({ color: 0x35627c, transparent: true, opacity: 0.15 });
+    const line = new Line(geometry, material);
+    const glow = new Line(
       geometry.clone(),
-      new THREE.LineBasicMaterial({ color: 0x9fe6ff, transparent: true, opacity: 0.08 })
+      new LineBasicMaterial({ color: 0x9fe6ff, transparent: true, opacity: 0.08 })
     );
     context.routeGroup.add(line);
     context.routeGroup.add(glow);
@@ -178,6 +178,7 @@ export function createPlanetStrategyShipVisuals(context: any) {
   return {
     attachShipMesh,
     buildShipObjects,
+    createShipFlash,
     ensureRouteVisual,
     removeShipMesh,
     updateRouteVisuals,
@@ -185,14 +186,40 @@ export function createPlanetStrategyShipVisuals(context: any) {
   };
 }
 
+function createShipFlash(ship: any) {
+  const mesh = new Mesh(
+    new SphereGeometry(ship.kind === 'attacker' ? 1.4 : 1.1, 12, 12),
+    new MeshBasicMaterial({
+      color: ship.kind === 'defender' ? 0xffc8a0 : 0xfff0d8,
+      transparent: true,
+      opacity: 0.9,
+      depthWrite: false,
+    })
+  );
+  return {
+    mesh,
+    life: 0.14,
+    maxLife: 0.14,
+    update(progress: number) {
+      const t = Math.max(0, Math.min(1, progress));
+      mesh.scale.setScalar(0.8 + (1 - t) * 1.9);
+      mesh.material.opacity = 0.92 * t;
+    },
+    dispose() {
+      mesh.geometry.dispose();
+      mesh.material.dispose();
+    },
+  };
+}
+
 function createTrailLine(color: any) {
-  const material = new THREE.LineBasicMaterial({
-    color: new THREE.Color(color),
+  const material = new LineBasicMaterial({
+    color: new Color(color),
     transparent: true,
     opacity: 0.32,
   });
-  const geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
-  return new THREE.Line(geometry, material);
+  const geometry = new BufferGeometry().setFromPoints([new Vector3(), new Vector3()]);
+  return new Line(geometry, material);
 }
 
 function updateTrail(ship: any) {
@@ -202,7 +229,7 @@ function updateTrail(ship: any) {
   while (ship.trailPoints.length > 10) ship.trailPoints.shift();
   if (ship.trailPoints.length < 2) return;
   ship.trailLine.geometry.dispose();
-  ship.trailLine.geometry = new THREE.BufferGeometry().setFromPoints(ship.trailPoints);
+  ship.trailLine.geometry = new BufferGeometry().setFromPoints(ship.trailPoints);
   ship.trailLine.material.opacity = ship.status === 'attacking' ? 0.5 : 0.3;
 }
 

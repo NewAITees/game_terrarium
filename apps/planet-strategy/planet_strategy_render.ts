@@ -26,6 +26,8 @@ export function createPlanetStrategyRenderer({
     attachShipMesh,
     ensureRouteVisual,
     removeShipMesh,
+    triggerPlanetFlash,
+    triggerShipFlash,
     updateVisuals,
   } = createPlanetStrategyRenderVisuals({
     camera,
@@ -59,6 +61,8 @@ export function createPlanetStrategyRenderer({
     attachShipMesh,
     ensureRouteVisual,
     removeShipMesh,
+    triggerPlanetFlash,
+    triggerShipFlash,
     renderFrame,
     updateVisuals,
     onResize,

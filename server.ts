@@ -23,7 +23,8 @@ type ElectronDispatch = (type: string, payload: any) => any;
 export async function startServer(getElectronState: () => any, electronDispatch: ElectronDispatch): Promise<void> {
   const projectRoot = path.resolve(__dirname, '..');
   const engineModuleUrl = pathToFileURL(path.join(projectRoot, 'build', 'game', 'engine.js')).href;
-  const { GameEngine } = await import(engineModuleUrl);
+  const importEngineModule = new Function('moduleUrl', 'return import(moduleUrl);') as (moduleUrl: string) => Promise<any>;
+  const { GameEngine } = await importEngineModule(engineModuleUrl);
   const game = new GameEngine();
   const app = express();
 

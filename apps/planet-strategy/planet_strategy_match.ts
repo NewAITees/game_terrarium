@@ -52,6 +52,15 @@ export function createPlanetStrategyMatchRuntime(context: any) {
     empire.collapsed = true;
     empire.collapseReason = reason;
     empire.intent = `collapsed: ${reason}`;
+    const survivors = [];
+    for (const ship of context.world.ships) {
+      if (ship.owner === empire.id) {
+        context.rendererView?.removeShipMesh(ship);
+        continue;
+      }
+      survivors.push(ship);
+    }
+    context.world.ships = survivors;
     context.maybeLog(`collapse:${empire.id}`, `${empire.name} collapsed after it ${reason}.`, 'warning', 999);
   }
 

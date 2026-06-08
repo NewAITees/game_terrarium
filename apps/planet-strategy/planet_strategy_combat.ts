@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import { Color, } from 'three';
 
 export function createPlanetStrategyCombatRuntime(context: any) {
   function decideAttacks() {
@@ -73,7 +73,7 @@ export function createPlanetStrategyCombatRuntime(context: any) {
     }
     if (planet.mesh) {
       planet.mesh.material.color.set(newEmpire.color);
-      planet.mesh.material.emissive.set(new THREE.Color(newEmpire.color).multiplyScalar(0.18));
+      planet.mesh.material.emissive.set(new Color(newEmpire.color).multiplyScalar(0.18));
     }
     context.logEvent(`${newEmpire.name} captured ${planet.label} from ${oldName}!`, 'empire');
   }
@@ -128,6 +128,7 @@ export function createPlanetStrategyCombatRuntime(context: any) {
             planet.factoryHp = 0;
             planet.structures.factory = 0;
             planet.stalled = false;
+            context.rendererView.triggerPlanetFlash?.(planet, 'destroyed');
             context.maybeLog(`factoryDown:${planet.id}`, `${planet.label} factory destroyed!`, 'warning', 1);
             capturePlanet(planet, attackers[0].owner, attackers);
           }
@@ -146,6 +147,7 @@ export function createPlanetStrategyCombatRuntime(context: any) {
             planet.factoryHp = 0;
             planet.structures.factory = 0;
             planet.stalled = false;
+            context.rendererView.triggerPlanetFlash?.(planet, 'destroyed');
             context.maybeLog(`factoryDown:${planet.id}`, `${planet.label} factory destroyed!`, 'warning', 1);
           }
         }
@@ -161,6 +163,7 @@ export function createPlanetStrategyCombatRuntime(context: any) {
         (ship.status === 'orbiting' || ship.status === 'battling' || ship.status === 'attacking')
       );
       for (const ship of killed) {
+        context.rendererView.triggerShipFlash?.(ship);
         context.rendererView.removeShipMesh(ship);
         context.world.kills++;
         context.maybeLog(`kill:${ship.id}`, `A ${ship.kind} ship destroyed near ${planet.label}!`, 'warning', 1);

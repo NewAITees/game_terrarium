@@ -37,6 +37,7 @@ function loadPage(pageKey: PageKey): void {
   if (!win) return;
   currentPage = pageKey;
   const target = PAGES[pageKey];
+  console.log(`[page] switching -> ${pageKey}: ${target}`);
   if (target.startsWith('http')) {
     void win.loadURL(target);
   } else {
@@ -115,6 +116,16 @@ function createMainWindow(): void {
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   }
 
+  win.webContents.on('did-finish-load', () => {
+    console.log(`[page] loaded -> ${currentPage}`);
+  });
+  win.webContents.on('did-fail-load', (_event, code, description, validatedURL) => {
+    console.error(`[page] failed -> ${validatedURL} (${code}) ${description}`);
+  });
+  win.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    console.log(`[renderer:${level}] ${sourceId}:${line} ${message}`);
+  });
+
   loadPage(currentPage);
   win.on('closed', () => {
     win = null;
@@ -122,25 +133,27 @@ function createMainWindow(): void {
   refreshMenu();
 }
 
-app.whenReady().then(() => {
-  createMainWindow();
-
+app.whenReady().then(async () => {
   if (ENABLE_SERVER) {
-    void startServer(
-      () => ({ currentPage }),
-      (type: string, payload: any) => {
-        if (type === 'switch_page') {
-          const page = String(payload?.page ?? '');
-          if (!isPageKey(page)) return { error: `unknown page: ${page}` };
-          loadPage(page);
-          return { currentPage };
+    try {
+      await startServer(
+        () => ({ currentPage }),
+        (type: string, payload: any) => {
+          if (type === 'switch_page') {
+            const page = String(payload?.page ?? '');
+            if (!isPageKey(page)) return { error: `unknown page: ${page}` };
+            loadPage(page);
+            return { currentPage };
+          }
+          return { error: `unknown action: ${type}` };
         }
-        return { error: `unknown action: ${type}` };
-      }
-    ).catch((error) => {
+      );
+    } catch (error) {
       console.error('Failed to start server', error);
-    });
+    }
   }
+
+  createMainWindow();
 
   if (ENABLE_GLOBAL_SHORTCUTS) {
     globalShortcut.register('CmdOrCtrl+1', () => loadPage('city'));
