@@ -441,13 +441,14 @@ function addStarField(scene: any, rng: () => number): void {
       const radius = innerVoid + Math.pow(rng(), 0.52) * 760;
       x = Math.cos(angle) * radius;
       z = Math.sin(angle) * radius;
-      y = (rng() - 0.5) * (88 + radius * 0.14);
+      // Spread the field vertically so the star backdrop reads as a 3D volume.
+      y = (rng() - 0.5) * (260 + radius * 0.42);
     } else {
       const theta = rng() * Math.PI * 2;
       const phi = Math.acos(2 * rng() - 1);
       const radius = 520 + rng() * 640;
       x = radius * Math.sin(phi) * Math.cos(theta);
-      y = radius * Math.cos(phi) * 0.42;
+      y = radius * Math.cos(phi) * 0.82;
       z = radius * Math.sin(phi) * Math.sin(theta);
     }
 

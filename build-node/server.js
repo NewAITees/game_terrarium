@@ -22,7 +22,7 @@ const SUBMARINE_ENDPOINTS = {
 };
 async function startServer(getElectronState, electronDispatch) {
     const projectRoot = path_1.default.resolve(__dirname, '..');
-    const engineModuleUrl = (0, url_1.pathToFileURL)(path_1.default.join(projectRoot, 'build', 'game', 'engine.js')).href;
+    const engineModuleUrl = (0, url_1.pathToFileURL)(path_1.default.join(projectRoot, 'build-node', 'game', 'engine.js')).href;
     const importEngineModule = new Function('moduleUrl', 'return import(moduleUrl);');
     const { GameEngine } = await importEngineModule(engineModuleUrl);
     const game = new GameEngine();

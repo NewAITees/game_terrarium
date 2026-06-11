@@ -18,6 +18,11 @@ async function collectBasenameJsRoutes(projectRoot: string): Promise<Record<stri
   const routes: Record<string, string> = {};
 
   async function walk(dir: string): Promise<void> {
+    try {
+      await fs.access(dir);
+    } catch {
+      return;
+    }
     const entries = await fs.readdir(dir, { withFileTypes: true });
     for (const entry of entries) {
       const fullPath = path.join(dir, entry.name);
@@ -43,6 +48,7 @@ export async function mountBrowserAssetRoutes(app: express.Express, projectRoot:
   app.use('/faction_rules', express.static(path.join(projectRoot, 'faction_rules')));
   app.use('/assets',       express.static(path.join(projectRoot, 'assets')));
   app.use('/_vendor',      express.static(path.join(projectRoot, 'build', '_vendor')));
+  app.use('/shared',       express.static(path.join(projectRoot, 'shared')));
 
   registerFileRoutes(app, projectRoot, {
     '/escort_td.html': 'apps/escort-td/escort_td.html',
@@ -53,6 +59,9 @@ export async function mountBrowserAssetRoutes(app: express.Express, projectRoot:
     '/planet_strategy.html': 'apps/planet-strategy/planet_strategy.html',
     '/submarine_cables.html': 'pages/submarine_cables.html',
     '/submarine_network_3d.html': 'pages/submarine_network_3d.html',
+    '/network-defense/network-core.js': 'apps/network-defense/network-core.js',
+    '/network-ecosystem/network-core.js': 'apps/network-ecosystem/network-core.js',
+    '/telemetry-client.js': 'shared/telemetry-client.js',
   });
 
   registerFileRoutes(app, projectRoot, await collectBasenameJsRoutes(projectRoot));

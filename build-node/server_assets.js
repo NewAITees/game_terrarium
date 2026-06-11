@@ -21,6 +21,12 @@ async function collectBasenameJsRoutes(projectRoot) {
     ];
     const routes = {};
     async function walk(dir) {
+        try {
+            await fs_1.promises.access(dir);
+        }
+        catch {
+            return;
+        }
         const entries = await fs_1.promises.readdir(dir, { withFileTypes: true });
         for (const entry of entries) {
             const fullPath = path_1.default.join(dir, entry.name);
@@ -44,6 +50,7 @@ async function mountBrowserAssetRoutes(app, projectRoot) {
     app.use('/faction_rules', express_1.default.static(path_1.default.join(projectRoot, 'faction_rules')));
     app.use('/assets', express_1.default.static(path_1.default.join(projectRoot, 'assets')));
     app.use('/_vendor', express_1.default.static(path_1.default.join(projectRoot, 'build', '_vendor')));
+    app.use('/shared', express_1.default.static(path_1.default.join(projectRoot, 'shared')));
     registerFileRoutes(app, projectRoot, {
         '/escort_td.html': 'apps/escort-td/escort_td.html',
         '/colony.html': 'apps/colony/colony.html',
@@ -53,6 +60,9 @@ async function mountBrowserAssetRoutes(app, projectRoot) {
         '/planet_strategy.html': 'apps/planet-strategy/planet_strategy.html',
         '/submarine_cables.html': 'pages/submarine_cables.html',
         '/submarine_network_3d.html': 'pages/submarine_network_3d.html',
+        '/network-defense/network-core.js': 'apps/network-defense/network-core.js',
+        '/network-ecosystem/network-core.js': 'apps/network-ecosystem/network-core.js',
+        '/telemetry-client.js': 'shared/telemetry-client.js',
     });
     registerFileRoutes(app, projectRoot, await collectBasenameJsRoutes(projectRoot));
 }

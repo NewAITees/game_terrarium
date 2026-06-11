@@ -1,6 +1,8 @@
 import { appendLogPanelEntry, formatPaddedSecondPrefix } from '../../shared/log-panel.js';
 import { AGENT_COSTS } from './network_defense_config.js';
 
+let missingHudIdsReported = false;
+
 export function logNetworkDefenseEvent(game: any, text: string, type = 'info') {
   appendLogPanelEntry({
     elapsedSeconds: game.elapsed,
@@ -37,15 +39,27 @@ export function showNetworkDefenseEndOverlay(game: any, topo: any, agents: any[]
 }
 
 export function updateNetworkDefenseHud(game: any, topo: any) {
-  document.getElementById('time')!.textContent = String(Math.floor(game.elapsed));
-  document.getElementById('score')!.textContent = String(game.score);
-  document.getElementById('credits')!.textContent = String(Math.floor(game.credits));
-  document.getElementById('wave')!.textContent = String(game.wave);
-  document.getElementById('kills')!.textContent = String(game.kills);
-  document.getElementById('health')!.textContent = String(Math.max(0, Math.round(topo.server.hp)));
-  (document.getElementById('buy-junior') as HTMLButtonElement).disabled = game.credits < AGENT_COSTS.junior;
-  (document.getElementById('buy-mid') as HTMLButtonElement).disabled = game.credits < AGENT_COSTS.mid;
-  (document.getElementById('buy-senior') as HTMLButtonElement).disabled = game.credits < AGENT_COSTS.senior;
-  (document.getElementById('harden') as HTMLElement).style.opacity = game.credits < 20 ? '0.4' : '1';
-  (document.getElementById('reboot') as HTMLElement).style.opacity = game.credits < 40 ? '0.4' : '1';
+  const requiredIds = ['time', 'score', 'credits', 'wave', 'kills', 'health', 'buy-junior', 'buy-mid', 'buy-senior', 'harden', 'reboot'] as const;
+  const elements = Object.fromEntries(
+    requiredIds.map((id) => [id, document.getElementById(id)])
+  ) as Record<(typeof requiredIds)[number], HTMLElement | null>;
+  const missingIds = requiredIds.filter((id) => !elements[id]);
+  if (missingIds.length) {
+    if (!missingHudIdsReported) {
+      console.error(`network_defense HUD missing elements: ${missingIds.join(', ')}`);
+      missingHudIdsReported = true;
+    }
+    return;
+  }
+  elements.time.textContent = String(Math.floor(game.elapsed));
+  elements.score.textContent = String(game.score);
+  elements.credits.textContent = String(Math.floor(game.credits));
+  elements.wave.textContent = String(game.wave);
+  elements.kills.textContent = String(game.kills);
+  elements.health.textContent = String(Math.max(0, Math.round(topo.server.hp)));
+  (elements['buy-junior'] as HTMLButtonElement).disabled = game.credits < AGENT_COSTS.junior;
+  (elements['buy-mid'] as HTMLButtonElement).disabled = game.credits < AGENT_COSTS.mid;
+  (elements['buy-senior'] as HTMLButtonElement).disabled = game.credits < AGENT_COSTS.senior;
+  elements.harden.style.opacity = game.credits < 20 ? '0.4' : '1';
+  elements.reboot.style.opacity = game.credits < 40 ? '0.4' : '1';
 }

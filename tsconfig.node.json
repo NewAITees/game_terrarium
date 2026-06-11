@@ -19,6 +19,7 @@
   "include": [
     "main.ts",
     "server.ts",
+    "game/**/*.ts",
     "scripts/**/*.ts"
   ]
 }

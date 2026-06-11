@@ -65,6 +65,49 @@ export function createPlanetStrategyShipVisuals(context: any) {
     return hull;
   }
 
+  function getShipRouteState(ship: any) {
+    const from = context.getPlanet(ship.fromPlanetId);
+    const to = ship.status === 'attacking'
+      ? context.getPlanet(ship.targetPlanetId)
+      : context.getPlanet(ship.toPlanetId);
+    if (!from || !to) return null;
+
+    const isBack = ship.status === 'travel_back';
+    const origin = isBack ? to : from;
+    const target = isBack ? from : to;
+    const progress = ship.status === 'loading'
+      ? 0
+      : ship.status === 'unloading'
+        ? 1
+        : ship.status === 'travel_back'
+          ? 1 - ship.progress
+          : ship.progress;
+    const batchKey = `${origin.id}::${target.id}::${isBack ? 'back' : 'forward'}::${ship.kind}`;
+    const route = context.world.routes.get(context.routeKey(origin.id, target.id))
+      ?? context.world.routes.get(context.routeKey(from.id, to.id));
+
+    return {
+      batchKey,
+      isAttacking: ship.status === 'attacking',
+      origin,
+      progress,
+      route,
+      ship,
+      target,
+    };
+  }
+
+  function buildRouteSideVector(direction: Vector3) {
+    const side = new Vector3().crossVectors(direction, new Vector3(0, 1, 0));
+    if (side.lengthSq() < 1e-6) {
+      side.crossVectors(direction, new Vector3(1, 0, 0));
+    }
+    if (side.lengthSq() < 1e-6) {
+      side.set(1, 0, 0);
+    }
+    return side.normalize();
+  }
+
   function attachShipMesh(ship: any, empire: any): void {
     const mesh = makeShipMesh(empire, ship.kind);
     context.shipGroup.add(mesh);
@@ -138,40 +181,51 @@ export function createPlanetStrategyShipVisuals(context: any) {
   }
 
   function updateShipVisuals(): void {
-    for (const ship of context.world.ships) {
-      if (!ship.mesh) continue;
-      if (ship.status === 'orbiting' || ship.status === 'battling') continue;
+    const movingShips = context.world.ships.filter((ship: any) => ship.mesh && ship.status !== 'orbiting' && ship.status !== 'battling');
+    const routeBatches = new Map<string, any[]>();
 
-      const isAttacking = ship.status === 'attacking';
-      const from = context.getPlanet(ship.fromPlanetId);
-      const to = isAttacking ? context.getPlanet(ship.targetPlanetId) : context.getPlanet(ship.toPlanetId);
-      if (!from || !to) continue;
+    for (const ship of movingShips) {
+      const state = getShipRouteState(ship);
+      if (!state) continue;
+      const list = routeBatches.get(state.batchKey) ?? [];
+      list.push(state);
+      routeBatches.set(state.batchKey, list);
+    }
 
-      const origin = ship.status === 'travel_back' ? to : from;
-      const target = ship.status === 'travel_back' ? from : to;
-      const t = ship.progress;
-      const load = ship.cargo / Math.max(ship.capacity, 1);
-      const route = context.world.routes.get(context.routeKey(origin.id, target.id))
-        ?? context.world.routes.get(context.routeKey(from.id, to.id));
+    for (const batch of routeBatches.values()) {
+      batch.sort((a, b) => a.progress - b.progress || a.ship.id.localeCompare(b.ship.id));
+      const spread = batch.length - 1;
+      for (let index = 0; index < batch.length; index++) {
+        const entry = batch[index];
+        const laneOffset = (index - spread / 2) * 2.2;
+        const envelope = 0.55 + Math.sin(Math.PI * entry.progress) * 0.45;
+        const offset = laneOffset * envelope;
+        const load = entry.ship.cargo / Math.max(entry.ship.capacity, 1);
 
-      if (route?.curve) {
-        const ct = ship.status === 'travel_back' ? 1 - t : t;
-        const pt = route.curve.getPoint(ct);
-        const tan = route.curve.getTangent(ct);
-        ship.mesh.position.set(pt.x, pt.y + 3 + ship.owner * 2.2, pt.z);
-        ship.mesh.rotation.y = Math.atan2(tan.x, tan.z);
-      } else {
-        const pos = lerpPlanet(origin, target, t);
-        ship.mesh.position.set(pos.x, (pos.y ?? 0) + 4 + ship.owner * 2.2, pos.z);
-        ship.mesh.rotation.y = Math.atan2(target.x - origin.x, target.z - origin.z);
+        if (entry.route?.curve) {
+          const ct = entry.progress;
+          const pt = entry.route.curve.getPoint(ct);
+          const tan = entry.route.curve.getTangent(ct).normalize();
+          const side = buildRouteSideVector(tan);
+          const lanePoint = pt.clone().addScaledVector(side, offset);
+          entry.ship.mesh.position.set(lanePoint.x, lanePoint.y + 3 + entry.ship.owner * 2.2, lanePoint.z);
+          entry.ship.mesh.rotation.y = Math.atan2(tan.x, tan.z);
+        } else {
+          const pos = lerpPlanet(entry.origin, entry.target, entry.progress);
+          const direction = new Vector3(entry.target.x - entry.origin.x, (entry.target.y ?? 0) - (entry.origin.y ?? 0), entry.target.z - entry.origin.z).normalize();
+          const side = buildRouteSideVector(direction);
+          const lanePoint = new Vector3(pos.x, pos.y ?? 0, pos.z).addScaledVector(side, offset);
+          entry.ship.mesh.position.set(lanePoint.x, lanePoint.y + 4 + entry.ship.owner * 2.2, lanePoint.z);
+          entry.ship.mesh.rotation.y = Math.atan2(entry.target.x - entry.origin.x, entry.target.z - entry.origin.z);
+        }
+
+        setShipVisualState(entry.ship.mesh, entry.isAttacking ? 0.75 : 0.22 + load * 0.28);
+        if (entry.ship.kind === 'transport') {
+          setTransportLoadState(entry.ship.mesh, load);
+        }
+        entry.ship.mesh.scale.setScalar(1);
+        updateTrail(entry.ship);
       }
-
-      setShipVisualState(ship.mesh, isAttacking ? 0.75 : 0.22 + load * 0.28);
-      if (ship.kind === 'transport') {
-        setTransportLoadState(ship.mesh, load);
-      }
-      ship.mesh.scale.setScalar(1);
-      updateTrail(ship);
     }
   }
 

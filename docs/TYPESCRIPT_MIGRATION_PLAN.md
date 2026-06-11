@@ -1,5 +1,19 @@
 # TypeScript Migration Plan
 
+## Current Status
+
+As of 2026-06-09, the migration direction in this document is largely realized for the active browser apps.
+
+- `planet_strategy`, `network_defense`, and `colony` are already TypeScript-first in `apps/`
+- shared domain contracts already exist in `shared/types/`
+- regular verification now includes `npm run typecheck`
+
+Because of that, the remaining value of this document is:
+
+- explain the migration rationale
+- record the phased approach that was taken
+- clarify what still remains for older pages and future modules
+
 ## Goal
 
 This repository is growing into a multi-game sandbox with:
@@ -162,6 +176,8 @@ Exit condition:
 
 ## Phase 1 — Shared Contracts
 
+Status: substantially complete for active sandboxes.
+
 Objective:
 
 - define reusable domain types before broad migration
@@ -187,6 +203,8 @@ Exit condition:
 - core game data models exist in typed form
 
 ## Phase 2 — Planet Strategy First
+
+Status: complete for the active `apps/planet-strategy/` modules.
 
 Objective:
 
@@ -221,6 +239,8 @@ Exit condition:
 
 ## Phase 3 — Observer / Network Defense
 
+Status: complete for the active `apps/network-defense/` modules.
+
 Objective:
 
 - migrate `network_defense` and `network_defense_observer`
@@ -242,6 +262,8 @@ Exit condition:
 
 ## Phase 4 — Colony And Other Sandboxes
 
+Status: `colony` is migrated; older standalone pages remain lower priority.
+
 Objective:
 
 - migrate the remaining active sandboxes in order of ongoing use
@@ -257,6 +279,8 @@ Exit condition:
 - the actively developed games are TypeScript-first
 
 ## Phase 5 — Tooling And Enforcement
+
+Status: partially complete.
 
 Objective:
 
@@ -347,11 +371,11 @@ Mitigation:
 
 Recommended next actions:
 
-1. Create the initial TS migration skeleton for `planet_strategy`
-2. Define shared domain types for `planet_strategy`
-3. Migrate `planet_strategy_render` first
-4. Migrate `planet_strategy_ui` and `telemetry` next
-5. Only then migrate the core `planet_strategy` simulation entry
+1. Keep new browser/game modules TypeScript-first
+2. Continue moving any actively touched legacy `pages/` code to typed modules when it becomes worth it
+3. Tighten contracts in `shared/types/` when runtime shapes evolve
+4. Reduce accidental `any` usage in hot paths
+5. Keep `typecheck` in the normal verification flow
 
 ## Final Recommendation
 
@@ -359,6 +383,6 @@ For this repository as a whole:
 
 - **Yes, move toward TypeScript across the project**
 - **No, do not do it as a one-shot rewrite**
-- **Use `planet_strategy` as the first serious migration target**
+- **Use the already-migrated active apps as the baseline for future work**
 
 That path gives the quality benefits of TypeScript without freezing the project.

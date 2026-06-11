@@ -6,9 +6,11 @@
   "main": "build-node/main.js",
   "scripts": {
     "build:wasm": "cd shared/network-core-wasm && ~/.cargo/bin/wasm-pack build --target web --out-dir pkg && mkdir -p ../../build/_vendor/wasm && cp pkg/network_core_wasm.js pkg/network_core_wasm_bg.wasm ../../build/_vendor/wasm/",
-    "build": "npm run build:wasm && node_modules/.bin/vite build && node_modules/.bin/tsc -p tsconfig.node.json",
+    "build": "npm run build:wasm && vite build && tsc -p tsconfig.node.json",
+    "check:dom": "npm run build && node build-node/scripts/validate_dom_ids.js",
+    "smoke": "npm run typecheck && npm run check:dom",
     "prestart": "npm run build",
-    "typecheck": "node_modules/.bin/tsc -p tsconfig.json --noEmit && node_modules/.bin/tsc -p tsconfig.node.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit",
     "start": "electron ."
   },
   "devDependencies": {
