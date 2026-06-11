@@ -1,5 +1,20 @@
 import { BoxGeometry,ConeGeometry,CylinderGeometry,TorusGeometry, } from 'three';
 
+// ── WASM acceleration (transparent, non-blocking) ────────────────────────────
+interface WasmMod {
+  default: () => Promise<unknown>;
+  buildTopology: (t: number, s: number, m: string, r: number) => any;
+  buildAdjFlat: (nodeCount: number, pairs: Uint32Array) => Uint32Array;
+  findShortestPath: (f: number, t: number, adj: Uint32Array, par: BigInt64Array) => Uint32Array;
+}
+let _wasm: WasmMod | null = null;
+// @ts-ignore — served at runtime by Express, not statically resolvable
+import('/_vendor/wasm/network_core_wasm.js').then(async (m: any) => {
+  await m.default();
+  _wasm = m;
+}).catch(() => { /* WASM unavailable, pure-TS fallback active */ });
+// ─────────────────────────────────────────────────────────────────────────────
+
 export class RNG {
   s: number;
   constructor(s: number) { this.s = ((s || Math.random() * 2 ** 32) ^ 0xDEADBEEF) >>> 0; }
@@ -61,6 +76,29 @@ export function assignRadialPositions(lnodes: any, rng: RNG) {
 }
 
 export function buildTopology(total: number, seed: number, mode = 'tree', rewirePct = 0) {
+  if (_wasm) return _buildTopologyWasm(total, seed, mode, rewirePct);
+  return _buildTopologyTS(total, seed, mode, rewirePct);
+}
+
+function _buildTopologyWasm(total: number, seed: number, mode: string, rewirePct: number) {
+  const raw = _wasm!.buildTopology(total, seed, mode, rewirePct);
+  const nodes: any[] = raw.nodes.map((n: any) => ({
+    id: n.id, layer: n.layer, x: n.x, y: n.y, z: n.z,
+    isServer: n.isServer, parent: null, children: [],
+  }));
+  for (const n of raw.nodes as any[]) {
+    if (n.parent != null) nodes[n.id].parent = nodes[n.parent];
+    nodes[n.id].children = n.children.map((c: number) => nodes[c]);
+  }
+  const treeEdges = raw.treeEdges.map((e: any) => ({ a: nodes[e.a], b: nodes[e.b] }));
+  const shortcutEdges = raw.shortcutEdges.map((e: any) => ({ a: nodes[e.a], b: nodes[e.b] }));
+  const server = nodes[raw.server];
+  const lnodes: any = { core: [], dist: [], acc: [], term: [] };
+  for (const n of nodes) lnodes[n.layer].push(n);
+  return { nodes, treeEdges, shortcutEdges, lnodes, server };
+}
+
+function _buildTopologyTS(total: number, seed: number, mode: string, rewirePct: number) {
   const rng = new RNG(seed);
   const counts = layerCounts(total);
   const spread = Math.max(110, counts.term * 14);

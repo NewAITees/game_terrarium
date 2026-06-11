@@ -5,7 +5,8 @@
   "description": "Always-on-top Electron viewer: city/moss/network visualizations, dungeon game, and network defense with Ollama-driven AI strategy",
   "main": "build-node/main.js",
   "scripts": {
-    "build": "node_modules/.bin/vite build && node_modules/.bin/tsc -p tsconfig.node.json",
+    "build:wasm": "cd shared/network-core-wasm && ~/.cargo/bin/wasm-pack build --target web --out-dir pkg && mkdir -p ../../build/_vendor/wasm && cp pkg/network_core_wasm.js pkg/network_core_wasm_bg.wasm ../../build/_vendor/wasm/",
+    "build": "npm run build:wasm && node_modules/.bin/vite build && node_modules/.bin/tsc -p tsconfig.node.json",
     "prestart": "npm run build",
     "typecheck": "node_modules/.bin/tsc -p tsconfig.json --noEmit && node_modules/.bin/tsc -p tsconfig.node.json --noEmit",
     "start": "electron ."
