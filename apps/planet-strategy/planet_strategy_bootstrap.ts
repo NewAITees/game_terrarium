@@ -21,9 +21,11 @@ export function createPlanetStrategyBootstrap({
     const planets: PlanetStrategyPlanet[] = [];
     const empires: PlanetStrategyEmpire[] = [];
     const ships: PlanetStrategyShip[] = [];
+    const missiles: any[] = [];
     const routes = new Map<string, PlanetStrategyRoute>();
     const routeStats: any[] = [];
     let shipSerial = 0;
+    let missileSerial = 0;
     const empireConfigs = [
       { name: 'Aster Union', color: colors[0] },
       { name: 'Red Meridian', color: colors[1] },
@@ -51,7 +53,7 @@ export function createPlanetStrategyBootstrap({
         owner: -1,
         stock: 0,
         type: 'neutral',
-        structures: { mine: 0, factory: 0 },
+        structures: { mine: 0, factory: 0, turret: 0 },
         factoryHp: 0,
         underConstruction: null,
         productionQueue: 0,
@@ -75,6 +77,7 @@ export function createPlanetStrategyBootstrap({
       homeFactory.owner = empireId;
       homeFactory.type = 'factory';
       homeFactory.structures.factory = 1;
+      homeFactory.structures.turret = 1;
       homeFactory.factoryHp = 100;
       homeFactory.stock = 100;
       homeFactory.productionQueue = 20;
@@ -95,15 +98,37 @@ export function createPlanetStrategyBootstrap({
         homeMineId: homeMine.id,
         homeFactoryId: homeFactory.id,
         shipCap: 999,
+        goal: 'stabilize',
       };
       empires.push(empire);
 
       for (let i = 0; i < 2; i++) {
-        ships.push(createTransportShip(empire, homeMine.id, homeFactory.id, shipSerial++, i * 0.5));
+        ships.push(createTransportShip(empire, homeMine.id, homeFactory.id, shipSerial++));
       }
     });
 
-    return { time: 0, planets, empires, ships, routes, routeStats, minedTotal: 0, deliveredTotal: 0, logCooldowns: new Map(), shipSerial, kills: 0, gameOver: false, endReason: null, winnerId: null, finalSummary: '', finalDetail: '', finalScores: [], oreFalloffStart: null };
+    return {
+      time: 0,
+      planets,
+      empires,
+      ships,
+      missiles,
+      routes,
+      routeStats,
+      minedTotal: 0,
+      deliveredTotal: 0,
+      logCooldowns: new Map(),
+      shipSerial,
+      missileSerial,
+      kills: 0,
+      gameOver: false,
+      endReason: null,
+      winnerId: null,
+      finalSummary: '',
+      finalDetail: '',
+      finalScores: [],
+      oreFalloffStart: null,
+    };
   }
 
   function generatePlanetPositions(count: number, options: any): PlanetStrategyPosition[] {
@@ -185,8 +210,8 @@ export function createPlanetStrategyBootstrap({
     fromPlanetId: string,
     toPlanetId: string,
     serial: number,
-    phase = 0
   ): PlanetStrategyShip {
+    const origin = getPlanet(fromPlanetId);
     return {
       id: `s${serial}`,
       kind: 'transport',
@@ -195,18 +220,25 @@ export function createPlanetStrategyBootstrap({
       toPlanetId,
       homePlanetId: fromPlanetId,
       targetPlanetId: null,
-      progress: phase,
+      position: getDockPosition(origin ?? null, 'transport'),
+      progress: 0,
       speed: 0.06 + rng() * 0.03,
       cargo: 0,
       capacity: 50,
-      status: 'loading',
+      status: 'docked',
       hp: 20,
       maxHp: 20,
+      physAttack: 0,
+      laserAttack: 0,
+      physDef: 0,
+      heatDef: 0,
       attack: 0,
       defense: 0,
       orbitAngle: rng() * Math.PI * 2,
       orbitRadius: 10 + rng() * 8,
       orbitSpeed: 0.45 + rng() * 0.25,
+      launchTimer: 0,
+      fireCooldown: 0,
       mesh: null,
     };
   }
@@ -218,6 +250,7 @@ export function createPlanetStrategyBootstrap({
     serial: number
   ): PlanetStrategyShip {
     const isAttacker = kind === 'attacker';
+    const isGunship = kind === 'gunship';
     return {
       id: `s${serial}`,
       kind,
@@ -226,18 +259,25 @@ export function createPlanetStrategyBootstrap({
       toPlanetId: planetId,
       homePlanetId: planetId,
       targetPlanetId: null,
+      position: getDockPosition(getPlanet(planetId) ?? null, kind),
       progress: 0,
-      speed: isAttacker ? 0.075 : 0.05,
+      speed: isAttacker ? 0.075 : isGunship ? 0.06 : 0.05,
       cargo: 0,
       capacity: 0,
-      status: 'orbiting',
-      hp: isAttacker ? 30 : 55,
-      maxHp: isAttacker ? 30 : 55,
-      attack: isAttacker ? 8 : 5,
-      defense: isAttacker ? 2 : 7,
+      status: 'docked',
+      hp: isAttacker ? 30 : isGunship ? 34 : 55,
+      maxHp: isAttacker ? 30 : isGunship ? 34 : 55,
+      physAttack: isAttacker ? 9 : isGunship ? 3 : 4,
+      laserAttack: isAttacker ? 3 : isGunship ? 11 : 5,
+      physDef: isAttacker ? 2 : isGunship ? 3 : 6,
+      heatDef: isAttacker ? 2 : isGunship ? 6 : 7,
+      attack: isAttacker ? 8 : isGunship ? 11 : 5,
+      defense: isAttacker ? 2 : isGunship ? 6 : 7,
       orbitAngle: rng() * Math.PI * 2,
-      orbitRadius: 16 + rng() * 10,
-      orbitSpeed: isAttacker ? 0.9 + rng() * 0.4 : 0.45 + rng() * 0.2,
+      orbitRadius: 14 + rng() * 10,
+      orbitSpeed: isAttacker ? 0.9 + rng() * 0.4 : isGunship ? 0.7 + rng() * 0.3 : 0.45 + rng() * 0.2,
+      launchTimer: 0,
+      fireCooldown: 0,
       mesh: null,
     };
   }
@@ -252,6 +292,23 @@ export function createPlanetStrategyBootstrap({
 
   function getEmpire(id: number) {
     return world.empires.find((empire) => empire.id === id);
+  }
+
+  function getDockPosition(planet: PlanetStrategyPlanet | null | undefined, kind: PlanetStrategyShipKind) {
+    if (!planet) return { x: 0, y: 0, z: 0 };
+    const shipScale = kind === 'transport' ? 6.4 : kind === 'gunship' ? 7.8 : 8.8;
+    const orbitAngle = kind === 'transport' ? Math.PI * 0.5 : kind === 'gunship' ? Math.PI * 0.1 : Math.PI * 0.7;
+    const radius = getOrbitRadius(planet, kind) + shipScale;
+    return {
+      x: planet.x + Math.cos(orbitAngle) * radius,
+      y: planet.y + 1.8 + (planet.type === 'factory' ? 1.8 : 0),
+      z: planet.z + Math.sin(orbitAngle) * radius,
+    };
+  }
+
+  function getOrbitRadius(planet: PlanetStrategyPlanet, kind: PlanetStrategyShipKind) {
+    const base = planet.type === 'factory' ? 8.5 : 6.5;
+    return base + (kind === 'transport' ? 2.2 : kind === 'gunship' ? 1.8 : 1.4);
   }
 
   function touchRoute(rendererView: any, fromPlanetId: string, toPlanetId: string, weight = 1): void {

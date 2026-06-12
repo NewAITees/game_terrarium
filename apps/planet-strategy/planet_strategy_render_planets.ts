@@ -150,6 +150,15 @@ export function createPlanetStrategyPlanetVisuals(context: any) {
         context.planetGroup.add(assetAnchor);
         planet.structureAsset = assetAnchor;
 
+        const turretAnchor = new Group();
+        turretAnchor.position.set(planet.x, planet.y, planet.z);
+        turretAnchor.userData.assetMode = 'orbit';
+        turretAnchor.userData.orbitRadius = 10.1;
+        turretAnchor.userData.orbitAngle = context.rng() * Math.PI * 2;
+        turretAnchor.userData.orbitSpeed = 0.18;
+        context.planetGroup.add(turretAnchor);
+        planet.turretAsset = turretAnchor;
+
         const lightGroup = new Group();
         lightGroup.position.set(planet.x, planet.y, planet.z);
         context.planetGroup.add(lightGroup);
@@ -176,10 +185,11 @@ export function createPlanetStrategyPlanetVisuals(context: any) {
     }
   }
   async function hydrateStructureAssets(): Promise<void> {
-    const [factoryAsset, stationAsset, mineAsset] = await Promise.all([
+    const [factoryAsset, stationAsset, mineAsset, turretAsset] = await Promise.all([
       loadStructureAsset('assets/structures/factory.glb'),
       loadStructureAsset('assets/structures/station.glb'),
       loadStructureAsset('assets/structures/mine_dish.glb'),
+      loadStructureAsset('assets/structures/turret.glb'),
     ]);
     for (const planet of context.world.planets) {
       if (!planet.structureAsset) continue;
@@ -198,6 +208,14 @@ export function createPlanetStrategyPlanetVisuals(context: any) {
       if (planet.type === 'mine') model.rotation.z = Math.PI * 0.1;
       planet.structureAsset.add(model);
       tintAsset(model, planet.owner >= 0 ? context.world.empires[planet.owner].color : '#9fb0bf');
+
+      if (planet.turretAsset && planet.structures.turret > 0 && turretAsset) {
+        const turret = normalizeAssetInstance(turretAsset, 2.1);
+        turret.rotation.x = -Math.PI / 2;
+        turret.position.set(0, 0.4, 0);
+        planet.turretAsset.add(turret);
+        tintAsset(turret, planet.owner >= 0 ? context.world.empires[planet.owner].color : '#9fb0bf');
+      }
     }
   }
   function updatePlanetVisuals(contestedPlanets: Set<any>, dt: number): void {
@@ -265,8 +283,13 @@ export function createPlanetStrategyPlanetVisuals(context: any) {
       if (planet.structureAsset) {
         planet.structureAsset.visible = planet.structures.mine > 0 || planet.structures.factory > 0;
         if (planet.structureAsset.userData.assetMode === 'orbit') {
-          planet.structureAsset.position.set(planet.x, planet.y, planet.z);
+          const orbitRadius = planet.structureAsset.userData.orbitRadius ?? 7.6;
           planet.structureAsset.userData.orbitAngle += dt * (planet.structureAsset.userData.orbitSpeed ?? 0.12);
+          planet.structureAsset.position.set(
+            planet.x + Math.cos(planet.structureAsset.userData.orbitAngle) * orbitRadius,
+            planet.y + 1.2,
+            planet.z + Math.sin(planet.structureAsset.userData.orbitAngle) * orbitRadius
+          );
           planet.structureAsset.rotation.y = planet.structureAsset.userData.orbitAngle;
         } else {
           planet.structureAsset.position.set(planet.x, planet.y + 1.2, planet.z);
@@ -274,6 +297,20 @@ export function createPlanetStrategyPlanetVisuals(context: any) {
         }
         planet.structureAsset.scale.setScalar(depleted ? 0.82 : 1);
         tintAsset(planet.structureAsset, baseColor, depleted ? 0.08 : 0.2);
+      }
+
+      if (planet.turretAsset) {
+        planet.turretAsset.visible = planet.structures.turret > 0;
+        const orbitRadius = planet.turretAsset.userData.orbitRadius ?? 10.1;
+        planet.turretAsset.userData.orbitAngle += dt * (planet.turretAsset.userData.orbitSpeed ?? 0.18);
+        planet.turretAsset.position.set(
+          planet.x + Math.cos(planet.turretAsset.userData.orbitAngle) * orbitRadius,
+          planet.y + 1.6,
+          planet.z + Math.sin(planet.turretAsset.userData.orbitAngle) * orbitRadius
+        );
+        planet.turretAsset.rotation.y = planet.turretAsset.userData.orbitAngle + Math.PI / 2;
+        planet.turretAsset.scale.setScalar(depleted ? 0.78 : 1);
+        tintAsset(planet.turretAsset, baseColor, depleted ? 0.08 : 0.24);
       }
 
       if (planet.factoryLightGroup) {

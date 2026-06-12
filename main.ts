@@ -1,6 +1,7 @@
 import path from 'path';
 import { app, BrowserWindow, globalShortcut, Menu, type MenuItemConstructorOptions } from 'electron';
 import { startServer } from './server';
+import { describePage, isPageKey, PAGE_REGISTRY, type PageKey } from './shared/page_registry';
 
 app.commandLine.appendSwitch('disable-features', 'HardwareMediaKeyHandling,MediaSessionService');
 
@@ -11,34 +12,19 @@ const ENABLE_ALWAYS_ON_TOP = process.env.ELECTRON_DISABLE_ALWAYS_ON_TOP !== '1' 
 const ENABLE_ALL_WORKSPACES = process.env.ELECTRON_DISABLE_ALL_WORKSPACES !== '1' && !IS_DEBUG_MINIMAL;
 const ENABLE_SERVER = process.env.ELECTRON_DISABLE_SERVER !== '1';
 
-const PAGES = {
-  city: path.join(__dirname, '..', 'pages', 'city_traffic_tiltshift_alpha.html'),
-  moss: path.join(__dirname, '..', 'pages', 'moss_alpha.html'),
-  escort_td: 'http://localhost:3000/escort_td.html',
-  net_sw: path.join(__dirname, '..', 'pages', 'network_sw.html'),
-  net_defense: 'http://localhost:3000/network_defense.html',
-  planet_strategy: 'http://localhost:3000/planet_strategy.html',
-  net_ecosystem: 'http://localhost:3000/network_ecosystem.html',
-  colony: 'http://localhost:3000/colony.html',
-  submarine: path.join(__dirname, '..', 'pages', 'submarine_cables.html'),
-  submarine_3d: path.join(__dirname, '..', 'pages', 'submarine_network_3d.html'),
-} as const;
-
-type PageKey = keyof typeof PAGES;
-
 let win: BrowserWindow | null = null;
 let currentPage: PageKey = 'city';
 
-function isPageKey(value: string): value is PageKey {
-  return value in PAGES;
-}
-
 function loadPage(pageKey: PageKey): void {
   if (!win) return;
+  const page = PAGE_REGISTRY.find((entry) => entry.key === pageKey);
+  if (!page) return;
   currentPage = pageKey;
-  const target = PAGES[pageKey];
-  console.log(`[page] switching -> ${pageKey}: ${target}`);
-  if (target.startsWith('http')) {
+  const target = page.loadMode === 'file'
+    ? path.join(__dirname, '..', page.target)
+    : page.target;
+  console.log(`[page] switching -> ${describePage(page)}: ${target}`);
+  if (page.loadMode === 'http') {
     void win.loadURL(target);
   } else {
     void win.loadFile(target);
@@ -64,16 +50,7 @@ function refreshMenu(): void {
     {
       label: 'View',
       submenu: [
-        radio('City Traffic (1)', 'city', 'CmdOrCtrl+1'),
-        radio('MOSS (2)', 'moss', 'CmdOrCtrl+2'),
-        radio('Escort TD (3)', 'escort_td', 'CmdOrCtrl+3'),
-        radio('Network Small World (4)', 'net_sw', 'CmdOrCtrl+4'),
-        radio('AI Planet Strategy (0)', 'planet_strategy', 'CmdOrCtrl+0'),
-        radio('Network Tower Defense (7)', 'net_defense', 'CmdOrCtrl+7'),
-        radio('Network Ecosystem (8)', 'net_ecosystem', 'CmdOrCtrl+8'),
-        radio('Submarine Cables (5)', 'submarine', 'CmdOrCtrl+5'),
-        radio('Submarine Network 3D (6)', 'submarine_3d', 'CmdOrCtrl+6'),
-        radio('AI Colony Sandbox (9)', 'colony', 'CmdOrCtrl+9'),
+        ...PAGE_REGISTRY.map((page) => radio(`${page.label} (${page.number})`, page.key, page.accelerator)),
         { type: 'separator' },
         {
           label: 'Toggle Always On Top',
@@ -156,16 +133,9 @@ app.whenReady().then(async () => {
   createMainWindow();
 
   if (ENABLE_GLOBAL_SHORTCUTS) {
-    globalShortcut.register('CmdOrCtrl+1', () => loadPage('city'));
-    globalShortcut.register('CmdOrCtrl+2', () => loadPage('moss'));
-    globalShortcut.register('CmdOrCtrl+3', () => loadPage('escort_td'));
-    globalShortcut.register('CmdOrCtrl+4', () => loadPage('net_sw'));
-    globalShortcut.register('CmdOrCtrl+5', () => loadPage('submarine'));
-    globalShortcut.register('CmdOrCtrl+6', () => loadPage('submarine_3d'));
-    globalShortcut.register('CmdOrCtrl+7', () => loadPage('net_defense'));
-    globalShortcut.register('CmdOrCtrl+8', () => loadPage('net_ecosystem'));
-    globalShortcut.register('CmdOrCtrl+9', () => loadPage('colony'));
-    globalShortcut.register('CmdOrCtrl+0', () => loadPage('planet_strategy'));
+    for (const page of PAGE_REGISTRY) {
+      globalShortcut.register(page.accelerator, () => loadPage(page.key));
+    }
   }
 
   app.on('activate', () => {

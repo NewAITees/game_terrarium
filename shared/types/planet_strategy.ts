@@ -1,10 +1,17 @@
 export type PlanetStrategyPlanetType = 'neutral' | 'mine' | 'factory';
-export type PlanetStrategyShipKind = 'transport' | 'attacker' | 'defender';
-export type PlanetStrategyShipStatus = 'loading' | 'idle' | 'travel' | 'travel_back' | 'unloading' | 'orbiting' | 'attacking' | 'battling';
+export type PlanetStrategyShipKind = 'transport' | 'attacker' | 'defender' | 'gunship';
+export type PlanetStrategyShipStatus =
+  | 'docked'
+  | 'launching'
+  | 'orbiting'
+  | 'traveling'
+  | 'approaching'
+  | 'engaging';
 export type PlanetStrategyLogType = 'info' | 'warning' | 'resource' | 'empire' | string;
 export type PlanetStrategyInterventionType = 'resource_burst' | 'panic_repair';
 export type PlanetStrategyConstructionType = 'mine' | 'factory';
 export type PlanetStrategyPersonality = 'industrialist' | 'raider' | 'expansionist' | 'fortifier';
+export type PlanetStrategyAiGoal = 'expand' | 'pressure' | 'stabilize';
 
 export interface PlanetStrategyPosition {
   x: number;
@@ -15,6 +22,7 @@ export interface PlanetStrategyPosition {
 export interface PlanetStrategyPlanetStructures {
   mine: number;
   factory: number;
+  turret: number;
 }
 
 export interface PlanetStrategyPlanet extends PlanetStrategyPosition {
@@ -43,6 +51,7 @@ export interface PlanetStrategyPlanet extends PlanetStrategyPosition {
   factoryIcon?: any | null;
   factoryLight?: any | null;
   factoryLightGroup?: any | null;
+  turretAsset?: any | null;
   structureAsset?: any | null;
   labelSprite?: any | null;
   labelText?: string;
@@ -66,6 +75,7 @@ export interface PlanetStrategyEmpire {
   homeMineId: string;
   homeFactoryId: string;
   shipCap: number;
+  goal: PlanetStrategyAiGoal;
 }
 
 export interface PlanetStrategyShip {
@@ -76,6 +86,7 @@ export interface PlanetStrategyShip {
   toPlanetId: string;
   homePlanetId: string;
   targetPlanetId: string | null;
+  position: PlanetStrategyPosition;
   progress: number;
   speed: number;
   cargo: number;
@@ -83,13 +94,38 @@ export interface PlanetStrategyShip {
   status: PlanetStrategyShipStatus;
   hp: number;
   maxHp: number;
+  physAttack: number;
+  laserAttack: number;
+  physDef: number;
+  heatDef: number;
   attack: number;
   defense: number;
   orbitAngle: number;
   orbitRadius: number;
   orbitSpeed: number;
+  launchTimer: number;
+  fireCooldown: number;
   mesh?: any | null;
   trailPoints?: unknown[];
+  trailLine?: any | null;
+}
+
+export interface PlanetStrategyMissile extends PlanetStrategyPosition {
+  id: string;
+  owner: number;
+  sourceShipId: string | null;
+  sourcePlanetId: string | null;
+  targetShipId: string | null;
+  targetPlanetId: string | null;
+  speed: number;
+  hp: number;
+  maxHp: number;
+  physAttack: number;
+  laserAttack: number;
+  physDef: number;
+  heatDef: number;
+  life: number;
+  mesh?: any | null;
   trailLine?: any | null;
 }
 
@@ -125,12 +161,14 @@ export interface PlanetStrategyWorld {
   planets: PlanetStrategyPlanet[];
   empires: PlanetStrategyEmpire[];
   ships: PlanetStrategyShip[];
+  missiles: PlanetStrategyMissile[];
   routes: Map<string, PlanetStrategyRoute>;
   routeStats: unknown[];
   minedTotal: number;
   deliveredTotal: number;
   logCooldowns: Map<string, number>;
   shipSerial: number;
+  missileSerial: number;
   kills: number;
   gameOver: boolean;
   endReason: string | null;
@@ -145,6 +183,7 @@ export interface PlanetStrategyAiContext {
   world: PlanetStrategyWorld;
   getPlanet: (id: string | null | undefined) => PlanetStrategyPlanet | undefined;
   distance3d: (a: PlanetStrategyPosition, b: PlanetStrategyPosition) => number;
+  rng: () => number;
   queueConstruction: (
     empire: PlanetStrategyEmpire,
     planet: PlanetStrategyPlanet,
@@ -167,8 +206,10 @@ export interface PlanetStrategyRendererDeps {
 }
 
 export interface PlanetStrategyRenderer {
+  attachMissileMesh: (missile: PlanetStrategyMissile) => void;
   attachShipMesh: (ship: PlanetStrategyShip, empire: PlanetStrategyEmpire) => void;
   ensureRouteVisual: (route: PlanetStrategyRoute) => void;
+  removeMissileMesh: (missile: PlanetStrategyMissile) => void;
   removeShipMesh: (ship: PlanetStrategyShip) => void;
   triggerPlanetFlash: (planet: PlanetStrategyPlanet, kind?: 'damage' | 'destroyed') => void;
   triggerShipFlash: (ship: PlanetStrategyShip) => void;

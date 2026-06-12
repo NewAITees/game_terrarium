@@ -1,7 +1,27 @@
 import { defineConfig } from 'vite';
 import { resolve } from 'path';
+import { existsSync } from 'fs';
+import { dirname } from 'path';
+
+function resolveSourceJsToTs() {
+  return {
+    name: 'resolve-source-js-to-ts',
+    resolveId(source: string, importer: string | undefined) {
+      if (!importer || !source.startsWith('./') && !source.startsWith('../')) return null;
+      if (!source.endsWith('.js')) return null;
+      const jsPath = resolve(dirname(importer), source);
+      if (existsSync(jsPath)) return jsPath;
+      const tsPath = jsPath.replace(/\.js$/i, '.ts');
+      if (existsSync(tsPath)) return tsPath;
+      const tsxPath = jsPath.replace(/\.js$/i, '.tsx');
+      if (existsSync(tsxPath)) return tsxPath;
+      return null;
+    },
+  };
+}
 
 export default defineConfig({
+  plugins: [resolveSourceJsToTs()],
   build: {
     outDir: 'build',
     emptyOutDir: false,

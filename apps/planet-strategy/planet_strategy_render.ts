@@ -23,8 +23,10 @@ export function createPlanetStrategyRenderer({
     shipGroup,
   } = createPlanetStrategyRenderScene();
   const {
+    attachMissileMesh,
     attachShipMesh,
     ensureRouteVisual,
+    removeMissileMesh,
     removeShipMesh,
     triggerPlanetFlash,
     triggerShipFlash,
@@ -58,8 +60,10 @@ export function createPlanetStrategyRenderer({
   }
 
   return {
+    attachMissileMesh,
     attachShipMesh,
     ensureRouteVisual,
+    removeMissileMesh,
     removeShipMesh,
     triggerPlanetFlash,
     triggerShipFlash,

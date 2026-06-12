@@ -6,6 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const path_1 = __importDefault(require("path"));
 const electron_1 = require("electron");
 const server_1 = require("./server");
+const page_registry_1 = require("./shared/page_registry");
 electron_1.app.commandLine.appendSwitch('disable-features', 'HardwareMediaKeyHandling,MediaSessionService');
 const IS_DEBUG_MINIMAL = process.env.ELECTRON_DEBUG_MINIMAL === '1';
 const ENABLE_APP_MENU = process.env.ELECTRON_DISABLE_MENU !== '1';
@@ -13,30 +14,20 @@ const ENABLE_GLOBAL_SHORTCUTS = process.env.ELECTRON_DISABLE_SHORTCUTS !== '1';
 const ENABLE_ALWAYS_ON_TOP = process.env.ELECTRON_DISABLE_ALWAYS_ON_TOP !== '1' && !IS_DEBUG_MINIMAL;
 const ENABLE_ALL_WORKSPACES = process.env.ELECTRON_DISABLE_ALL_WORKSPACES !== '1' && !IS_DEBUG_MINIMAL;
 const ENABLE_SERVER = process.env.ELECTRON_DISABLE_SERVER !== '1';
-const PAGES = {
-    city: path_1.default.join(__dirname, '..', 'pages', 'city_traffic_tiltshift_alpha.html'),
-    moss: path_1.default.join(__dirname, '..', 'pages', 'moss_alpha.html'),
-    escort_td: 'http://localhost:3000/escort_td.html',
-    net_sw: path_1.default.join(__dirname, '..', 'pages', 'network_sw.html'),
-    net_defense: 'http://localhost:3000/network_defense.html',
-    planet_strategy: 'http://localhost:3000/planet_strategy.html',
-    net_ecosystem: 'http://localhost:3000/network_ecosystem.html',
-    colony: 'http://localhost:3000/colony.html',
-    submarine: path_1.default.join(__dirname, '..', 'pages', 'submarine_cables.html'),
-    submarine_3d: path_1.default.join(__dirname, '..', 'pages', 'submarine_network_3d.html'),
-};
 let win = null;
 let currentPage = 'city';
-function isPageKey(value) {
-    return value in PAGES;
-}
 function loadPage(pageKey) {
     if (!win)
         return;
+    const page = page_registry_1.PAGE_REGISTRY.find((entry) => entry.key === pageKey);
+    if (!page)
+        return;
     currentPage = pageKey;
-    const target = PAGES[pageKey];
-    console.log(`[page] switching -> ${pageKey}: ${target}`);
-    if (target.startsWith('http')) {
+    const target = page.loadMode === 'file'
+        ? path_1.default.join(__dirname, '..', page.target)
+        : page.target;
+    console.log(`[page] switching -> ${(0, page_registry_1.describePage)(page)}: ${target}`);
+    if (page.loadMode === 'http') {
         void win.loadURL(target);
     }
     else {
@@ -60,16 +51,7 @@ function refreshMenu() {
         {
             label: 'View',
             submenu: [
-                radio('City Traffic (1)', 'city', 'CmdOrCtrl+1'),
-                radio('MOSS (2)', 'moss', 'CmdOrCtrl+2'),
-                radio('Escort TD (3)', 'escort_td', 'CmdOrCtrl+3'),
-                radio('Network Small World (4)', 'net_sw', 'CmdOrCtrl+4'),
-                radio('AI Planet Strategy (0)', 'planet_strategy', 'CmdOrCtrl+0'),
-                radio('Network Tower Defense (7)', 'net_defense', 'CmdOrCtrl+7'),
-                radio('Network Ecosystem (8)', 'net_ecosystem', 'CmdOrCtrl+8'),
-                radio('Submarine Cables (5)', 'submarine', 'CmdOrCtrl+5'),
-                radio('Submarine Network 3D (6)', 'submarine_3d', 'CmdOrCtrl+6'),
-                radio('AI Colony Sandbox (9)', 'colony', 'CmdOrCtrl+9'),
+                ...page_registry_1.PAGE_REGISTRY.map((page) => radio(`${page.label} (${page.number})`, page.key, page.accelerator)),
                 { type: 'separator' },
                 {
                     label: 'Toggle Always On Top',
@@ -130,7 +112,7 @@ electron_1.app.whenReady().then(async () => {
             await (0, server_1.startServer)(() => ({ currentPage }), (type, payload) => {
                 if (type === 'switch_page') {
                     const page = String(payload?.page ?? '');
-                    if (!isPageKey(page))
+                    if (!(0, page_registry_1.isPageKey)(page))
                         return { error: `unknown page: ${page}` };
                     loadPage(page);
                     return { currentPage };
@@ -144,16 +126,9 @@ electron_1.app.whenReady().then(async () => {
     }
     createMainWindow();
     if (ENABLE_GLOBAL_SHORTCUTS) {
-        electron_1.globalShortcut.register('CmdOrCtrl+1', () => loadPage('city'));
-        electron_1.globalShortcut.register('CmdOrCtrl+2', () => loadPage('moss'));
-        electron_1.globalShortcut.register('CmdOrCtrl+3', () => loadPage('escort_td'));
-        electron_1.globalShortcut.register('CmdOrCtrl+4', () => loadPage('net_sw'));
-        electron_1.globalShortcut.register('CmdOrCtrl+5', () => loadPage('submarine'));
-        electron_1.globalShortcut.register('CmdOrCtrl+6', () => loadPage('submarine_3d'));
-        electron_1.globalShortcut.register('CmdOrCtrl+7', () => loadPage('net_defense'));
-        electron_1.globalShortcut.register('CmdOrCtrl+8', () => loadPage('net_ecosystem'));
-        electron_1.globalShortcut.register('CmdOrCtrl+9', () => loadPage('colony'));
-        electron_1.globalShortcut.register('CmdOrCtrl+0', () => loadPage('planet_strategy'));
+        for (const page of page_registry_1.PAGE_REGISTRY) {
+            electron_1.globalShortcut.register(page.accelerator, () => loadPage(page.key));
+        }
     }
     electron_1.app.on('activate', () => {
         if (electron_1.BrowserWindow.getAllWindows().length === 0)

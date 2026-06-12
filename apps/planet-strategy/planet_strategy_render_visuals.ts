@@ -39,7 +39,7 @@ export function createPlanetStrategyRenderVisuals(context: any) {
   function updateVisuals(dt = 0): void {
     const contestedPlanets = new Set(
       context.world.ships
-        .filter((ship: any) => ship.status === 'battling' || ship.status === 'attacking')
+        .filter((ship: any) => ship.status === 'engaging')
         .map((ship: any) => ship.targetPlanetId)
         .filter(Boolean)
     );
@@ -48,11 +48,14 @@ export function createPlanetStrategyRenderVisuals(context: any) {
     planetVisuals.updatePlanetVisuals(contestedPlanets, dt);
     shipVisuals.updateRouteVisuals();
     shipVisuals.updateShipVisuals();
+    shipVisuals.updateMissileVisuals();
   }
 
   return {
+    attachMissileMesh: shipVisuals.attachMissileMesh,
     attachShipMesh: shipVisuals.attachShipMesh,
     ensureRouteVisual: shipVisuals.ensureRouteVisual,
+    removeMissileMesh: shipVisuals.removeMissileMesh,
     removeShipMesh: shipVisuals.removeShipMesh,
     triggerPlanetFlash,
     triggerShipFlash,

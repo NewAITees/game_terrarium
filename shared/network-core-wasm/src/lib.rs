@@ -59,6 +59,133 @@ pub struct TopologyResult {
     pub server: u32,
 }
 
+#[derive(Deserialize)]
+pub struct AttackTargetCandidate {
+    pub id: String,
+    pub x: f64,
+    pub y: f64,
+    pub z: f64,
+    #[serde(default)]
+    pub defender_count: u32,
+}
+
+#[derive(Deserialize)]
+pub struct AttackTargetRequest {
+    pub base_x: f64,
+    pub base_y: f64,
+    pub base_z: f64,
+    pub candidates: Vec<AttackTargetCandidate>,
+}
+
+#[derive(Serialize)]
+pub struct AttackTargetResponse {
+    pub best_index: Option<usize>,
+}
+
+#[derive(Deserialize)]
+pub struct MissileStepInput {
+    pub id: String,
+    pub x: f64,
+    pub y: f64,
+    pub z: f64,
+    pub target_x: f64,
+    pub target_y: f64,
+    pub target_z: f64,
+    pub speed: f64,
+    pub life: f64,
+}
+
+#[derive(Deserialize)]
+pub struct MissileStepRequest {
+    pub dt: f64,
+    pub missiles: Vec<MissileStepInput>,
+}
+
+#[derive(Serialize)]
+pub struct MissileStepOutput {
+    pub id: String,
+    pub x: f64,
+    pub y: f64,
+    pub z: f64,
+    pub life: f64,
+    pub reached: bool,
+}
+
+#[derive(Serialize)]
+pub struct MissileStepResponse {
+    pub missiles: Vec<MissileStepOutput>,
+}
+
+#[derive(Deserialize)]
+pub struct ShipStepPlanet {
+    pub id: String,
+    pub x: f64,
+    pub y: f64,
+    pub z: f64,
+    #[serde(rename = "type")]
+    pub planet_type: String,
+}
+
+#[derive(Deserialize)]
+pub struct ShipStepInput {
+    pub id: String,
+    pub kind: String,
+    pub status: String,
+    pub from_planet_id: String,
+    pub to_planet_id: String,
+    pub home_planet_id: String,
+    pub target_planet_id: Option<String>,
+    pub x: f64,
+    pub y: f64,
+    pub z: f64,
+    pub progress: f64,
+    pub speed: f64,
+    pub cargo: f64,
+    pub capacity: f64,
+    pub hp: f64,
+    pub max_hp: f64,
+    pub phys_attack: f64,
+    pub laser_attack: f64,
+    pub phys_def: f64,
+    pub heat_def: f64,
+    pub attack: f64,
+    pub defense: f64,
+    pub orbit_angle: f64,
+    pub orbit_radius: f64,
+    pub orbit_speed: f64,
+    pub launch_timer: f64,
+    pub fire_cooldown: f64,
+}
+
+#[derive(Deserialize)]
+pub struct ShipStepRequest {
+    pub dt: f64,
+    pub ships: Vec<ShipStepInput>,
+    pub planets: Vec<ShipStepPlanet>,
+}
+
+#[derive(Serialize)]
+pub struct ShipStepOutput {
+    pub id: String,
+    pub x: f64,
+    pub y: f64,
+    pub z: f64,
+    pub status: String,
+    pub progress: f64,
+    pub launch_timer: f64,
+    pub orbit_angle: f64,
+    pub home_planet_id: String,
+    pub from_planet_id: String,
+    pub to_planet_id: String,
+    pub target_planet_id: Option<String>,
+    pub fire_cooldown: f64,
+}
+
+#[derive(Serialize)]
+pub struct ShipStepResponse {
+    pub ships: Vec<ShipStepOutput>,
+}
+
 // ── Layer helpers ─────────────────────────────────────────────────────────────
 
 fn layer_counts(n: u32) -> (u32, u32, u32, u32) {
@@ -82,6 +209,251 @@ fn edge_key(a: u32, b: u32) -> u64 {
     let lo = a.min(b) as u64;
     let hi = a.max(b) as u64;
     (lo << 32) | hi
+}
+
+#[wasm_bindgen(js_name = scoreAttackTargets)]
+pub fn score_attack_targets(payload: JsValue) -> Result<JsValue, JsValue> {
+    let input: AttackTargetRequest = serde_wasm_bindgen::from_value(payload)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let mut best_index: Option<usize> = None;
+    let mut best_score = f64::INFINITY;
+
+    for (index, candidate) in input.candidates.iter().enumerate() {
+        let dx = candidate.x - input.base_x;
+        let dy = candidate.y - input.base_y;
+        let dz = candidate.z - input.base_z;
+        let dist = (dx * dx + dy * dy + dz * dz).sqrt();
+        let score = candidate.defender_count as f64 * 3.0 + dist * 0.04;
+        if score < best_score {
+            best_score = score;
+            best_index = Some(index);
+        }
+    }
+
+    serde_wasm_bindgen::to_value(&AttackTargetResponse { best_index })
+        .map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
+#[wasm_bindgen(js_name = stepPlanetStrategyMissiles)]
+pub fn step_planet_strategy_missiles(payload: JsValue) -> Result<JsValue, JsValue> {
+    let input: MissileStepRequest = serde_wasm_bindgen::from_value(payload)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let mut missiles = Vec::with_capacity(input.missiles.len());
+
+    for missile in input.missiles.iter() {
+        let dx = missile.target_x - missile.x;
+        let dy = missile.target_y - missile.y;
+        let dz = missile.target_z - missile.z;
+        let dist = (dx * dx + dy * dy + dz * dz).sqrt();
+        let travel = missile.speed * input.dt;
+        let step = if dist > 1.0e-6 { (travel / dist).min(1.0) } else { 1.0 };
+        let next_x = missile.x + dx * step;
+        let next_y = missile.y + dy * step;
+        let next_z = missile.z + dz * step;
+        missiles.push(MissileStepOutput {
+            id: missile.id.clone(),
+            x: next_x,
+            y: next_y,
+            z: next_z,
+            life: missile.life - input.dt,
+            reached: dist <= 5.5 || step >= 1.0,
+        });
+    }
+
+    serde_wasm_bindgen::to_value(&MissileStepResponse { missiles })
+        .map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
+fn ship_orbit_radius(planet_type: &str, kind: &str) -> f64 {
+    let base = if planet_type == "factory" { 8.7 } else { 6.8 };
+    base + match kind {
+        "transport" => 2.4,
+        "gunship" => 1.8,
+        _ => 1.2,
+    }
+}
+
+fn ship_dock_point(planet: &ShipStepPlanet, kind: &str) -> (f64, f64, f64) {
+    let radius = ship_orbit_radius(&planet.planet_type, kind);
+    let angle = match kind {
+        "transport" => std::f64::consts::FRAC_PI_2,
+        "gunship" => std::f64::consts::PI * 0.1,
+        _ => std::f64::consts::PI * 0.7,
+    };
+    let y_bias = if planet.planet_type == "factory" { 2.8 } else { 1.5 };
+    (
+        planet.x + angle.cos() * radius,
+        planet.y + y_bias - 1.2,
+        planet.z + angle.sin() * radius,
+    )
+}
+
+fn ship_orbit_point(planet: &ShipStepPlanet, kind: &str, orbit_angle: f64) -> (f64, f64, f64) {
+    let radius = ship_orbit_radius(&planet.planet_type, kind);
+    let y_bias = if planet.planet_type == "factory" { 2.8 } else { 1.5 };
+    (
+        planet.x + orbit_angle.cos() * radius,
+        planet.y + y_bias,
+        planet.z + orbit_angle.sin() * radius,
+    )
+}
+
+#[wasm_bindgen(js_name = stepPlanetStrategyShips)]
+pub fn step_planet_strategy_ships(payload: JsValue) -> Result<JsValue, JsValue> {
+    let input: ShipStepRequest = serde_wasm_bindgen::from_value(payload)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let planets: HashMap<String, ShipStepPlanet> = input
+        .planets
+        .into_iter()
+        .map(|planet| (planet.id.clone(), planet))
+        .collect();
+    let mut ships = Vec::with_capacity(input.ships.len());
+
+    for ship in input.ships.iter() {
+        let mut status = ship.status.clone();
+        let mut progress = ship.progress;
+        let mut launch_timer = (ship.launch_timer - input.dt).max(0.0);
+        let mut orbit_angle = ship.orbit_angle;
+        let mut home_planet_id = ship.home_planet_id.clone();
+        let from_planet_id = ship.from_planet_id.clone();
+        let to_planet_id = ship.to_planet_id.clone();
+        let target_planet_id = ship.target_planet_id.clone();
+        let mut fire_cooldown = ship.fire_cooldown;
+        let mut x = ship.x;
+        let mut y = ship.y;
+        let mut z = ship.z;
+
+        let origin = planets.get(&ship.from_planet_id);
+        let target = planets.get(&ship.to_planet_id);
+        let orbit_planet = planets.get(&ship.home_planet_id);
+
+        match ship.status.as_str() {
+            "docked" => {
+                let dock_planet = orbit_planet.or(origin).or(target);
+                if let Some(planet) = dock_planet {
+                    let (dock_x, dock_y, dock_z) = ship_dock_point(planet, &ship.kind);
+                    x = dock_x;
+                    y = dock_y;
+                    z = dock_z;
+                }
+
+                if ship.kind != "transport"
+                    && ship.target_planet_id.is_some()
+                    && ship.home_planet_id == ship.from_planet_id
+                    && launch_timer <= 0.0
+                {
+                    status = "launching".to_string();
+                    progress = 0.0;
+                    launch_timer = 0.75;
+                }
+            }
+            "launching" => {
+                progress = (progress + input.dt * 1.4).min(1.0);
+                let origin_planet = origin.or(orbit_planet).or(target);
+                if let Some(planet) = origin_planet {
+                    let (origin_x, origin_y, origin_z) = ship_dock_point(planet, &ship.kind);
+                    let (orbit_x, orbit_y, orbit_z) = ship_orbit_point(planet, &ship.kind, orbit_angle);
+                    let eased = progress * progress;
+                    x = origin_x + (orbit_x - origin_x) * eased;
+                    y = origin_y + (orbit_y - origin_y) * eased;
+                    z = origin_z + (orbit_z - origin_z) * eased;
+                }
+                if progress >= 1.0 {
+                    status = "orbiting".to_string();
+                    progress = 0.0;
+                    launch_timer = 0.45;
+                }
+            }
+            "orbiting" => {
+                if let Some(planet) = orbit_planet.or(origin).or(target) {
+                    orbit_angle += input.dt * ship.orbit_speed;
+                    let (orbit_x, orbit_y, orbit_z) = ship_orbit_point(planet, &ship.kind, orbit_angle);
+                    x = orbit_x;
+                    y = orbit_y;
+                    z = orbit_z;
+                }
+
+                progress += input.dt;
+                if ship.kind == "transport"
+                    && ship.home_planet_id == ship.from_planet_id
+                    && ship.cargo > 0.0
+                    && progress >= 0.35
+                {
+                    status = "traveling".to_string();
+                    progress = progress.min(1.0);
+                } else if ship.kind != "transport"
+                    && ship.target_planet_id.is_some()
+                    && ship.home_planet_id == ship.from_planet_id
+                    && progress >= 0.6
+                {
+                    status = "traveling".to_string();
+                    progress = progress.min(1.0);
+                }
+            }
+            "traveling" | "approaching" => {
+                let origin_planet = origin.or(orbit_planet).or(target);
+                let target_planet = target.or(origin_planet);
+                let approach_start = 0.82;
+                let travel_rate = input.dt * ship.speed * 1.75;
+                progress = (progress + travel_rate).min(1.0);
+                let t = if ship.status == "traveling" {
+                    (progress / approach_start).min(1.0)
+                } else {
+                    approach_start + (1.0 - approach_start) * progress
+                };
+                if let (Some(origin_planet), Some(target_planet)) = (origin_planet, target_planet) {
+                    let (origin_x, origin_y, origin_z) = ship_orbit_point(origin_planet, &ship.kind, orbit_angle);
+                    let (target_x, target_y, target_z) = ship_orbit_point(target_planet, &ship.kind, orbit_angle);
+                    x = origin_x + (target_x - origin_x) * t;
+                    y = origin_y + (target_y - origin_y) * t;
+                    z = origin_z + (target_z - origin_z) * t;
+                }
+                if progress >= 1.0 {
+                    home_planet_id = ship.to_planet_id.clone();
+                    progress = 0.0;
+                    if ship.kind == "transport" {
+                        status = "docked".to_string();
+                        launch_timer = 0.0;
+                    } else {
+                        status = "engaging".to_string();
+                        fire_cooldown = 0.2;
+                    }
+                } else if ship.status == "traveling" && progress >= approach_start {
+                    status = "approaching".to_string();
+                }
+            }
+            "engaging" => {
+                let orbit_source = target.or(orbit_planet).or(origin);
+                if let Some(planet) = orbit_source {
+                    orbit_angle += input.dt * ship.orbit_speed;
+                    let (orbit_x, orbit_y, orbit_z) = ship_orbit_point(planet, &ship.kind, orbit_angle);
+                    x = orbit_x;
+                    y = orbit_y;
+                    z = orbit_z;
+                }
+            }
+            _ => {}
+        }
+
+        ships.push(ShipStepOutput {
+            id: ship.id.clone(),
+            x,
+            y,
+            z,
+            status,
+            progress,
+            launch_timer,
+            orbit_angle,
+            home_planet_id,
+            from_planet_id,
+            to_planet_id,
+            target_planet_id,
+            fire_cooldown,
+        });
+    }
+
+    serde_wasm_bindgen::to_value(&ShipStepResponse { ships })
+        .map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
 // ── Radial positions (mirrors assignRadialPositions) ─────────────────────────

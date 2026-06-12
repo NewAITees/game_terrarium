@@ -20,6 +20,7 @@
     "main.ts",
     "server.ts",
     "game/**/*.ts",
-    "scripts/**/*.ts"
+    "scripts/**/*.ts",
+    "shared/page_registry.ts"
   ]
 }

@@ -1,12 +1,19 @@
 import { readFileSync, readdirSync, statSync } from 'fs';
 import path from 'path';
+import { PAGE_REGISTRY, type PageDefinition, type PageLoadMode } from '../shared/page_registry';
 
 const projectRoot = path.resolve(__dirname, '..', '..');
 const htmlRoots = ['apps', 'pages'].map((dir) => path.join(projectRoot, dir));
 
 type ValidationResult = {
   htmlPath: string;
+  page: PageDefinition | null;
   missingIds: string[];
+  missingRefs: string[];
+};
+
+type RuntimeContext = {
+  loadMode: PageLoadMode;
 };
 
 const pageSpecificIgnores: Record<string, Set<string>> = {
@@ -25,6 +32,12 @@ const pageSpecificIgnores: Record<string, Set<string>> = {
     'observer-breach',
   ]),
 };
+
+const pageByHtmlPath = new Map<string, PageDefinition>(
+  PAGE_REGISTRY.map((page) => {
+    return [page.htmlPath.replace(/^\//, ''), page];
+  })
+);
 
 function walkHtmlFiles(dir: string): string[] {
   const entries = readdirSync(dir, { withFileTypes: true });
@@ -60,33 +73,71 @@ function extractReferencedIds(source: string): Set<string> {
   return ids;
 }
 
-function extractModuleScriptPaths(htmlSource: string, htmlPath: string): string[] {
+function extractLocalReferences(source: string): string[] {
+  const refs = new Set<string>();
+  const attrPattern = /(?:src|href)=["']([^"']+)["']/g;
+  for (const match of source.matchAll(attrPattern)) {
+    const ref = match[1];
+    if (ref.startsWith('http://') || ref.startsWith('https://') || ref.startsWith('//') || ref.startsWith('data:')) continue;
+    if (ref.includes('cdn.jsdelivr.net')) continue;
+    if (ref.startsWith('#')) continue;
+    refs.add(ref);
+  }
+
+  const importPattern = /import\s+(?:[^'"]+?\s+from\s+)?['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)/g;
+  for (const match of source.matchAll(importPattern)) {
+    const ref = match[1] ?? match[2];
+    if (!ref) continue;
+    if (!ref.startsWith('.') && !ref.startsWith('/')) continue;
+    refs.add(ref);
+  }
+
+  return [...refs];
+}
+
+function resolveLocalRef(refPath: string, ref: string, page: RuntimeContext | null): string | null {
+  if (!ref.startsWith('.') && !ref.startsWith('/')) return null;
+  const sourcePath = ref.startsWith('/')
+    ? path.join(projectRoot, ref.slice(1))
+    : path.resolve(path.dirname(refPath), ref);
+
+  if (statExists(sourcePath)) return sourcePath;
+
+  if (ref.startsWith('/')) {
+    const localFallback = path.resolve(path.dirname(refPath), path.basename(ref));
+    if (statExists(localFallback)) return localFallback;
+    if (localFallback.endsWith('.js')) {
+      const tsPath = localFallback.replace(/\.js$/, '.ts');
+      if (statExists(tsPath)) return tsPath;
+      const dtsPath = localFallback.replace(/\.js$/, '.d.ts');
+      if (statExists(dtsPath)) return dtsPath;
+    }
+  }
+
+  if (sourcePath.endsWith('.js')) {
+    const tsPath = sourcePath.replace(/\.js$/, '.ts');
+    if (statExists(tsPath)) return tsPath;
+    const dtsPath = sourcePath.replace(/\.js$/, '.d.ts');
+    if (statExists(dtsPath)) return dtsPath;
+    const buildPath = path.join(projectRoot, 'build', path.relative(projectRoot, sourcePath));
+    if (statExists(buildPath)) return buildPath;
+    const sharedTelemetry = path.join(projectRoot, 'shared', path.basename(sourcePath));
+    if (path.basename(sourcePath) === 'telemetry-client.js' && statExists(sharedTelemetry)) return sharedTelemetry;
+  }
+
+  return null;
+}
+
+function extractModuleScriptPaths(htmlSource: string, htmlPath: string, page: RuntimeContext | null): string[] {
   const scriptPattern = /<script[^>]+type=["']module["'][^>]+src=["']([^"']+)["'][^>]*><\/script>/g;
   const paths: string[] = [];
   for (const match of htmlSource.matchAll(scriptPattern)) {
     const src = match[1];
     if (!src.startsWith('.')) continue;
-    const normalized = src.replace(/\.js$/, '.ts');
-    paths.push(path.resolve(path.dirname(htmlPath), normalized));
+    const resolved = resolveLocalRef(htmlPath, src, page);
+    if (resolved) paths.push(resolved);
   }
   return paths;
-}
-
-function resolveImportPath(importerPath: string, specifier: string): string | null {
-  if (!specifier.startsWith('.')) return null;
-  const basePath = path.resolve(path.dirname(importerPath), specifier);
-  const candidates = [
-    basePath,
-    `${basePath}.ts`,
-    `${basePath}.d.ts`,
-    basePath.replace(/\.js$/, '.ts'),
-    basePath.replace(/\.js$/, '.d.ts'),
-    path.join(basePath, 'index.ts'),
-  ];
-  for (const candidate of candidates) {
-    if (statExists(candidate)) return candidate;
-  }
-  return null;
 }
 
 function statExists(filePath: string): boolean {
@@ -97,38 +148,37 @@ function statExists(filePath: string): boolean {
   }
 }
 
-function collectModuleReferencedIds(entryPath: string, visited = new Set<string>()): Set<string> {
-  const ids = new Set<string>();
-  if (!statExists(entryPath) || visited.has(entryPath)) return ids;
-  visited.add(entryPath);
-  const source = readFileSync(entryPath, 'utf8');
-  for (const id of extractReferencedIds(source)) ids.add(id);
-
-  const importPattern = /import\s+(?:[^'"]+?\s+from\s+)?['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)/g;
-  for (const match of source.matchAll(importPattern)) {
-    const specifier = match[1] ?? match[2];
-    if (!specifier) continue;
-    const resolved = resolveImportPath(entryPath, specifier);
-    if (!resolved) continue;
-    for (const id of collectModuleReferencedIds(resolved, visited)) ids.add(id);
-  }
-  return ids;
-}
-
 function validateHtml(htmlPath: string): ValidationResult | null {
   const source = readFileSync(htmlPath, 'utf8');
+  const relativeHtmlPath = path.relative(projectRoot, htmlPath).replace(/\\/g, '/');
+  const page = pageByHtmlPath.get(relativeHtmlPath) ?? null;
+  const runtimeContext: RuntimeContext = page ?? { loadMode: relativeHtmlPath.startsWith('apps/') ? 'http' : 'file' };
   const htmlIds = extractHtmlIds(source);
   const referencedIds = extractReferencedIds(source);
-  const relativeHtmlPath = path.relative(projectRoot, htmlPath).replace(/\\/g, '/');
   const ignoreIds = pageSpecificIgnores[relativeHtmlPath] ?? new Set<string>();
-  for (const modulePath of extractModuleScriptPaths(source, htmlPath)) {
-    for (const id of collectModuleReferencedIds(modulePath)) referencedIds.add(id);
+  const missingRefs = new Set<string>();
+
+  for (const ref of extractLocalReferences(source)) {
+    const resolved = resolveLocalRef(htmlPath, ref, runtimeContext);
+    if (!resolved) missingRefs.add(ref);
   }
+
+  for (const modulePath of extractModuleScriptPaths(source, htmlPath, runtimeContext)) {
+    const moduleSource = readFileSync(modulePath, 'utf8');
+    for (const id of extractReferencedIds(moduleSource)) referencedIds.add(id);
+    for (const ref of extractLocalReferences(moduleSource)) {
+      const resolved = resolveLocalRef(modulePath, ref, runtimeContext);
+      if (!resolved) missingRefs.add(ref);
+    }
+  }
+
   const missingIds = [...referencedIds].filter((id) => !htmlIds.has(id) && !ignoreIds.has(id)).sort();
-  if (!missingIds.length) return null;
+  if (!missingIds.length && !missingRefs.size) return null;
   return {
     htmlPath: relativeHtmlPath,
+    page,
     missingIds,
+    missingRefs: [...missingRefs].sort(),
   };
 }
 
@@ -143,6 +193,11 @@ if (!results.length) {
 }
 
 for (const result of results) {
-  console.error(`${result.htmlPath}: missing ids -> ${result.missingIds.join(', ')}`);
+  const prefix = result.page ? `${result.page.number} (${result.page.key}) ${result.page.label}` : result.htmlPath;
+  const issues = [
+    result.missingIds.length ? `missing ids -> ${result.missingIds.join(', ')}` : '',
+    result.missingRefs.length ? `missing refs -> ${result.missingRefs.join(', ')}` : '',
+  ].filter(Boolean);
+  console.error(`${prefix}: ${issues.join(' | ')}`);
 }
 process.exit(1);

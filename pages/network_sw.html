@@ -22,8 +22,8 @@ import { EffectComposer }  from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass }      from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { buildTopology, buildScene, buildEdges, buildPackets,
-         makeMats, tickEdges, tickPackets, initFlash, tickFlash,
-         buildAdj, findShortestPath } from '../shared/network-core.js';
+          makeMats, tickEdges, tickPackets, initFlash, tickFlash,
+          buildAdj, findShortestPath } from '../build/shared/network-core.js';
 
 const TOTAL      = 24+(Math.random()*16|0);
 const SEED       = Math.random()*1e9|0;
