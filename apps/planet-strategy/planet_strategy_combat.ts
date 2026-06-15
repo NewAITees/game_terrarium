@@ -141,6 +141,9 @@ export function createPlanetStrategyCombatRuntime(context: any) {
     if (planet.underConstruction && planet.underConstruction.empireId !== newOwner) {
       planet.underConstruction = null;
     }
+    if (planet.type === 'mine' && planet.structures.mine <= 0) {
+      planet.structures.mine = 1;
+    }
 
     for (const ship of fleet) {
       ship.status = 'orbiting';
@@ -281,9 +284,7 @@ export function createPlanetStrategyCombatRuntime(context: any) {
           fireShipWeapon(ship, planet);
           ship.fireCooldown = ship.kind === 'gunship' ? 0.45 : ship.kind === 'defender' ? 0.55 : 0.7;
         }
-        if (targetShip) {
-          targetShip.hp -= damageFromAttack(ship, targetShip);
-        } else if (planet.structures.factory > 0) {
+        if (!targetShip && planet.structures.factory > 0) {
           planet.factoryHp -= damageFromAttack(ship, getPlanetDefense(planet)) * dt * 0.35;
         }
       }

@@ -1,12 +1,14 @@
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
 const { spawnSync } = require('child_process');
 
 const repoRoot = path.resolve(__dirname, '..');
 const wasmDir = path.join(repoRoot, 'shared', 'network-core-wasm');
 const vendorDir = path.join(repoRoot, 'build', '_vendor', 'wasm');
-const tempRoot = path.join(process.env.TEMP || os.tmpdir(), 'game-terrarium-wasm');
+const tempRoot = path.join(
+  process.env.TEMP || process.env.TMP || process.env.TMPDIR || path.join(repoRoot, '.tmp'),
+  'game-terrarium-wasm',
+);
 const cargoHome = process.env.CARGO_HOME || path.join(process.env.USERPROFILE || process.env.HOME || '', '.cargo');
 const cargoTarget = path.join(tempRoot, 'cargo-target');
 const tempDir = path.join(tempRoot, 'temp');
@@ -22,16 +24,20 @@ function exists(filePath) {
 function candidateExecutables(names) {
   const candidates = [];
 
-  if (process.env.CARGO) {
-    candidates.push(process.env.CARGO);
+  if (process.env.WASM_PACK) {
+    candidates.push(process.env.WASM_PACK);
   }
 
   const home = process.env.USERPROFILE || process.env.HOME || '';
   if (home) {
-    candidates.push(path.join(home, '.cargo', 'bin', names[0]));
+    for (const name of names) {
+      candidates.push(path.join(home, '.cargo', 'bin', name));
+    }
   }
 
-  candidates.push(path.join('C:\\tmp', 'cargo-root', 'bin', names[0]));
+  for (const name of names) {
+    candidates.push(path.join('C:\\tmp', 'cargo-root', 'bin', name));
+  }
 
   const pathEntries = (process.env.PATH || '').split(path.delimiter).filter(Boolean);
   for (const entry of pathEntries) {
@@ -43,15 +49,15 @@ function candidateExecutables(names) {
   return candidates;
 }
 
-function resolveCargo() {
-  const names = process.platform === 'win32' ? ['cargo.exe', 'cargo'] : ['cargo'];
+function resolveWasmPack() {
+  const names = process.platform === 'win32' ? ['wasm-pack.exe', 'wasm-pack'] : ['wasm-pack'];
   for (const candidate of candidateExecutables(names)) {
     if (exists(candidate)) {
       return candidate;
     }
   }
 
-  const lookup = spawnSync(process.platform === 'win32' ? 'where' : 'which', ['cargo'], {
+  const lookup = spawnSync(process.platform === 'win32' ? 'where' : 'which', ['wasm-pack'], {
     encoding: 'utf8',
   });
   if (lookup.status === 0) {
@@ -72,11 +78,9 @@ function ensureDir(dirPath) {
 }
 
 function run() {
-  const cargo = resolveCargo();
-  if (!cargo) {
-    throw new Error(
-      'cargo が見つかりません。Rust toolchain を導入して、cargo を PATH に追加してください。',
-    );
+  const wasmPack = resolveWasmPack();
+  if (!wasmPack) {
+    throw new Error('wasm-pack が見つかりません。Rust toolchain を導入して PATH に追加してください。');
   }
 
   ensureDir(cargoHome);
@@ -86,7 +90,7 @@ function run() {
   const env = {
     ...process.env,
     PATH: [
-      path.dirname(cargo),
+      path.dirname(wasmPack),
       path.join(process.env.USERPROFILE || process.env.HOME || '', '.cargo', 'bin'),
       path.join('C:\\tmp', 'cargo-root', 'bin'),
       process.env.PATH || '',
@@ -100,7 +104,7 @@ function run() {
     TMPDIR: tempDir,
   };
 
-  const build = spawnSync(cargo, ['build', '--target', 'wasm32-unknown-unknown', '--release'], {
+  const build = spawnSync(wasmPack, ['build', '--target', 'web', '--out-dir', 'pkg'], {
     cwd: wasmDir,
     env,
     stdio: 'inherit',
@@ -112,10 +116,7 @@ function run() {
 
   ensureDir(vendorDir);
   fs.copyFileSync(path.join(wasmDir, 'pkg', 'network_core_wasm.js'), path.join(vendorDir, 'network_core_wasm.js'));
-  fs.copyFileSync(
-    path.join(cargoTarget, 'wasm32-unknown-unknown', 'release', 'network_core_wasm.wasm'),
-    path.join(vendorDir, 'network_core_wasm_bg.wasm'),
-  );
+  fs.copyFileSync(path.join(wasmDir, 'pkg', 'network_core_wasm_bg.wasm'), path.join(vendorDir, 'network_core_wasm_bg.wasm'));
 }
 
 try {

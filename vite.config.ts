@@ -3,10 +3,16 @@ import { resolve } from 'path';
 import { existsSync } from 'fs';
 import { dirname } from 'path';
 
+const repoRoot = __dirname;
+
 function resolveSourceJsToTs() {
   return {
     name: 'resolve-source-js-to-ts',
     resolveId(source: string, importer: string | undefined) {
+      if (source === '/_vendor/wasm/network_core_wasm.js' || source === '/_vendor/wasm/network_core_wasm_bg.wasm') {
+        const vendorPath = resolve(repoRoot, 'build', '_vendor', 'wasm', source.split('/').pop() ?? '');
+        return existsSync(vendorPath) ? vendorPath : null;
+      }
       if (!importer || !source.startsWith('./') && !source.startsWith('../')) return null;
       if (!source.endsWith('.js')) return null;
       const jsPath = resolve(dirname(importer), source);
