@@ -219,11 +219,11 @@ Why first:
 
 Suggested order:
 
-1. `planet_strategy_render.js` -> `.ts`
-2. `planet_strategy_ui.js` -> `.ts`
-3. `planet_strategy_telemetry.js` -> `.ts`
-4. `planet_strategy_ai_*.js` -> `.ts`
-5. `planet_strategy.js` -> `.ts`
+1. `planet_strategy_render.ts`
+2. `planet_strategy_ui.ts`
+3. `planet_strategy_telemetry.ts`
+4. `planet_strategy_ai_*.ts`
+5. `planet_strategy.ts`
 
 Key types needed early:
 
@@ -270,7 +270,7 @@ Objective:
 
 Suggested prioritization:
 
-1. `colony.js`
+1. `colony.ts`
 2. any page with telemetry + AI state + render state
 3. older experiments that are still being touched
 

@@ -24,35 +24,34 @@
 
 ### 🔴 高優先（観察体験を次段階へ上げる）
 
-1. **破壊エフェクト** `planet_strategy_render.js`
-   - 船が破壊されたとき：小さなパーティクルバースト or 輝度フラッシュ
-   - 工場が破壊されたとき：赤いフラッシュと縮小アニメーション
+1. **破壊エフェクト** `planet_strategy_render.ts`
+   - 船が破壊されたとき: 小さなパーティクルバースト or 輝度フラッシュ
+   - 工場が破壊されたとき: 赤いフラッシュと縮小アニメーション
    - `rendererView.removeShipMesh(s)` の呼び出しタイミングで発火
 
-2. **背景星のY方向分散** `planet_strategy_render.js`
+2. **背景星のY方向分散** `planet_strategy_render.ts`
    - `addStarField` 内の `y` 計算を修正
-   - 現状：`y = (rng() - 0.5) * (22 + radius * 0.035)` → 水平に偏っている
-   - 修正：`y` のスケールを 3〜5倍に増やして上下方向にも広がらせる
+   - 現状: `y = (rng() - 0.5) * (22 + radius * 0.035)` -> 水平に偏っている
+   - 修正: `y` のスケールを 3〜5倍に増やして上下方向にも広がらせる
 
-3. **攻撃の可視化** `planet_strategy_render.js` + `planet_strategy.js`
+3. **攻撃の可視化** `planet_strategy_render.ts` + `planet_strategy.ts`
    - 攻撃中のルートラインを太く・明るく表示（`traffic` 係数を大きくする）
    - HUD の empire-intent に攻撃中の目標星ラベルを表示（現状は一部のみ）
 
 ### 🟢 低優先（あると良い）
 
-4. **輸送船の複数表示** `planet_strategy_render.js`
+4. **輸送船の複数表示** `planet_strategy_render.ts`
    - 同一ルートに複数の輸送船がいる場合、進行方向に少しオフセットして並列描画
-   - 惑星に「突然出現」しないよう、loading/unloading 中の船をルート上に留める
+   - 惑星に「突然出現」しないよう、loading / unloading 中の船をルート上に留める
 
-5. **船団単位の移動** `planet_strategy.js` / AI ファイル
+5. **船団単位の移動** `planet_strategy.ts` / AI ファイル
    - 攻撃艦3隻以上を同時出撃させるとき、全船が同じ出発タイミングで動く
-   - 現状は `decideAttacks` がすでに一括送出しているが、速度バラつきで分散する
+   - 現状は `decideAttacks` が一括送出しているが、速度バラつきで分散する
    - 全艦の速度を揃えるか、先行艦が到着を待つ anchor-ship 機構を入れる
 
 6. **遠距離輸送 AI** AI ファイル
-   - 近隣鉱山がすべて枯渇した場合、ATTACK_RANGE 外の未開拓鉱山へ建設船を派遣する
+   - 近隣鉱山がすべて枯渇した場合、`ATTACK_RANGE` 外の未開拓鉱山へ建設船を派遣する
    - `expansionist` と `industrialist` の戦略に追加
-
 ---
 
 ## 完了済み
@@ -80,6 +79,12 @@
 - [x] 終盤圧迫イベント `ore_falloff`
 - [x] 介入ボタン `resource_burst` / `panic_repair`
 - [x] 終了サマリ充実（最大配送帝国・最初に止まった工場・枯渇惑星数・一文サマリ）
+
+---
+
+## 旧 TODO
+
+実装済みで現行のターゲットではなくなった項目は、`docs/old/PLANET_TODO_legacy.md` に退避した。
 
 ---
 
@@ -145,7 +150,7 @@ docked（工場内待機）
 **タレットのポイントディフェンス:**
 - 飛来ミサイルを対艦攻撃より優先して迎撃
 
-**施設引き継ぎ（`planet_strategy.js` の修正が必要）:**
+**施設引き継ぎ（`planet_strategy.ts` の修正が必要）:**
 - 守備隊全滅で即占領。工場・採掘施設・タレットはそのまま引き継ぎ
 - `capturePlanet()` から `factoryHp = 0` 強制リセットを削除
 - `wasNeutral` 時の自動 `mine = 1` 付与を削除
@@ -266,13 +271,13 @@ loader.load('/assets/ships/transport.glb', (gltf) => {
 
 ## 未着手・作業中
 
-### 視覚 — `planet_strategy_render.js`
+### 視覚 — `planet_strategy_render.ts`
 
 - [ ] **輸送船の複数表示** — 同一ルートに複数の輸送船が存在する場合、複数描写する（惑星上に突然出現しない）
 - [ ] **破壊エフェクト** — 船・工場が破壊されたとき爆発パーティクルまたはフラッシュ
 - [ ] **背景星のY方向分散** — 現状ほぼ水平面にまとまっている → verticalRange を大幅に広げる
 
-### ゲームロジック — `planet_strategy.js` / AI ファイル
+### ゲームロジック — `planet_strategy.ts` / AI ファイル
 
 - [ ] **船団単位の移動** — 攻撃・防衛船はまとまって行動させる（個別ではなくフリート単位）
 - [ ] **攻撃の可視化改善** — 攻撃中の船のルートラインを強調表示、どこを攻撃中か HUD に表示
@@ -280,7 +285,7 @@ loader.load('/assets/ships/transport.glb', (gltf) => {
 - [ ] **遠距離輸送ルート** — 資源枯渇後に遠方鉱山を開拓し、長距離ルートを確立する AI 戦略
 - [ ] **ore_falloff の再調整** — 実装済みイベントの発動タイミング・圧力をチューニングする
 
-### UI — `planet_strategy_ui.js` / `planet_strategy.html`
+### UI — `planet_strategy_ui.ts` / `planet_strategy.html`
 
 - [ ] **攻撃対象の手動指定** — プレイヤーが星をクリックして攻撃先を指定できるボタン
 

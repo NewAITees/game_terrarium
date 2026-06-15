@@ -79,33 +79,34 @@
 ## ファイル構成案
 
 初回は以下の分割を推奨する。
+旧 JS 版の構成案は `docs/old/AI_PLANET_IMPLEMENTATION_PLAN_legacy_js.md` に退避した。
 
 ### エントリ
 
 - `planet_strategy.html`
-- `planet_strategy.js`
+- `planet_strategy.ts`
 
 ### シミュレーション
 
-- `planet_strategy_state.js`
+- `planet_strategy_state.ts`
   - world state の生成と保持
-- `planet_strategy_sim.js`
+- `planet_strategy_sim.ts`
   - 採掘、輸送、工場生産、時間進行
-- `planet_strategy_ai.js`
-  - 帝国ごとの輸送・生産方針
+- `planet_strategy_ai_*.ts`
+  - 帝国ごとの輸送・生産方針と性格別 AI
 
 ### 表示
 
-- `planet_strategy_render.js`
+- `planet_strategy_render.ts`
   - Three.js の scene / camera / mesh 更新
-- `planet_strategy_ui.js`
+- `planet_strategy_ui.ts`
   - HUD、ログ、集計表示
 
 ### 補助
 
-- `planet_strategy_telemetry.js`
+- `planet_strategy_telemetry.ts`
   - `/telemetry/planet_strategy` への送信
-- `planet_strategy_constants.js`
+- `planet_strategy_constants.ts`
   - 各種定数
 
 ## データモデル案
@@ -317,7 +318,7 @@
 
 ## 可視化責務
 
-### planet_strategy_render.js
+### planet_strategy_render.ts
 
 - 惑星 mesh 生成
 - 惑星サイズと色の更新
@@ -370,7 +371,7 @@
 ### Step 1
 
 - `planet_strategy.html`
-- `planet_strategy.js`
+- `planet_strategy.ts`
 - Three.js scene だけ表示
 
 ### Step 2
