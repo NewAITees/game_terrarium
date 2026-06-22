@@ -7,7 +7,7 @@ import { WebSocket, WebSocketServer } from 'ws';
 import { mountBrowserAssetRoutes } from './server_assets';
 import { handleRuleUpdate, handleStrategyRequest } from './server_ollama';
 
-const PORT = 3000;
+const PORT = Number.parseInt(process.env.GAME_TERRARIUM_PORT || process.env.PORT || '3000', 10) || 3000;
 const telemetry = new Map<string, any>();
 const colonyQueue: Array<{ type: string; queuedAt: string }> = [];
 const progressPages = ['network_defense', 'network_defense_observer', 'colony', 'planet_strategy'];
@@ -22,6 +22,7 @@ type ElectronDispatch = (type: string, payload: any) => any;
 
 export async function startServer(getElectronState: () => any, electronDispatch: ElectronDispatch): Promise<void> {
   const projectRoot = path.resolve(__dirname, '..');
+  const shipJumpLogPath = path.join(projectRoot, 'logs', 'planet_strategy_ship_jumps.log');
   const engineModuleUrl = pathToFileURL(path.join(projectRoot, 'build-node', 'game', 'engine.js')).href;
   const importEngineModule = new Function('moduleUrl', 'return import(moduleUrl);') as (moduleUrl: string) => Promise<any>;
   const { GameEngine } = await importEngineModule(engineModuleUrl);
@@ -70,6 +71,20 @@ export async function startServer(getElectronState: () => any, electronDispatch:
     };
     telemetry.set(page, snapshot);
     res.json({ ok: true });
+  });
+
+  app.post('/api/ship-jumps', async (req, res) => {
+    const { line } = req.body || {};
+    if (typeof line !== 'string' || !line.trim()) {
+      return res.status(400).json({ error: 'line required' });
+    }
+    try {
+      await fs.mkdir(path.dirname(shipJumpLogPath), { recursive: true });
+      await fs.appendFile(shipJumpLogPath, `${line}\n`, 'utf8');
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(500).json({ error: `failed to append ship jump log: ${String(error)}` });
+    }
   });
 
   app.get('/api/progress', (_req, res) => {

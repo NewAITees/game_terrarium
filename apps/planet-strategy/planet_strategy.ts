@@ -136,6 +136,7 @@ const {
   getEmpire,
   getPlanet,
   logEvent,
+  recordShipJump,
   maybeLog,
   rendererView,
   rng,
@@ -188,6 +189,14 @@ function maybeLog(key, text, type, intervalSeconds) {
 
 function logEvent(text, type = 'info') {
   ui.log(`[${String(Math.floor(world.time)).padStart(4)}s] ${text}`, type);
+}
+
+function recordShipJump(line) {
+  void fetch('/api/ship-jumps', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ line }),
+  }).catch(() => {});
 }
 
 function tick(dt: number) {

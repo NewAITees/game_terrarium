@@ -5,13 +5,14 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.startServer = startServer;
 const express_1 = __importDefault(require("express"));
+const fs_1 = require("fs");
 const http_1 = __importDefault(require("http"));
 const path_1 = __importDefault(require("path"));
 const url_1 = require("url");
 const ws_1 = require("ws");
 const server_assets_1 = require("./server_assets");
 const server_ollama_1 = require("./server_ollama");
-const PORT = 3000;
+const PORT = Number.parseInt(process.env.GAME_TERRARIUM_PORT || process.env.PORT || '3000', 10) || 3000;
 const telemetry = new Map();
 const colonyQueue = [];
 const progressPages = ['network_defense', 'network_defense_observer', 'colony', 'planet_strategy'];
@@ -22,6 +23,7 @@ const SUBMARINE_ENDPOINTS = {
 };
 async function startServer(getElectronState, electronDispatch) {
     const projectRoot = path_1.default.resolve(__dirname, '..');
+    const shipJumpLogPath = path_1.default.join(projectRoot, 'logs', 'planet_strategy_ship_jumps.log');
     const engineModuleUrl = (0, url_1.pathToFileURL)(path_1.default.join(projectRoot, 'build-node', 'game', 'engine.js')).href;
     const importEngineModule = new Function('moduleUrl', 'return import(moduleUrl);');
     const { GameEngine } = await importEngineModule(engineModuleUrl);
@@ -65,6 +67,20 @@ async function startServer(getElectronState, electronDispatch) {
         };
         telemetry.set(page, snapshot);
         res.json({ ok: true });
+    });
+    app.post('/api/ship-jumps', async (req, res) => {
+        const { line } = req.body || {};
+        if (typeof line !== 'string' || !line.trim()) {
+            return res.status(400).json({ error: 'line required' });
+        }
+        try {
+            await fs_1.promises.mkdir(path_1.default.dirname(shipJumpLogPath), { recursive: true });
+            await fs_1.promises.appendFile(shipJumpLogPath, `${line}\n`, 'utf8');
+            res.json({ ok: true });
+        }
+        catch (error) {
+            res.status(500).json({ error: `failed to append ship jump log: ${String(error)}` });
+        }
     });
     app.get('/api/progress', (_req, res) => {
         res.json({

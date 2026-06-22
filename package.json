@@ -8,6 +8,7 @@
     "build:wasm": "node scripts/build_wasm.js",
     "build": "npm run build:wasm && vite build && tsc -p tsconfig.node.json",
     "check:dom": "npm run build && node build-node/scripts/validate_dom_ids.js",
+    "smoke:start": "npm run build && node build-node/scripts/electron_start_smoke.js",
     "smoke": "npm run typecheck && npm run check:dom",
     "prestart": "npm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit",

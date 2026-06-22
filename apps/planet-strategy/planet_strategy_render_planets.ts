@@ -430,7 +430,7 @@ function createLabelSprite(text: string) {
   texture.magFilter = LinearFilter;
   const material = new SpriteMaterial({ map: texture, transparent: true, depthWrite: false });
   const sprite = new Sprite(material);
-  sprite.scale.set(15, 4.2, 1);
+  sprite.scale.set(13.8, 3.6, 1);
   updateLabelSprite(sprite, text);
   return sprite;
 }
@@ -441,13 +441,13 @@ function updateLabelSprite(sprite: any, text: string) {
   canvas.width = 256;
   canvas.height = 72;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = 'rgba(7, 14, 24, 0.72)';
+  ctx.fillStyle = 'rgba(7, 14, 24, 0.84)';
   ctx.fillRect(8, 10, 240, 52);
-  ctx.strokeStyle = 'rgba(166, 224, 255, 0.55)';
-  ctx.lineWidth = 2;
+  ctx.strokeStyle = 'rgba(166, 224, 255, 0.26)';
+  ctx.lineWidth = 1.5;
   ctx.strokeRect(8, 10, 240, 52);
-  ctx.fillStyle = '#e8f8ff';
-  ctx.font = 'bold 26px monospace';
+  ctx.fillStyle = '#d9e8f1';
+  ctx.font = 'bold 22px monospace';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(text, 128, 37);

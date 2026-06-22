@@ -11,11 +11,15 @@ electron_1.app.commandLine.appendSwitch('disable-features', 'HardwareMediaKeyHan
 const IS_DEBUG_MINIMAL = process.env.ELECTRON_DEBUG_MINIMAL === '1';
 const ENABLE_APP_MENU = process.env.ELECTRON_DISABLE_MENU !== '1';
 const ENABLE_GLOBAL_SHORTCUTS = process.env.ELECTRON_DISABLE_SHORTCUTS !== '1';
-const ENABLE_ALWAYS_ON_TOP = process.env.ELECTRON_DISABLE_ALWAYS_ON_TOP !== '1' && !IS_DEBUG_MINIMAL;
-const ENABLE_ALL_WORKSPACES = process.env.ELECTRON_DISABLE_ALL_WORKSPACES !== '1' && !IS_DEBUG_MINIMAL;
+const ENABLE_ALWAYS_ON_TOP = process.env.ELECTRON_ENABLE_ALWAYS_ON_TOP === '1' && !IS_DEBUG_MINIMAL;
+const ENABLE_ALL_WORKSPACES = process.env.ELECTRON_ENABLE_ALL_WORKSPACES === '1' && !IS_DEBUG_MINIMAL;
 const ENABLE_SERVER = process.env.ELECTRON_DISABLE_SERVER !== '1';
 let win = null;
 let currentPage = 'city';
+let lastLoadState = {
+    page: 'city',
+    status: 'idle',
+};
 function loadPage(pageKey) {
     if (!win)
         return;
@@ -23,6 +27,7 @@ function loadPage(pageKey) {
     if (!page)
         return;
     currentPage = pageKey;
+    lastLoadState = { page: pageKey, status: 'loading' };
     const target = page.loadMode === 'file'
         ? path_1.default.join(__dirname, '..', page.target)
         : page.target;
@@ -92,12 +97,25 @@ function createMainWindow() {
         win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
     }
     win.webContents.on('did-finish-load', () => {
+        lastLoadState = { page: currentPage, status: 'loaded' };
         console.log(`[page] loaded -> ${currentPage}`);
     });
     win.webContents.on('did-fail-load', (_event, code, description, validatedURL) => {
+        lastLoadState = {
+            page: currentPage,
+            status: 'failed',
+            error: `${validatedURL} (${code}) ${description}`,
+        };
         console.error(`[page] failed -> ${validatedURL} (${code}) ${description}`);
     });
     win.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+        if (level >= 3 && /(?:Uncaught|ReferenceError|TypeError|ENOENT|Cannot access )/.test(message)) {
+            lastLoadState = {
+                page: currentPage,
+                status: 'failed',
+                error: `${sourceId}:${line} ${message}`,
+            };
+        }
         console.log(`[renderer:${level}] ${sourceId}:${line} ${message}`);
     });
     loadPage(currentPage);
@@ -109,7 +127,7 @@ function createMainWindow() {
 electron_1.app.whenReady().then(async () => {
     if (ENABLE_SERVER) {
         try {
-            await (0, server_1.startServer)(() => ({ currentPage }), (type, payload) => {
+            await (0, server_1.startServer)(() => ({ currentPage, lastLoadState }), (type, payload) => {
                 if (type === 'switch_page') {
                     const page = String(payload?.page ?? '');
                     if (!(0, page_registry_1.isPageKey)(page))

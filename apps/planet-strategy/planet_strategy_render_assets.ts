@@ -5,6 +5,14 @@ const loader = new GLTFLoader();
 const assetCache = new Map<string, Promise<Object3D | null>>();
 
 export function loadStructureAsset(path: string): Promise<Object3D | null> {
+  return loadAsset(path);
+}
+
+export function loadShipAsset(path: string): Promise<Object3D | null> {
+  return loadAsset(path);
+}
+
+function loadAsset(path: string): Promise<Object3D | null> {
   if (!assetCache.has(path)) {
     const assetUrl = new URL(`../../${path}`, import.meta.url).href;
     assetCache.set(path, loader.loadAsync(assetUrl)

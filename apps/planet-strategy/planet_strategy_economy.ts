@@ -7,6 +7,7 @@ export function createPlanetStrategyEconomyRuntime(context: any) {
     expansionist: { transport: 0.34, attacker: 0.38, gunship: 0.12, defender: 0.16 },
     fortifier: { transport: 0.32, attacker: 0.16, gunship: 0.06, defender: 0.46 },
   };
+  const shipJumpCooldowns = new Map<string, number>();
 
   function getPlanetOrFallback(planetId: string | null | undefined) {
     return planetId ? context.getPlanet(planetId) : undefined;
@@ -42,11 +43,38 @@ export function createPlanetStrategyEconomyRuntime(context: any) {
   }
 
   function setShipPosition(ship: any, position: any) {
+    const previous = ship.position ? { ...ship.position } : null;
     ship.position = { x: position.x, y: position.y, z: position.z };
     ship.x = position.x;
     ship.y = position.y;
     ship.z = position.z;
     if (ship.mesh) ship.mesh.position.set(position.x, position.y, position.z);
+    recordShipJump(ship, previous, ship.position, 'js-update');
+  }
+
+  function recordShipJump(ship: any, previous: any, next: any, note: string) {
+    if (!previous || !next) return;
+    const delta = Math.hypot((next.x ?? 0) - (previous.x ?? 0), (next.y ?? 0) - (previous.y ?? 0), (next.z ?? 0) - (previous.z ?? 0));
+    const status = String(ship.status ?? '');
+    if (delta < 6) return;
+
+    const last = shipJumpCooldowns.get(ship.id) ?? -Infinity;
+    if (context.world.time - last < 1.5) return;
+    shipJumpCooldowns.set(ship.id, context.world.time);
+
+    const line = [
+      new Date().toISOString(),
+      `ship=${ship.id}`,
+      `kind=${ship.kind}`,
+      `status=${status}`,
+      `from=${ship.fromPlanetId}`,
+      `to=${ship.toPlanetId}`,
+      `prev=(${(previous.x ?? 0).toFixed(2)},${(previous.y ?? 0).toFixed(2)},${(previous.z ?? 0).toFixed(2)})`,
+      `now=(${(next.x ?? 0).toFixed(2)},${(next.y ?? 0).toFixed(2)},${(next.z ?? 0).toFixed(2)})`,
+      `delta=${delta.toFixed(2)}`,
+      `note=${note}`,
+    ].join(' ');
+    context.recordShipJump?.(line);
   }
 
   function setShipFacing(ship: any, from: any, to: any) {
@@ -393,6 +421,7 @@ export function createPlanetStrategyEconomyRuntime(context: any) {
       const ship = shipById.get(output.id);
       if (!ship) continue;
       const prev = prevState.get(output.id);
+      const previousPosition = ship.position ? { ...ship.position } : { x: ship.x ?? 0, y: ship.y ?? 0, z: ship.z ?? 0 };
       ship.position = { x: output.x, y: output.y, z: output.z };
       ship.x = output.x;
       ship.y = output.y;
@@ -407,6 +436,7 @@ export function createPlanetStrategyEconomyRuntime(context: any) {
       ship.targetPlanetId = output.target_planet_id;
       ship.fireCooldown = output.fire_cooldown;
       if (ship.mesh) ship.mesh.position.set(ship.position.x, ship.position.y, ship.position.z);
+      recordShipJump(ship, previousPosition, ship.position, 'wasm-update');
 
       if (prev?.status !== output.status && output.status === 'traveling') {
         context.touchRoute(output.from_planet_id, output.to_planet_id, ship.kind === 'transport' ? 2 : 6);

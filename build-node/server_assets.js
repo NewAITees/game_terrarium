@@ -60,8 +60,8 @@ async function mountBrowserAssetRoutes(app, projectRoot) {
         '/planet_strategy.html': 'apps/planet-strategy/planet_strategy.html',
         '/submarine_cables.html': 'pages/submarine_cables.html',
         '/submarine_network_3d.html': 'pages/submarine_network_3d.html',
-        '/network-defense/network-core.js': 'apps/network-defense/network-core.js',
-        '/network-ecosystem/network-core.js': 'apps/network-ecosystem/network-core.js',
+        '/network-defense/network-core.js': 'build/shared/network-core.js',
+        '/network-ecosystem/network-core.js': 'build/shared/network-core.js',
         '/telemetry-client.js': 'shared/telemetry-client.js',
     });
     registerFileRoutes(app, projectRoot, await collectBasenameJsRoutes(projectRoot));
