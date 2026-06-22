@@ -16,6 +16,8 @@ bindEscortTdInputs({
   camera: sceneState.camera,
   renderer: sceneState.renderer,
   onPlaceUnit: runtime.placeUnit,
+  getCommandMode: runtime.getCommandMode,
+  onCommandModeChange: runtime.setCommandMode,
   onRestart: runtime.restartIfFinished,
 });
 

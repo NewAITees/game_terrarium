@@ -78,45 +78,51 @@ function ensureDir(dirPath) {
 }
 
 function run() {
-  const wasmPack = resolveWasmPack();
-  if (!wasmPack) {
-    throw new Error('wasm-pack が見つかりません。Rust toolchain を導入して PATH に追加してください。');
-  }
+  const pkgJs = path.join(wasmDir, 'pkg', 'network_core_wasm.js');
+  const pkgWasm = path.join(wasmDir, 'pkg', 'network_core_wasm_bg.wasm');
+  const forceBuild = process.env.FORCE_WASM_BUILD === '1';
 
-  ensureDir(cargoHome);
-  ensureDir(cargoTarget);
-  ensureDir(tempDir);
+  if (forceBuild || !exists(pkgJs) || !exists(pkgWasm)) {
+    const wasmPack = resolveWasmPack();
+    if (!wasmPack) {
+      throw new Error('wasm-pack が見つかりません。Rust toolchain を導入して PATH に追加してください。');
+    }
 
-  const env = {
-    ...process.env,
-    PATH: [
-      path.dirname(wasmPack),
-      path.join(process.env.USERPROFILE || process.env.HOME || '', '.cargo', 'bin'),
-      path.join('C:\\tmp', 'cargo-root', 'bin'),
-      process.env.PATH || '',
-    ]
-      .filter(Boolean)
-      .join(path.delimiter),
-    CARGO_HOME: cargoHome,
-    CARGO_TARGET_DIR: cargoTarget,
-    TEMP: tempDir,
-    TMP: tempDir,
-    TMPDIR: tempDir,
-  };
+    ensureDir(cargoHome);
+    ensureDir(cargoTarget);
+    ensureDir(tempDir);
 
-  const build = spawnSync(wasmPack, ['build', '--target', 'web', '--out-dir', 'pkg'], {
-    cwd: wasmDir,
-    env,
-    stdio: 'inherit',
-  });
+    const env = {
+      ...process.env,
+      PATH: [
+        path.dirname(wasmPack),
+        path.join(process.env.USERPROFILE || process.env.HOME || '', '.cargo', 'bin'),
+        path.join('C:\\tmp', 'cargo-root', 'bin'),
+        process.env.PATH || '',
+      ]
+        .filter(Boolean)
+        .join(path.delimiter),
+      CARGO_HOME: cargoHome,
+      CARGO_TARGET_DIR: cargoTarget,
+      TEMP: tempDir,
+      TMP: tempDir,
+      TMPDIR: tempDir,
+    };
 
-  if (build.status !== 0) {
-    process.exit(build.status || 1);
+    const build = spawnSync(wasmPack, ['build', '--dev', '--target', 'web', '--out-dir', 'pkg'], {
+      cwd: wasmDir,
+      env,
+      stdio: 'inherit',
+    });
+
+    if (build.status !== 0) {
+      process.exit(build.status || 1);
+    }
   }
 
   ensureDir(vendorDir);
-  fs.copyFileSync(path.join(wasmDir, 'pkg', 'network_core_wasm.js'), path.join(vendorDir, 'network_core_wasm.js'));
-  fs.copyFileSync(path.join(wasmDir, 'pkg', 'network_core_wasm_bg.wasm'), path.join(vendorDir, 'network_core_wasm_bg.wasm'));
+  fs.copyFileSync(pkgJs, path.join(vendorDir, 'network_core_wasm.js'));
+  fs.copyFileSync(pkgWasm, path.join(vendorDir, 'network_core_wasm_bg.wasm'));
 }
 
 try {
