@@ -16,6 +16,10 @@ function aggregateTotals(topo: any): EcosystemTotals {
   }, { resource: 0, threat: 0, immune: 0, carnivore: 0 });
 }
 
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
 export function balanceScore(totals: EcosystemTotals, count: number): number {
   const avgResource = totals.resource / count;
   const avgThreat = totals.threat / count;
@@ -34,7 +38,7 @@ export function buildEcosystemSnapshot(
   topo: any,
   pulses: EcosystemPulse[],
   game: EcosystemGameState,
-): EcosystemSnapshot {
+): EcosystemSnapshot & { analysis: Record<string, any> } {
   const totals = aggregateTotals(topo);
   const count = topo.nodes.length;
   const balance = balanceScore(totals, count);
@@ -50,6 +54,22 @@ export function buildEcosystemSnapshot(
       immune: Number(node.immune.toFixed(3)),
       carnivore: Number(node.carnivore.toFixed(3)),
     }));
+  const activeNodes = topo.nodes.filter((node: any) => node.threat > 0.05 || node.carnivore > 0.05).length;
+  const coexistNodes = topo.nodes.filter((node: any) => node.threat > 0.05 && node.carnivore > 0.05).length;
+  const pulseMix = pulses.reduce((acc: Record<string, number>, pulse: EcosystemPulse) => {
+    acc[pulse.pulseType] = (acc[pulse.pulseType] || 0) + 1;
+    return acc;
+  }, {});
+  const pulseThreat = pulseMix.threat || 0;
+  const pulseCarnivore = pulseMix.carnivore || 0;
+  const pulseImmune = pulseMix.immune || 0;
+  const activity = clamp01((activeNodes + pulses.length) / Math.max(1, count * 1.2));
+  const stability = clamp01(balance);
+  const pressure = clamp01((totals.threat + totals.carnivore) / Math.max(1, count * 0.55));
+  const momentum = clamp01((game.elapsed / 180) * 0.35 + (pulseThreat + pulseCarnivore) / Math.max(1, pulses.length || 1));
+  const health = clamp01((stability + (1 - pressure)) / 2);
+  const risk = clamp01(1 - balance + Math.max(0, pressure - 0.55));
+  const fun = clamp01(0.2 + balance * 0.4 + activity * 0.25 + coexistNodes / Math.max(1, count) * 0.15);
 
   return {
     elapsed: Math.round(game.elapsed),
@@ -61,10 +81,37 @@ export function buildEcosystemSnapshot(
     avgThreat: Number((totals.threat / count).toFixed(3)),
     avgImmune: Number((totals.immune / count).toFixed(3)),
     avgCarnivore: Number((totals.carnivore / count).toFixed(3)),
-    activeNodes: topo.nodes.filter((node: any) => node.threat > 0.05 || node.carnivore > 0.05).length,
-    coexistNodes: topo.nodes.filter((node: any) => node.threat > 0.05 && node.carnivore > 0.05).length,
+    activeNodes,
+    coexistNodes,
     activePulses: pulses.length,
     hotspots,
+    analysis: {
+      phase: game.mode,
+      progress: clamp01(game.elapsed / 240),
+      health,
+      stability,
+      pressure,
+      momentum,
+      activity,
+      risk,
+      fun,
+      summary: `${count} nodes, balance ${Math.round(balance * 100)}%, ${pulses.length} active pulses`,
+      signals: [
+        { key: 'balance', value: balance, target: 0.8, weight: 1.1 },
+        { key: 'avgThreat', value: totals.threat / Math.max(1, count), target: 0.16, weight: 0.8 },
+        { key: 'avgCarnivore', value: totals.carnivore / Math.max(1, count), target: 0.22, weight: 0.8 },
+        { key: 'coexistNodes', value: coexistNodes, target: 0, weight: 0.6 },
+      ],
+      highlights: hotspots.map((hotspot) => `${hotspot.layer}:${hotspot.id} R${hotspot.resource} T${hotspot.threat} C${hotspot.carnivore}`),
+      details: {
+        activeNodes,
+        coexistNodes,
+        activePulses: pulses.length,
+        pulseThreat,
+        pulseCarnivore,
+        pulseImmune,
+      },
+    },
   };
 }
 
@@ -75,3 +122,4 @@ export function reportEcosystemTelemetry(
 ): void {
   window.Telemetry?.report('network_ecosystem', buildEcosystemSnapshot(topo, pulses, game));
 }
+

@@ -93,6 +93,19 @@ export function createColonyObservation(context: any) {
     if (!window.Telemetry) return;
     const counts = context.factions.map((faction: any) => context.map.nodes.filter((node: ColonyNode) => node.owner === faction.id).length);
     const dominant = context.factions.reduce((best: any, faction: any, index: number) => counts[index] > counts[best.id] ? faction : best, context.factions[0]);
+        const totalNodes = context.map.nodes.length;
+    const neutralNodes = context.map.nodes.filter((node: ColonyNode) => node.owner === -1).length;
+    const aliveFactions = context.factions.filter((faction: any) => faction.alive).length;
+    const territoryTotal = counts.reduce((sum: number, value: number) => sum + value, 0);
+    const dominantLead = counts.length > 1 ? counts[dominant.id] - Math.max(...counts.filter((_: number, index: number) => index !== dominant.id)) : counts[dominant.id];
+    const contestedNodes = context.map.nodes.filter((node: ColonyNode) => node.owner >= 0 && node.neighbors.some((neighbor: ColonyNode) => neighbor.owner >= 0 && neighbor.owner !== node.owner)).length;
+    const pressure = Math.min(1, neutralNodes / Math.max(1, totalNodes) + contestedNodes / Math.max(1, totalNodes) * 0.35);
+    const stability = Math.min(1, aliveFactions / Math.max(1, context.factions.length) * 0.7 + (1 - Math.min(1, Math.abs(dominantLead) / Math.max(1, totalNodes))) * 0.3);
+    const momentum = Math.min(1, Math.max(0, context.world.tick / 220) + territoryTotal / Math.max(1, totalNodes * 4) * 0.2);
+    const activity = Math.min(1, contestedNodes / Math.max(1, totalNodes) * 0.5 + aliveFactions / Math.max(1, context.factions.length) * 0.5);
+    const health = Math.min(1, (stability + (1 - pressure)) / 2);
+    const risk = Math.min(1, pressure * 0.65 + (context.factions.filter((faction: any) => !faction.alive).length / Math.max(1, context.factions.length)) * 0.35);
+    const fun = Math.min(1, 0.2 + activity * 0.4 + (1 - Math.abs(stability - pressure)) * 0.25 + contestedNodes / Math.max(1, totalNodes) * 0.15);
     window.Telemetry.report('colony', {
       elapsed: Math.round(context.world.elapsed),
       tick: context.world.tick,
@@ -107,8 +120,34 @@ export function createColonyObservation(context: any) {
         material: Math.floor(faction.material),
         intent: faction.intent,
       })),
-      nodes: context.map.nodes.length,
-      neutralNodes: context.map.nodes.filter((node: ColonyNode) => node.owner === -1).length,
+      nodes: totalNodes,
+      neutralNodes,
+      analysis: {
+        phase: 'territory_control',
+        progress: Math.min(1, context.world.tick / 240),
+        health,
+        stability,
+        pressure,
+        momentum,
+        activity,
+        risk,
+        fun,
+        summary: `${aliveFactions} alive factions, ${neutralNodes} neutral nodes, ${contestedNodes} contested nodes`,
+        signals: [
+          { key: 'dominantLead', value: dominantLead, target: 0, weight: 1 },
+          { key: 'neutralNodes', value: neutralNodes, target: 0, weight: 0.9 },
+          { key: 'contestedNodes', value: contestedNodes, target: 0, weight: 0.8 },
+        ],
+        highlights: context.factions.map((faction: any, index: number) => `${faction.name}:${counts[index]} nodes`),
+        details: {
+          totalNodes,
+          neutralNodes,
+          aliveFactions,
+          territoryTotal,
+          dominantLead,
+          contestedNodes,
+        },
+      },
     }, 1500);
   }
 
@@ -177,3 +216,4 @@ export function createColonyObservation(context: any) {
     updateVisuals,
   };
 }
+
