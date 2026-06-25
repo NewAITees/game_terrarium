@@ -21,6 +21,10 @@
     "server.ts",
     "game/**/*.ts",
     "scripts/**/*.ts",
-    "shared/page_registry.ts"
+    "shared/page_registry.ts",
+    "shared/network-core-topology.ts",
+    "shared/types/**/*.ts",
+    "shared/types/**/*.d.ts"
   ]
 }
+

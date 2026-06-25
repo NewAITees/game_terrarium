@@ -31,7 +31,6 @@ export function createEscortTdUnitCombat(context: {
       const range2 = def.range * def.range;
       for (const enemy of context.enemies) {
         if (enemy.dead) continue;
-        if (!isTargetInArc(unit, def.attackShape, enemy)) continue;
         const dx = enemy.x - unit.wx;
         const dz = enemy.z - unit.wz;
         const d2 = dx * dx + dz * dz;
@@ -43,6 +42,7 @@ export function createEscortTdUnitCombat(context: {
         }
       }
       if (!target) continue;
+      unit.aimFacing = Math.atan2(target.z - unit.wz, target.x - unit.wx);
       unit.pendingAttack = buildPendingAttack(unit, target, def.attackShape, def.aoe, def.color, def.attackWindup);
       unit.windupTimer = def.attackWindup;
       spawnTracer(unit.wx, unit.wz, target.x, target.z, def.color);
@@ -121,7 +121,7 @@ export function createEscortTdUnitCombat(context: {
       radius: Math.max(radius, shape === 'square' ? CS * 1.2 : CS * 0.5),
       color,
       remaining: windup,
-      facing: unit.facing,
+      facing: unit.aimFacing,
     };
   }
 
@@ -156,7 +156,7 @@ export function createEscortTdUnitCombat(context: {
       return;
     }
 
-    const mesh = buildFanIndicator(unit.wx, unit.wz, unit.facing, attack.radius, color, Math.max(0.22, attack.remaining + 0.06));
+    const mesh = buildFanIndicator(unit.wx, unit.wz, attack.facing, attack.radius, color, Math.max(0.22, attack.remaining + 0.06));
     context.scene.add(mesh);
   }
 
@@ -186,16 +186,6 @@ export function createEscortTdUnitCombat(context: {
     line.position.set(cx, 0.24, cz);
     context.effects.push({ grow: false, life, mat: line.material, maxLife: life, mesh: line });
     return line;
-  }
-
-  function isTargetInArc(unit: Unit, shape: PendingAttack['shape'], enemy: Enemy): boolean {
-    if (shape !== 'fan') return true;
-    const dx = enemy.x - unit.wx;
-    const dz = enemy.z - unit.wz;
-    const dist = Math.hypot(dx, dz) || 1;
-    const facing = { x: Math.cos(unit.facing), z: Math.sin(unit.facing) };
-    const dot = (dx / dist) * facing.x + (dz / dist) * facing.z;
-    return dot >= Math.cos(Math.PI / 4.25);
   }
 
   function scoreEnemy(enemy: Enemy, dist2: number, mode: CommandMode): number {

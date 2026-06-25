@@ -34,10 +34,20 @@ export default defineConfig({
     minify: true,
     rollupOptions: {
       input: {
+        'apps/city-traffic/city_traffic':
+          resolve(__dirname, 'apps/city-traffic/city_traffic.ts'),
+        'apps/moss/moss':
+          resolve(__dirname, 'apps/moss/moss.ts'),
         'apps/escort-td/escort_td':
           resolve(__dirname, 'apps/escort-td/escort_td.ts'),
+        'apps/submarine-cables/submarine_cables':
+          resolve(__dirname, 'apps/submarine-cables/submarine_cables.ts'),
+        'apps/submarine-network-3d/submarine_network_3d':
+          resolve(__dirname, 'apps/submarine-network-3d/submarine_network_3d.ts'),
         'apps/colony/colony':
           resolve(__dirname, 'apps/colony/colony.ts'),
+        'apps/network-smallworld/network_smallworld':
+          resolve(__dirname, 'apps/network-smallworld/network_smallworld.ts'),
         'apps/network-defense/network_defense':
           resolve(__dirname, 'apps/network-defense/network_defense.ts'),
         'apps/network-defense/network_defense_observer':
@@ -57,3 +67,8 @@ export default defineConfig({
     },
   },
 });
+
+
+
+
+

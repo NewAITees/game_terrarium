@@ -7,6 +7,7 @@ build/
 shared/network-core-wasm/pkg/
 shared/network-core-wasm/target/
 start.log
+logs/
 build-node/scripts/validate_dom_ids.js
 build-node/game/
 .tmp/

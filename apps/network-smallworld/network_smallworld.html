@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Network — Small World</title>
+  <style>
+    *, html, body { margin: 0; overflow: hidden; background: #0d2040; }
+    canvas { display: block; }
+    #label {
+      position: fixed;
+      right: 46px;
+      bottom: 14px;
+      color: #2a4a60;
+      font: 11px/1 "SF Mono", Menlo, monospace;
+      letter-spacing: .1em;
+    }
+    #bg {
+      position: fixed;
+      right: 16px;
+      bottom: 12px;
+      width: 22px;
+      height: 22px;
+      padding: 0;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      opacity: .5;
+    }
+  </style>
+</head>
+<body>
+<div id="label">SMALL WORLD TOPOLOGY</div>
+<input id="bg" type="color" value="#0d2040" title="Background">
+<script src="./telemetry-client.js"></script>
+<script type="module" src="./network_smallworld.js"></script>
+</body>
+</html>

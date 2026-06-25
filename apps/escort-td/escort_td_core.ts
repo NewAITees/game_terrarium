@@ -42,7 +42,22 @@ export type EnemyKind = 'ground' | 'air' | 'siege';
 
 export interface Enemy { x: number; z: number; hp: number; speed: number; mesh: any; dead: boolean; hitFlash: number; kind: EnemyKind; bobPhase: number }
 export interface PendingAttack { x: number; z: number; shape: AttackShape; radius: number; color: number; remaining: number; facing: number }
-export interface Unit { type: PieceType; gx: number; gy: number; wx: number; wz: number; mesh: any; fireTimer: number; progress: number; speedMul: number; formationOffset: number; windupTimer: number; pendingAttack: PendingAttack | null; facing: number }
+export interface Unit {
+  type: PieceType;
+  gx: number;
+  gy: number;
+  wx: number;
+  wz: number;
+  mesh: any;
+  fireTimer: number;
+  speedMul: number;
+  windupTimer: number;
+  pendingAttack: PendingAttack | null;
+  moveFacing: number;
+  aimFacing: number;
+  patrolAngle: number;
+  patrolRadius: number;
+}
 export interface Effect { mesh: any; mat: any; life: number; maxLife: number; grow: boolean }
 export interface RoadRoute { kind: 'main' | 'loop' | 'branch'; points: GridPt[] }
 export interface SpawnPoints { ground: GridPt[]; air: GridPt[]; siege: GridPt[] }
@@ -390,3 +405,4 @@ function buildSpawnPoints(g: Uint8Array[], roads: RoadRoute[], width: number, he
 
   return { ground, air, siege };
 }
+

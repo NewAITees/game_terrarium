@@ -97,16 +97,21 @@
 </div>
 <div id="command-panel">
   <div class="title">COMMAND <span class="mode" id="command-mode">BALANCED</span></div>
+  <div class="title">KING <span class="mode" id="king-state">ADVANCE</span></div>
   <div id="command-buttons">
+    <button type="button" id="cmd-deploy">D DEPLOY</button>
+    <button type="button" id="cmd-stop">SPACE HOLD</button>
     <button type="button" id="cmd-balanced" data-mode="balanced" data-active="true">1 BALANCED</button>
     <button type="button" id="cmd-ground" data-mode="ground">2 GROUND</button>
     <button type="button" id="cmd-air" data-mode="air">3 AIR</button>
     <button type="button" id="cmd-siege" data-mode="siege">4 SIEGE</button>
   </div>
-  <div id="command-help">AUTO進行のまま、敵種の優先度だけ切り替えます。</div>
+  <div id="command-help">KING は停止/前進のみ操作。機兵は自動警護し、DEPLOY で KING から増援が出ます。</div>
 </div>
 <div id="legend">
   <span class="chip"><b>AUTO</b> DEPLOY</span>
+  <span class="chip"><b>D</b> DEPLOY</span>
+  <span class="chip"><b>SPACE</b> HOLD</span>
   <span class="chip"><b>1-4</b> MODE</span>
   <span class="chip">♙ pawn</span>
   <span class="chip">♖ rook</span>

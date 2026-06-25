@@ -31,6 +31,12 @@ export function createEscortEnemyVisual(kind: EnemyKind): Group {
   return createVisual(kind, 'enemy');
 }
 
+export function setEscortUnitAim(root: Object3D, aimFacing: number): void {
+  const marker = root.getObjectByName('escort-aim-marker');
+  if (!marker) return;
+  marker.rotation.y = aimFacing - root.rotation.y;
+}
+
 function createVisual(key: PieceType | EnemyKind, side: EscortSide): Group {
   const root = new Group();
   root.name = `${side}-${key}`;
@@ -42,6 +48,7 @@ function createVisual(key: PieceType | EnemyKind, side: EscortSide): Group {
     tintObject(instance, side);
     if (key === 'knight') addMechDetails(instance, side);
     addGroundRing(instance, side, key);
+    if (side === 'ally') addAimMarker(instance, side, key);
     root.add(instance);
   });
   return root;
@@ -108,6 +115,7 @@ function buildFallbackVisual(key: PieceType | EnemyKind, side: EscortSide): Grou
   });
   normalizeGroup(group, key);
   addGroundRing(group, side, key);
+  if (side === 'ally') addAimMarker(group, side, key);
   if (key === 'knight') addMechDetails(group, side);
   return group;
 }
@@ -204,4 +212,24 @@ function addMechDetails(root: Object3D, side: EscortSide): void {
   const head = new Mesh(new CylinderGeometry(0.18, 0.26, 0.32, 8), new MeshBasicMaterial({ color: palette.accent }));
   head.position.set(0, 0.9, 0);
   root.add(armL, armR, legL, legR, head);
+}
+
+function addAimMarker(root: Object3D, side: EscortSide, key: PieceType | EnemyKind): void {
+  if (root.getObjectByName('escort-aim-marker')) return;
+  const palette = sidePalette[side];
+  const marker = new Group();
+  marker.name = 'escort-aim-marker';
+  const stem = new Mesh(
+    new BoxGeometry(key === 'rook' || key === 'queen' ? 1.5 : 1.1, 0.1, 0.12),
+    new MeshBasicMaterial({ color: palette.accent, transparent: true, opacity: 0.92 })
+  );
+  stem.position.set(0.55, 0.3, 0);
+  const tip = new Mesh(
+    new CylinderGeometry(0.02, 0.16, 0.34, 6),
+    new MeshBasicMaterial({ color: palette.accent, transparent: true, opacity: 0.92 })
+  );
+  tip.rotation.z = -Math.PI / 2;
+  tip.position.set(1.16, 0.3, 0);
+  marker.add(stem, tip);
+  root.add(marker);
 }

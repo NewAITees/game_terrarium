@@ -1,4 +1,3 @@
-import path from 'path';
 import { app, BrowserWindow, globalShortcut, Menu, type MenuItemConstructorOptions } from 'electron';
 import { startServer } from './server';
 import { describePage, isPageKey, PAGE_REGISTRY, type PageKey } from './shared/page_registry';
@@ -25,15 +24,9 @@ function loadPage(pageKey: PageKey): void {
   if (!page) return;
   currentPage = pageKey;
   lastLoadState = { page: pageKey, status: 'loading' };
-  const target = page.loadMode === 'file'
-    ? path.join(__dirname, '..', page.target)
-    : page.target;
+  const target = page.target;
   console.log(`[page] switching -> ${describePage(page)}: ${target}`);
-  if (page.loadMode === 'http') {
-    void win.loadURL(target);
-  } else {
-    void win.loadFile(target);
-  }
+  void win.loadURL(target);
   refreshMenu();
 }
 

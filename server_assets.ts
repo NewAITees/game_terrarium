@@ -51,11 +51,14 @@ export async function mountBrowserAssetRoutes(app: express.Express, projectRoot:
   app.use('/shared',       express.static(path.join(projectRoot, 'shared')));
 
   registerFileRoutes(app, projectRoot, {
+    '/city_traffic.html': 'apps/city-traffic/city_traffic.html',
+    '/moss.html': 'apps/moss/moss.html',
     '/escort_td.html': 'apps/escort-td/escort_td.html',
     '/colony.html': 'apps/colony/colony.html',
     '/network_defense.html': 'apps/network-defense/network_defense.html',
     '/network_defense_observer.html': 'apps/network-defense/network_defense_observer.html',
     '/network_ecosystem.html': 'apps/network-ecosystem/network_ecosystem.html',
+    '/network_sw.html': 'apps/network-smallworld/network_smallworld.html',
     '/planet_strategy.html': 'apps/planet-strategy/planet_strategy.html',
     '/submarine_cables.html': 'pages/submarine_cables.html',
     '/submarine_network_3d.html': 'pages/submarine_network_3d.html',
@@ -66,3 +69,5 @@ export async function mountBrowserAssetRoutes(app: express.Express, projectRoot:
 
   registerFileRoutes(app, projectRoot, await collectBasenameJsRoutes(projectRoot));
 }
+
+

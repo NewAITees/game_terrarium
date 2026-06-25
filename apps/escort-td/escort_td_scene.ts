@@ -2,7 +2,7 @@ import { AmbientLight,BoxGeometry,CatmullRomCurve3,Color,CylinderGeometry,Direct
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { bindComposerResize } from '../../shared/browser-runtime.js';
-import { COMMAND_MODE_LABEL, COMMAND_MODES, CS, GH, GW, PIECE, VISION, g2w, w2gi, type CommandMode, type Enemy, type PieceType, type Unit } from './escort_td_core.js';
+import { COMMAND_MODE_LABEL, COMMAND_MODES, CS, GH, GW, VISION, g2w, w2gi, type CommandMode, type Enemy, type PieceType, type Unit } from './escort_td_core.js';
 
 export function createEscortTdScene(city: any, seed: number) {
   const renderer = new WebGLRenderer({ antialias: true });
@@ -53,7 +53,10 @@ export function bindEscortTdInputs(context: {
   camera: any;
   renderer: any;
   onPlaceUnit: (gx: number, gy: number, type: PieceType) => void;
+  onDeployFromKing: () => void;
+  onToggleKingPause: () => void;
   getCommandMode: () => CommandMode;
+  isKingPaused: () => boolean;
   onCommandModeChange: (mode: CommandMode) => void;
   onRestart: () => void;
 }): { getSelectedPiece: () => PieceType } {
@@ -62,6 +65,9 @@ export function bindEscortTdInputs(context: {
   void context.onPlaceUnit;
   const commandButtons = COMMAND_MODES.map((mode) => document.getElementById(`cmd-${mode}`) as HTMLButtonElement | null);
   const commandModeLabel = document.getElementById('command-mode') as HTMLElement | null;
+  const kingStateLabel = document.getElementById('king-state') as HTMLElement | null;
+  const deployButton = document.getElementById('cmd-deploy') as HTMLButtonElement | null;
+  const stopButton = document.getElementById('cmd-stop') as HTMLButtonElement | null;
 
   const syncCommandMode = (): void => {
     const mode = context.getCommandMode();
@@ -70,6 +76,8 @@ export function bindEscortTdInputs(context: {
       if (!button) continue;
       button.dataset.active = button.dataset.mode === mode ? 'true' : 'false';
     }
+    if (kingStateLabel) kingStateLabel.textContent = context.isKingPaused() ? 'HOLD' : 'ADVANCE';
+    if (stopButton) stopButton.dataset.active = context.isKingPaused() ? 'true' : 'false';
   };
 
   for (const button of commandButtons) {
@@ -82,13 +90,27 @@ export function bindEscortTdInputs(context: {
     });
   }
 
+  deployButton?.addEventListener('click', () => {
+    context.onDeployFromKing();
+    syncCommandMode();
+  });
+  stopButton?.addEventListener('click', () => {
+    context.onToggleKingPause();
+    syncCommandMode();
+  });
+
   window.addEventListener('keydown', (event: KeyboardEvent) => {
     if (event.key === 'r' || event.key === 'R') context.onRestart();
+    if (event.key === 'd' || event.key === 'D') context.onDeployFromKing();
+    if (event.key === ' ' || event.code === 'Space') {
+      event.preventDefault();
+      context.onToggleKingPause();
+    }
     if (event.key === '1') context.onCommandModeChange('balanced');
     if (event.key === '2') context.onCommandModeChange('ground');
     if (event.key === '3') context.onCommandModeChange('air');
     if (event.key === '4') context.onCommandModeChange('siege');
-    if (event.key === '1' || event.key === '2' || event.key === '3' || event.key === '4') syncCommandMode();
+    if (event.key === '1' || event.key === '2' || event.key === '3' || event.key === '4' || event.key === 'd' || event.key === 'D' || event.key === ' ' || event.code === 'Space') syncCommandMode();
   });
 
   syncCommandMode();

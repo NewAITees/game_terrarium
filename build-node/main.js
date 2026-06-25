@@ -1,9 +1,5 @@
 "use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
-const path_1 = __importDefault(require("path"));
 const electron_1 = require("electron");
 const server_1 = require("./server");
 const page_registry_1 = require("./shared/page_registry");
@@ -28,16 +24,9 @@ function loadPage(pageKey) {
         return;
     currentPage = pageKey;
     lastLoadState = { page: pageKey, status: 'loading' };
-    const target = page.loadMode === 'file'
-        ? path_1.default.join(__dirname, '..', page.target)
-        : page.target;
+    const target = page.target;
     console.log(`[page] switching -> ${(0, page_registry_1.describePage)(page)}: ${target}`);
-    if (page.loadMode === 'http') {
-        void win.loadURL(target);
-    }
-    else {
-        void win.loadFile(target);
-    }
+    void win.loadURL(target);
     refreshMenu();
 }
 function refreshMenu() {

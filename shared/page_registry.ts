@@ -16,18 +16,18 @@ export const PAGE_REGISTRY = [
     key: 'city',
     label: 'City Traffic',
     accelerator: 'CmdOrCtrl+1',
-    loadMode: 'file',
-    htmlPath: 'pages/city_traffic_tiltshift_alpha.html',
-    target: 'pages/city_traffic_tiltshift_alpha.html',
+    loadMode: 'http',
+    htmlPath: 'apps/city-traffic/city_traffic.html',
+    target: 'http://localhost:3000/city_traffic.html',
   },
   {
     number: 2,
     key: 'moss',
     label: 'MOSS',
     accelerator: 'CmdOrCtrl+2',
-    loadMode: 'file',
-    htmlPath: 'pages/moss_alpha.html',
-    target: 'pages/moss_alpha.html',
+    loadMode: 'http',
+    htmlPath: 'apps/moss/moss.html',
+    target: 'http://localhost:3000/moss.html',
   },
   {
     number: 3,
@@ -43,9 +43,9 @@ export const PAGE_REGISTRY = [
     key: 'net_sw',
     label: 'Network Small World',
     accelerator: 'CmdOrCtrl+4',
-    loadMode: 'file',
-    htmlPath: 'pages/network_sw.html',
-    target: 'pages/network_sw.html',
+    loadMode: 'http',
+    htmlPath: 'apps/network-smallworld/network_smallworld.html',
+    target: 'http://localhost:3000/network_sw.html',
   },
   {
     number: 0,
@@ -79,18 +79,18 @@ export const PAGE_REGISTRY = [
     key: 'submarine',
     label: 'Submarine Cables',
     accelerator: 'CmdOrCtrl+5',
-    loadMode: 'file',
+    loadMode: 'http',
     htmlPath: 'pages/submarine_cables.html',
-    target: 'pages/submarine_cables.html',
+    target: 'http://localhost:3000/submarine_cables.html',
   },
   {
     number: 6,
     key: 'submarine_3d',
     label: 'Submarine Network 3D',
     accelerator: 'CmdOrCtrl+6',
-    loadMode: 'file',
+    loadMode: 'http',
     htmlPath: 'pages/submarine_network_3d.html',
-    target: 'pages/submarine_network_3d.html',
+    target: 'http://localhost:3000/submarine_network_3d.html',
   },
   {
     number: 9,
@@ -120,3 +120,5 @@ export function isPageKey(value: string): value is PageKey {
 export function describePage(page: { number: number; key: string; label: string }): string {
   return `Ctrl+${page.number} / ${page.label} (${page.key})`;
 }
+
+
