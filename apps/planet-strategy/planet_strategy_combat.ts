@@ -117,7 +117,9 @@ export function createPlanetStrategyCombatRuntime(context: any) {
       const fleetBias = goal === 'pressure' ? 0.8 : goal === 'expand' ? 0.65 : 0.48;
       const fleetSize = Math.max(2, Math.floor(myAttackers.length * fleetBias));
       const fleet = myAttackers.slice(0, fleetSize);
-      if (base) context.touchRoute(base.id, target.id, 8);
+      if (base) context.touchRoute(base.id, target.id, 8, 16);
+      empire.attackTargetLabel = target.label;
+      empire.attackUntil = context.world.time + 25;
 
       for (const ship of fleet) {
         ship.status = 'launching';

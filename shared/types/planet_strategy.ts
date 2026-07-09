@@ -40,6 +40,7 @@ export interface PlanetStrategyPlanet extends PlanetStrategyPosition {
   productionQueue: number;
   trafficIn: number;
   stalled: boolean;
+  collapseTimer?: number;
   mesh?: any | null;
   ring?: any | null;
   labelGlow?: any | null;
@@ -76,6 +77,8 @@ export interface PlanetStrategyEmpire {
   homeFactoryId: string;
   shipCap: number;
   goal: PlanetStrategyAiGoal;
+  attackTargetLabel?: string | null;
+  attackUntil?: number;
 }
 
 export interface PlanetStrategyShip {
@@ -133,6 +136,7 @@ export interface PlanetStrategyRoute {
   fromPlanetId: string;
   toPlanetId: string;
   traffic: number;
+  hostileTimer?: number;
   line?: any | null;
   glow?: any | null;
   curve?: any | null;

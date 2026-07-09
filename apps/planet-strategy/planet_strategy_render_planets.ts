@@ -281,7 +281,9 @@ export function createPlanetStrategyPlanetVisuals(context: any) {
       }
 
       if (planet.structureAsset) {
-        planet.structureAsset.visible = planet.structures.mine > 0 || planet.structures.factory > 0;
+        const collapsing = (planet.collapseTimer ?? 0) > 0;
+        if (collapsing) planet.collapseTimer = Math.max(0, planet.collapseTimer - dt);
+        planet.structureAsset.visible = collapsing || planet.structures.mine > 0 || planet.structures.factory > 0;
         if (planet.structureAsset.userData.assetMode === 'orbit') {
           const orbitRadius = planet.structureAsset.userData.orbitRadius ?? 7.6;
           planet.structureAsset.userData.orbitAngle += dt * (planet.structureAsset.userData.orbitSpeed ?? 0.12);
@@ -295,8 +297,10 @@ export function createPlanetStrategyPlanetVisuals(context: any) {
           planet.structureAsset.position.set(planet.x, planet.y + 1.2, planet.z);
           planet.structureAsset.rotation.y += dt * 0.12;
         }
-        planet.structureAsset.scale.setScalar(depleted ? 0.82 : 1);
-        tintAsset(planet.structureAsset, baseColor, depleted ? 0.08 : 0.2);
+        planet.structureAsset.scale.setScalar(
+          collapsing ? Math.max(0.04, planet.collapseTimer / 0.7) : depleted ? 0.82 : 1
+        );
+        tintAsset(planet.structureAsset, collapsing ? '#ff5a3c' : baseColor, collapsing ? 0.5 : depleted ? 0.08 : 0.2);
       }
 
       if (planet.turretAsset) {

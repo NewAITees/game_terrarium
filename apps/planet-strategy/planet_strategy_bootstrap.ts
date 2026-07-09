@@ -311,15 +311,18 @@ export function createPlanetStrategyBootstrap({
     return base + (kind === 'transport' ? 2.2 : kind === 'gunship' ? 1.8 : 1.4);
   }
 
-  function touchRoute(rendererView: any, fromPlanetId: string, toPlanetId: string, weight = 1): void {
+  function touchRoute(rendererView: any, fromPlanetId: string, toPlanetId: string, weight = 1, hostileSeconds = 0): void {
     const key = routeKey(fromPlanetId, toPlanetId);
     if (!world.routes.has(key)) {
-      const route: PlanetStrategyRoute = { fromPlanetId, toPlanetId, traffic: 0, line: null, curve: null };
+      const route: PlanetStrategyRoute = { fromPlanetId, toPlanetId, traffic: 0, hostileTimer: 0, line: null, curve: null };
       world.routes.set(key, route);
       rendererView.ensureRouteVisual(route);
     }
     const route = world.routes.get(key);
-    if (route) route.traffic += weight;
+    if (route) {
+      route.traffic += weight;
+      if (hostileSeconds > 0) route.hostileTimer = Math.max(route.hostileTimer ?? 0, hostileSeconds);
+    }
   }
 
   function seedInitialRoutes(rendererView: any) {

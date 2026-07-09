@@ -536,6 +536,7 @@ export function createPlanetStrategyEconomyRuntime(context: any) {
   function decayTraffic(dt: number) {
     for (const route of context.world.routes.values()) {
       route.traffic = Math.max(0, route.traffic - dt * 0.5);
+      route.hostileTimer = Math.max(0, (route.hostileTimer ?? 0) - dt);
     }
   }
 

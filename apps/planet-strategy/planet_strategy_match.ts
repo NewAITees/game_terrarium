@@ -161,10 +161,11 @@ export function createPlanetStrategyMatchRuntime(context: any) {
         const planets = context.world.planets.filter((planet: any) => planet.owner === empire.id);
         const stock = planets.reduce((sum: number, planet: any) => sum + planet.stock, 0);
         const transports = context.world.ships.filter((ship: any) => ship.owner === empire.id).length;
+        const attacking = !empire.collapsed && empire.attackTargetLabel && context.world.time < (empire.attackUntil ?? 0);
         return {
           color: empire.color,
           name: empire.name,
-          intent: empire.intent,
+          intent: attacking ? `${empire.intent} ⚔ → ${empire.attackTargetLabel}` : empire.intent,
           numbers: `${planets.length}p / ${transports}s / ${Math.floor(stock)} ore${empire.collapsed ? ' / dead' : ''}`,
         };
       }),
