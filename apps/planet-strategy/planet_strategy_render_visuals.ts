@@ -16,12 +16,20 @@ export function createPlanetStrategyRenderVisuals(context: any) {
     flash.mesh.position.copy(position);
     effectGroup.add(flash.mesh);
     transientEffects.push(flash);
+
+    const empireColor = context.world.empires[ship.owner]?.color ?? '#ffe9c8';
+    const debris = shipVisuals.createShipDebris(ship, empireColor);
+    debris.mesh.position.copy(position);
+    effectGroup.add(debris.mesh);
+    transientEffects.push(debris);
   }
 
   function triggerPlanetFlash(planet: any, kind = 'damage'): void {
     const flash = createPlanetFlashEffect(planet, kind);
     effectGroup.add(flash.mesh);
     transientEffects.push(flash);
+    // Collapse animation: planet visuals shrink the structure asset while this runs down.
+    if (kind === 'destroyed') planet.collapseTimer = 0.7;
   }
 
   function updateTransientEffects(dt: number): void {

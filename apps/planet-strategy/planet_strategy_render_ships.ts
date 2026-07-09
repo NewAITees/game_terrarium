@@ -1,5 +1,6 @@
 import {
   BoxGeometry,
+  BufferAttribute,
   BufferGeometry,
   Color,
   ConeGeometry,
@@ -13,6 +14,8 @@ import {
   MeshBasicMaterial,
   MeshStandardMaterial,
   PlaneGeometry,
+  Points,
+  PointsMaterial,
   SphereGeometry,
   Vector3,
 } from 'three';
@@ -218,6 +221,17 @@ export function createPlanetStrategyShipVisuals(context: any) {
   function updateRouteVisuals(): void {
     for (const route of context.world.routes.values()) {
       if (!route.line) continue;
+      const hostile = (route.hostileTimer ?? 0) > 0;
+      if (hostile) {
+        const heat = Math.min((route.hostileTimer ?? 0) / 10, 1);
+        route.line.material.opacity = 0.28 + heat * 0.42;
+        route.line.material.color.set(0xff7a55);
+        if (route.glow) {
+          route.glow.material.opacity = 0.18 + heat * 0.3;
+          route.glow.material.color.set(0xffc9a4);
+        }
+        continue;
+      }
       const hot = Math.min(route.traffic / 14, 1);
       route.line.material.opacity = 0.06 + hot * 0.34;
       route.line.material.color.set(route.traffic > 10 ? 0x9fe6ff : route.traffic > 4 ? 0x5ca8c8 : 0x30556b);
@@ -274,6 +288,7 @@ export function createPlanetStrategyShipVisuals(context: any) {
     attachMissileMesh,
     attachShipMesh,
     buildShipObjects,
+    createShipDebris,
     createShipFlash,
     ensureRouteVisual,
     removeMissileMesh,
@@ -281,6 +296,56 @@ export function createPlanetStrategyShipVisuals(context: any) {
     updateMissileVisuals,
     updateRouteVisuals,
     updateShipVisuals,
+  };
+}
+
+function createShipDebris(ship: any, color: any) {
+  const count = ship.kind === 'attacker' || ship.kind === 'gunship' ? 18 : 12;
+  const positions = new Float32Array(count * 3);
+  const velocities: Vector3[] = [];
+  for (let i = 0; i < count; i++) {
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+    const speed = 7 + Math.random() * 16;
+    velocities.push(new Vector3(
+      Math.sin(phi) * Math.cos(theta) * speed,
+      Math.cos(phi) * speed * 0.7,
+      Math.sin(phi) * Math.sin(theta) * speed
+    ));
+  }
+  const geometry = new BufferGeometry();
+  geometry.setAttribute('position', new BufferAttribute(positions, 3));
+  const material = new PointsMaterial({
+    color: new Color(color).lerp(new Color(0xfff1d6), 0.45),
+    size: 0.55,
+    transparent: true,
+    opacity: 0.95,
+    depthWrite: false,
+    sizeAttenuation: true,
+  });
+  const mesh = new Points(geometry, material);
+  return {
+    mesh,
+    life: 0.62,
+    maxLife: 0.62,
+    update(progress: number, dt = 0) {
+      const t = Math.max(0, Math.min(1, progress));
+      const attribute = geometry.getAttribute('position') as BufferAttribute;
+      for (let i = 0; i < count; i++) {
+        attribute.setXYZ(
+          i,
+          attribute.getX(i) + velocities[i].x * dt,
+          attribute.getY(i) + velocities[i].y * dt,
+          attribute.getZ(i) + velocities[i].z * dt
+        );
+      }
+      attribute.needsUpdate = true;
+      material.opacity = 0.95 * t * t;
+    },
+    dispose() {
+      geometry.dispose();
+      material.dispose();
+    },
   };
 }
 

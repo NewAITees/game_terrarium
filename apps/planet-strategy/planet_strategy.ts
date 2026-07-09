@@ -140,7 +140,7 @@ const {
   rendererView,
   rng,
   shipBuildCost: SHIP_BUILD_COST,
-  touchRoute: (fromPlanetId: string, toPlanetId: string, weight = 1) => touchRoute(rendererView, fromPlanetId, toPlanetId, weight),
+  touchRoute: (fromPlanetId: string, toPlanetId: string, weight = 1, hostileSeconds = 0) => touchRoute(rendererView, fromPlanetId, toPlanetId, weight, hostileSeconds),
   world,
 });
 
@@ -155,7 +155,7 @@ const {
   maybeLog,
   rendererView,
   rng,
-  touchRoute: (fromPlanetId: string, toPlanetId: string, weight = 1) => touchRoute(rendererView, fromPlanetId, toPlanetId, weight),
+  touchRoute: (fromPlanetId: string, toPlanetId: string, weight = 1, hostileSeconds = 0) => touchRoute(rendererView, fromPlanetId, toPlanetId, weight, hostileSeconds),
   world,
 });
 
