@@ -21,10 +21,10 @@
     "server.ts",
     "game/**/*.ts",
     "scripts/**/*.ts",
+    "shared/planet_strategy_fleet.ts",
     "shared/page_registry.ts",
     "shared/network-core-topology.ts",
     "shared/types/**/*.ts",
     "shared/types/**/*.d.ts"
   ]
 }
-

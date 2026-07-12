@@ -9,6 +9,7 @@ import {
   SphereGeometry,
   Vector3,
 } from 'three';
+import { getActiveAttackRoutes } from '../../shared/planet_strategy_fleet.js';
 import { loadShipAsset, normalizeAssetInstance } from './planet_strategy_render_assets.js';
 
 export function createPlanetStrategyShipVisuals(context: any) {
@@ -166,8 +167,19 @@ export function createPlanetStrategyShipVisuals(context: any) {
   }
 
   function updateRouteVisuals(): void {
+    const activeRoutes = getActiveAttackRoutes(context.world.ships, context.world.empires, context.routeKey);
     for (const route of context.world.routes.values()) {
       if (!route.line) continue;
+      const active = activeRoutes.get(context.routeKey(route.fromPlanetId, route.toPlanetId));
+      if (active) {
+        route.line.material.opacity = 0.72;
+        route.line.material.color.set(active.color);
+        if (route.glow) {
+          route.glow.material.opacity = Math.min(0.92, 0.58 + active.shipCount * 0.05);
+          route.glow.material.color.set(active.color);
+        }
+        continue;
+      }
       const hot = Math.min(route.traffic / 14, 1);
       route.line.material.opacity = 0.06 + hot * 0.34;
       route.line.material.color.set(route.traffic > 10 ? 0x9fe6ff : route.traffic > 4 ? 0x5ca8c8 : 0x30556b);
