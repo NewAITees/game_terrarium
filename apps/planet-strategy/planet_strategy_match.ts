@@ -84,7 +84,9 @@ export function createPlanetStrategyMatchRuntime(context: any) {
   function finalizeMatch(reason: string) {
     if (context.world.gameOver) return;
     const scores = computeVictoryScores();
-    const winner = scores[0] ?? null;
+    const winner = context.world.victoryMode === 'conquest'
+      ? scores.find((score: any) => !score.collapsed) ?? scores[0] ?? null
+      : scores[0] ?? null;
     const busiest = [...context.world.routes.values()].sort((a, b) => b.traffic - a.traffic)[0];
     context.world.gameOver = true;
     context.world.endReason = reason;
@@ -110,6 +112,7 @@ export function createPlanetStrategyMatchRuntime(context: any) {
       finalizeMatch('collapse');
       return;
     }
+    if (context.world.victoryMode === 'conquest') return;
     const scores = computeVictoryScores();
     const leadGap = (scores[0]?.total ?? 0) - (scores[1]?.total ?? 0);
     if (context.world.time >= context.matchEndSeconds && leadGap > context.tieBreakDelta) {
@@ -142,11 +145,13 @@ export function createPlanetStrategyMatchRuntime(context: any) {
         : null,
       phaseLine: context.world.gameOver
         ? `Match complete at ${Math.floor(context.world.time)}s.`
+        : context.world.victoryMode === 'conquest'
+          ? 'Conquest mode: fight until one empire remains.'
         : context.world.time < context.matchEndSeconds
           ? `Running toward ${context.matchEndSeconds}s regulation.`
           : `Overtime until ${context.matchForceEndSeconds}s force end.`,
       winnerLine: context.world.gameOver
-        ? (scores[0] ? `${scores[0].name} won with ${Math.round(scores[0].total)} points.` : 'No winner decided.')
+        ? (context.world.winnerId != null ? `${context.world.empires.find((empire: any) => empire.id === context.world.winnerId)?.name ?? 'An empire'} won${context.world.victoryMode === 'score' ? ` with ${Math.round(scores.find((score: any) => score.id === context.world.winnerId)?.total ?? 0)} points` : ' by conquest'}.` : 'No winner decided.')
         : 'Winner not decided yet.',
       statusDetail: context.world.gameOver
         ? summary.detail
@@ -157,6 +162,7 @@ export function createPlanetStrategyMatchRuntime(context: any) {
       depletedCount: context.world.planets.filter((planet: any) => planet.resources <= 0).length,
       nextWatch: watchability.nextWatch,
       causal: watchability.causal,
+      victoryMode: context.world.victoryMode,
       scoreRows: scores.slice(0, 3).map((score: any) => ({
         name: score.name,
         collapsed: score.collapsed,

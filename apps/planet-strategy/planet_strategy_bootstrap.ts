@@ -14,6 +14,7 @@ export function createPlanetStrategyBootstrap({
   distance3d,
   personalities,
   rng,
+  victoryMode = 'score',
 }: any) {
   const world = createWorld();
 
@@ -99,6 +100,8 @@ export function createPlanetStrategyBootstrap({
         homeFactoryId: homeFactory.id,
         shipCap: 999,
         goal: 'stabilize',
+        aiOpportunity: null,
+        aiOpportunityUntil: 0,
       };
       empires.push(empire);
 
@@ -128,6 +131,7 @@ export function createPlanetStrategyBootstrap({
       finalDetail: '',
       finalScores: [],
       oreFalloffStart: null,
+      victoryMode,
     };
   }
 

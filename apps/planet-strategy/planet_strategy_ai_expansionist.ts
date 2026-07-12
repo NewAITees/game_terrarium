@@ -1,5 +1,5 @@
 import type { PlanetStrategyAiStrategy } from '../../shared/types/planet_strategy.js';
-import { baseGoalWeights, combineGoalWeights, goalLabel, pickGoal } from './planet_strategy_ai_goals.js';
+import { baseGoalWeights, combineGoalWeights, goalLabel, pickStableGoal } from './planet_strategy_ai_goals.js';
 
 export const updateStrategy: PlanetStrategyAiStrategy = (empire, ctx) => {
   const { world, getPlanet, distance3d, queueConstruction, rng } = ctx;
@@ -9,7 +9,7 @@ export const updateStrategy: PlanetStrategyAiStrategy = (empire, ctx) => {
   const ownedFacts  = world.planets.filter(p => p.owner === empire.id && p.structures.factory > 0);
   const activeMines = ownedMines.filter(m => m.resources > 0);
   const ref         = factory ?? getPlanet(empire.homeMineId);
-  const goal = pickGoal(rng, combineGoalWeights(baseGoalWeights(empire.personality), {
+  const goal = pickStableGoal(empire, world, rng, combineGoalWeights(baseGoalWeights(empire.personality), {
     expand: activeMines.length < 4 || activeMines.some(m => m.resources / Math.max(m.maxResources, 1) < 0.5) ? 1.55 : 0.95,
     pressure: ownShips.length > 6 ? 1.15 : 0.9,
     stabilize: factory && factory.stock < 20 ? 1.3 : ownShips.length < 5 ? 1.1 : 0.95,

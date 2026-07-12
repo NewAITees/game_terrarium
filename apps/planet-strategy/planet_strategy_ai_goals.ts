@@ -44,3 +44,12 @@ export function pickGoal(rng: () => number, weights: PlanetStrategyGoalWeights):
   if (roll < weights.expand + weights.pressure) return 'pressure';
   return 'stabilize';
 }
+
+export function pickStableGoal(empire: any, world: any, rng: () => number, weights: PlanetStrategyGoalWeights): PlanetStrategyAiGoal {
+  if (empire.aiOpportunityUntil > world.time && empire.goal) return empire.goal;
+  const opportunity = rng() < 0.28 ? (rng() < 0.5 ? 'an exposed frontier' : 'a vulnerable supply lane') : null;
+  empire.aiOpportunity = opportunity;
+  empire.aiOpportunityUntil = world.time + 12 + Math.floor(rng() * 9);
+  const bonus = opportunity === 'an exposed frontier' ? { expand: 1.2, pressure: 1.08 } : opportunity ? { pressure: 1.22, stabilize: 0.94 } : {};
+  return pickGoal(rng, combineGoalWeights(weights, bonus));
+}

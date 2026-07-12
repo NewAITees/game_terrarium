@@ -12,6 +12,7 @@ export type PlanetStrategyInterventionType = 'resource_burst' | 'panic_repair';
 export type PlanetStrategyConstructionType = 'mine' | 'factory';
 export type PlanetStrategyPersonality = 'industrialist' | 'raider' | 'expansionist' | 'fortifier';
 export type PlanetStrategyAiGoal = 'expand' | 'pressure' | 'stabilize';
+export type PlanetStrategyVictoryMode = 'score' | 'conquest';
 
 export interface PlanetStrategyPosition {
   x: number;
@@ -76,6 +77,8 @@ export interface PlanetStrategyEmpire {
   homeFactoryId: string;
   shipCap: number;
   goal: PlanetStrategyAiGoal;
+  aiOpportunity?: string | null;
+  aiOpportunityUntil?: number;
 }
 
 export interface PlanetStrategyShip {
@@ -178,6 +181,7 @@ export interface PlanetStrategyWorld {
   finalDetail: string;
   finalScores: PlanetStrategyScoreEntry[];
   oreFalloffStart: number | null;
+  victoryMode: PlanetStrategyVictoryMode;
 }
 
 export interface PlanetStrategyAiContext {
@@ -256,6 +260,7 @@ export interface PlanetStrategyHudView {
   empireRows?: PlanetStrategyHudEmpireRow[];
   nextWatch?: { headline: string; detail: string };
   causal?: Array<{ cause: string; impact: string; risk: string }>;
+  victoryMode?: PlanetStrategyVictoryMode;
 }
 
 export interface PlanetStrategyUi {

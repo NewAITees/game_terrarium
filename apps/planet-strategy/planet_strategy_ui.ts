@@ -37,6 +37,7 @@ export function createPlanetStrategyUi(): PlanetStrategyUi {
     logEntries: document.getElementById('log-entries'),
     resourceBurstBtn: document.getElementById('resource-burst-btn'),
     panicRepairBtn: document.getElementById('panic-repair-btn'),
+    victoryMode: document.getElementById('victory-mode') as HTMLSelectElement | null,
   };
   const uiState = {
     firstStalledFactory: null,
@@ -48,6 +49,9 @@ export function createPlanetStrategyUi(): PlanetStrategyUi {
   });
   el.panicRepairBtn?.addEventListener('click', () => {
     window.dispatchEvent(new CustomEvent('planet-strategy-intervention', { detail: { type: 'panic_repair' } }));
+  });
+  el.victoryMode?.addEventListener('change', () => {
+    window.dispatchEvent(new CustomEvent('planet-strategy-victory-mode', { detail: { mode: el.victoryMode?.value } }));
   });
 
   function update(view: PlanetStrategyHudView): void {
@@ -63,6 +67,7 @@ export function createPlanetStrategyUi(): PlanetStrategyUi {
     if (el.phaseLine) el.phaseLine.textContent = view.phaseLine ?? '';
     if (el.winnerLine) el.winnerLine.textContent = view.winnerLine ?? '';
     if (el.statusDetail) el.statusDetail.textContent = view.statusDetail ?? '';
+    if (el.victoryMode && view.victoryMode) el.victoryMode.value = view.victoryMode;
     if (el.finalHeadline) el.finalHeadline.textContent = buildHeadline(view);
     if (el.finalDetail) el.finalDetail.textContent = buildDetail(view);
     if (el.finalMeta) el.finalMeta.textContent = buildMeta(view);

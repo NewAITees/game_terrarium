@@ -39,6 +39,7 @@ const FACTORY_STALL_COLLAPSE_SECONDS = 90;
 const SHIP_BUILD_COST = 20;
 const TIE_BREAK_DELTA = 0.5;
 const ATTACK_RANGE = 200;
+const victoryMode = new URLSearchParams(window.location.search).get('mode') === 'conquest' ? 'conquest' : 'score';
 
 const rng = mulberry32(Math.floor(Math.random() * 1e9));
 const ui = createPlanetStrategyUi();
@@ -56,6 +57,7 @@ const {
   distance3d,
   personalities: PERSONALITIES,
   rng,
+  victoryMode,
 });
 const rendererView = createPlanetStrategyRenderer({ world, rng, getPlanet, distance3d, routeKey });
 const clock = new Clock();
@@ -140,6 +142,7 @@ const {
   maybeLog,
   rendererView,
   rng,
+  victoryMode,
   shipBuildCost: SHIP_BUILD_COST,
   touchRoute: (fromPlanetId: string, toPlanetId: string, weight = 1) => touchRoute(rendererView, fromPlanetId, toPlanetId, weight),
   world,
@@ -204,6 +207,12 @@ function tick(dt: number) {
 }
 
 window.__planetStrategy = { world, computeVictoryScores, finalizeMatch };
+window.addEventListener('planet-strategy-victory-mode', (event: Event) => {
+  const mode = (event as CustomEvent).detail?.mode === 'conquest' ? 'conquest' : 'score';
+  const url = new URL(window.location.href);
+  url.searchParams.set('mode', mode);
+  window.location.assign(url.toString());
+});
 startAnimationFrameLoop({
   clock,
   step: (dt) => tick(dt),

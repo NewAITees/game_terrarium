@@ -3,6 +3,14 @@ import { synchronizeFleetSpeed } from '../../shared/planet_strategy_fleet.js';
 import { scoreAttackTargets, stepPlanetStrategyMissiles } from './planet_strategy_wasm_bridge.js';
 
 export function createPlanetStrategyCombatRuntime(context: any) {
+  function launchFleet(fleet: any[], base: any, target: any, group: string) {
+    synchronizeFleetSpeed(fleet);
+    if (base) context.touchRoute(base.id, target.id, 8);
+    for (const ship of fleet) {
+      ship.status = 'launching'; ship.targetPlanetId = target.id; ship.fromPlanetId = base?.id ?? ship.homePlanetId;
+      ship.toPlanetId = target.id; ship.homePlanetId = base?.id ?? ship.homePlanetId; ship.progress = 0; ship.launchTimer = 0.2; ship.attackGroup = group;
+    }
+  }
   function getPlanetDefense(planet: any) {
     const turret = planet?.structures?.turret ?? 0;
     const factory = planet?.structures?.factory ?? 0;
@@ -119,20 +127,19 @@ export function createPlanetStrategyCombatRuntime(context: any) {
       const fleetBias = goal === 'pressure' ? 0.8 : goal === 'expand' ? 0.65 : 0.48;
       const fleetSize = Math.max(2, Math.floor(myAttackers.length * fleetBias));
       const fleet = myAttackers.slice(0, fleetSize);
-      synchronizeFleetSpeed(fleet);
-      if (base) context.touchRoute(base.id, target.id, 8);
-
-      for (const ship of fleet) {
-        ship.status = 'launching';
-        ship.targetPlanetId = target.id;
-        ship.fromPlanetId = base?.id ?? ship.homePlanetId;
-        ship.toPlanetId = target.id;
-        ship.homePlanetId = base?.id ?? ship.homePlanetId;
-        ship.progress = 0;
-        ship.launchTimer = 0.2;
+      const second = scored.filter((entry: any) => entry.planet.id !== target.id).sort((a: any, b: any) => a.score - b.score)[0]?.planet;
+      const canSplit = fleet.length >= 6 && second && context.distance3d(base ?? second, second) <= 240;
+      if (canSplit) {
+        const cut = Math.floor(fleet.length / 2);
+        const first = fleet.slice(0, cut); const secondFleet = fleet.slice(cut);
+        launchFleet(first, base, target, 'split'); launchFleet(secondFleet, base, second, 'split');
+        empire.intent = `split-front opportunity: ${target.label} + ${second.label} (${first.length}/${secondFleet.length})`;
+        context.logEvent(`${empire.name} splits ${fleet.length} attackers → ${target.label} + ${second.label}!`, 'empire');
+      } else {
+        launchFleet(fleet, base, target, 'single');
+        empire.intent = `${goal === 'pressure' ? 'pressuring' : goal === 'expand' ? 'testing' : 'attacking'} ${target.label} (fleet: ${fleetSize})${empire.aiOpportunity ? ` — ${empire.aiOpportunity}` : ''}`;
+        context.logEvent(`${empire.name} launches ${fleetSize} attackers → ${target.label}!`, 'empire');
       }
-      empire.intent = `${goal === 'pressure' ? 'pressuring' : goal === 'expand' ? 'testing' : 'attacking'} ${target.label} (fleet: ${fleetSize})`;
-      context.logEvent(`${empire.name} launches ${fleetSize} attackers → ${target.label}!`, 'empire');
     }
   }
 

@@ -1,4 +1,4 @@
-export type PlanetWatchKind = 'factory_starvation' | 'incoming_attack' | 'ore_falloff' | 'contested_sector' | 'steady_state';
+export type PlanetWatchKind = 'victory_mode' | 'split_front' | 'ai_opportunity' | 'factory_starvation' | 'incoming_attack' | 'ore_falloff' | 'contested_sector' | 'steady_state';
 
 export type PlanetWatchCard = {
   kind: PlanetWatchKind;
@@ -14,6 +14,10 @@ export type PlanetCausalCard = {
 };
 
 export function buildPlanetWatchState(world: any): { nextWatch: PlanetWatchCard; causal: PlanetCausalCard[] } {
+  const splitTargets = new Set((world.ships ?? []).filter((ship: any) => ship.attackGroup === 'split' && ship.targetPlanetId).map((ship: any) => ship.targetPlanetId));
+  if (splitTargets.size >= 2) return { nextWatch: { kind: 'split_front', headline: 'Next Watch: split-front attack', detail: `Two enemy sectors are under simultaneous pressure in ${world.victoryMode === 'conquest' ? 'conquest' : 'score'} mode.` }, causal: [{ kind: 'split_front', cause: 'An empire divided its attack wing across two viable targets.', impact: 'Defenders must choose which sector to reinforce.', risk: 'A thin defense can become the decisive break.' }] };
+  const opportunity = (world.empires ?? []).find((empire: any) => empire.aiOpportunity);
+  if (opportunity) return { nextWatch: { kind: 'ai_opportunity', headline: 'Next Watch: AI opportunity', detail: `${opportunity.name} is acting on ${opportunity.aiOpportunity}.` }, causal: [{ kind: 'ai_opportunity', cause: `${opportunity.name} identified ${opportunity.aiOpportunity}.`, impact: 'Its next goal is temporarily biased around that opening.', risk: 'The opening may create a new contested sector.' }] };
   const factories = (world.planets ?? []).filter((planet: any) => planet.type === 'factory' && planet.owner >= 0 && planet.structures?.factory > 0);
   const starved = factories.filter((planet: any) => planet.stalled || planet.stock < 20).sort((a: any, b: any) => (a.stock ?? 0) - (b.stock ?? 0))[0];
   if (starved) {
