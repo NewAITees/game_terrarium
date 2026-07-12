@@ -1,5 +1,7 @@
 import { reportPlanetStrategyTelemetry } from './planet_strategy_telemetry.js';
 
+import { buildPlanetWatchState } from '../../shared/planet_strategy_watchability.js';
+
 export function createPlanetStrategyMatchRuntime(context: any) {
   function buildWorldSummary() {
     if (context.world.gameOver) {
@@ -121,6 +123,7 @@ export function createPlanetStrategyMatchRuntime(context: any) {
     const summary = buildWorldSummary();
     const scores = context.world.gameOver ? context.world.finalScores : computeVictoryScores();
     const topDelivery = [...context.world.empires].sort((a: any, b: any) => b.delivered - a.delivered)[0] ?? null;
+    const watchability = buildPlanetWatchState(context.world);
     context.ui.update({
       elapsed: Math.floor(context.world.time),
       planets: context.world.planets.length,
@@ -152,6 +155,8 @@ export function createPlanetStrategyMatchRuntime(context: any) {
       winnerName: scores[0]?.name ?? null,
       topDeliveryEmpire: topDelivery?.name ?? null,
       depletedCount: context.world.planets.filter((planet: any) => planet.resources <= 0).length,
+      nextWatch: watchability.nextWatch,
+      causal: watchability.causal,
       scoreRows: scores.slice(0, 3).map((score: any) => ({
         name: score.name,
         collapsed: score.collapsed,

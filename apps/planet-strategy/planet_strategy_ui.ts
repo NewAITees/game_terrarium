@@ -30,12 +30,17 @@ export function createPlanetStrategyUi(): PlanetStrategyUi {
     finalDetail: document.getElementById('final-detail'),
     finalMeta: document.getElementById('final-meta'),
     empireList: document.getElementById('empire-list'),
+    nextWatchHeadline: document.getElementById('next-watch-headline'),
+    nextWatchDetail: document.getElementById('next-watch-detail'),
+    causalFeed: document.getElementById('causal-feed'),
+    sectorTimeline: document.getElementById('sector-timeline'),
     logEntries: document.getElementById('log-entries'),
     resourceBurstBtn: document.getElementById('resource-burst-btn'),
     panicRepairBtn: document.getElementById('panic-repair-btn'),
   };
   const uiState = {
     firstStalledFactory: null,
+    timelineEntries: [] as string[],
   };
 
   el.resourceBurstBtn?.addEventListener('click', () => {
@@ -61,6 +66,9 @@ export function createPlanetStrategyUi(): PlanetStrategyUi {
     if (el.finalHeadline) el.finalHeadline.textContent = buildHeadline(view);
     if (el.finalDetail) el.finalDetail.textContent = buildDetail(view);
     if (el.finalMeta) el.finalMeta.textContent = buildMeta(view);
+    if (el.nextWatchHeadline) el.nextWatchHeadline.textContent = view.nextWatch?.headline ?? 'Next Watch: logistics race';
+    if (el.nextWatchDetail) el.nextWatchDetail.textContent = view.nextWatch?.detail ?? 'No immediate collapse is visible. Watch the next fleet and ore lane.';
+    renderCausalFeed(view);
     if (el.scoreList) {
       el.scoreList.innerHTML = (view.scoreRows ?? []).map((score: PlanetStrategyHudScoreRow) => [
         '<div class="score-row">',
@@ -99,6 +107,58 @@ export function createPlanetStrategyUi(): PlanetStrategyUi {
     el.logEntries.appendChild(div);
     while (el.logEntries.children.length > 220) el.logEntries.removeChild(el.logEntries.firstChild);
     el.logEntries.scrollTop = el.logEntries.scrollHeight;
+
+    if (isTimelineEvent(text)) {
+      uiState.timelineEntries.unshift(text);
+      uiState.timelineEntries = uiState.timelineEntries.slice(0, 8);
+      renderSectorTimeline();
+    }
+  }
+
+  function renderCausalFeed(view: PlanetStrategyHudView): void {
+    if (!el.causalFeed) return;
+    el.causalFeed.replaceChildren();
+    const cards = view.causal ?? [];
+    if (!cards.length) {
+      const empty = document.createElement('div');
+      empty.className = 'feed-empty';
+      empty.textContent = 'No critical chain is visible yet.';
+      el.causalFeed.appendChild(empty);
+      return;
+    }
+    for (const card of cards) {
+      const entry = document.createElement('div');
+      entry.className = 'causal-card';
+      for (const [label, text] of [['Cause', card.cause], ['Impact', card.impact], ['Risk', card.risk]] as const) {
+        const line = document.createElement('div');
+        line.className = 'causal-line';
+        line.textContent = `${label}: ${text}`;
+        entry.appendChild(line);
+      }
+      el.causalFeed.appendChild(entry);
+    }
+  }
+
+  function isTimelineEvent(text: string): boolean {
+    return /launches \d+ attackers|captured .+ from |factory stalling for ore|recovered from ore starvation|collapsed after it |ore veins exhausted/i.test(text);
+  }
+
+  function renderSectorTimeline(): void {
+    if (!el.sectorTimeline) return;
+    el.sectorTimeline.replaceChildren();
+    if (!uiState.timelineEntries.length) {
+      const empty = document.createElement('div');
+      empty.className = 'feed-empty';
+      empty.textContent = 'No sector turning points yet.';
+      el.sectorTimeline.appendChild(empty);
+      return;
+    }
+    for (const text of uiState.timelineEntries) {
+      const entry = document.createElement('div');
+      entry.className = 'timeline-entry';
+      entry.textContent = text;
+      el.sectorTimeline.appendChild(entry);
+    }
   }
 
   function buildHeadline(view: PlanetStrategyHudView): string {
