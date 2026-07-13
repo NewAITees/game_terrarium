@@ -301,7 +301,7 @@ async function startServer(getElectronState, electronDispatch) {
     const moss = new moss_runtime_1.MossRuntime();
     const submarineCables = new submarine_cables_runtime_1.SubmarineCablesRuntime();
     const submarineNetwork3D = new submarine_network_3d_runtime_1.SubmarineNetwork3DRuntime();
-    const escortTd = new escort_td_runtime_1.EscortTdRuntime();
+    let escortTd = new escort_td_runtime_1.EscortTdRuntime();
     const app = (0, express_1.default)();
     app.use((req, res, next) => {
         res.setHeader('Access-Control-Allow-Origin', '*');
@@ -361,6 +361,10 @@ async function startServer(getElectronState, electronDispatch) {
         res.json({ ...snapshot, analysis: buildEscortAnalysis(snapshot) });
     });
     app.post('/api/escort-td/action', (req, res) => {
+        if (req.body?.action === 'restart') {
+            escortTd = new escort_td_runtime_1.EscortTdRuntime(undefined, req.body.meta);
+            return res.json({ ok: true, state: escortTd.getSnapshot() });
+        }
         const result = escortTd.processAction(req.body || {});
         if (!result.ok)
             return res.status(400).json(result);

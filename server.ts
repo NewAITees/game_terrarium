@@ -304,7 +304,7 @@ export async function startServer(getElectronState: () => any, electronDispatch:
   const moss = new MossRuntime();
   const submarineCables = new SubmarineCablesRuntime();
   const submarineNetwork3D = new SubmarineNetwork3DRuntime();
-  const escortTd = new EscortTdRuntime();
+  let escortTd = new EscortTdRuntime();
   const app = express();
 
   app.use((req, res, next) => {
@@ -372,6 +372,10 @@ export async function startServer(getElectronState: () => any, electronDispatch:
   });
 
   app.post('/api/escort-td/action', (req, res) => {
+    if (req.body?.action === 'restart') {
+      escortTd = new EscortTdRuntime(undefined, req.body.meta);
+      return res.json({ ok: true, state: escortTd.getSnapshot() });
+    }
     const result = escortTd.processAction(req.body || {});
     if (!result.ok) return res.status(400).json(result);
     res.json({ ok: true, state: escortTd.getSnapshot() });
@@ -510,7 +514,6 @@ export async function startServer(getElectronState: () => any, electronDispatch:
     });
   });
 }
-
 
 
 

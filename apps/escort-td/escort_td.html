@@ -14,6 +14,10 @@
     }
     #hp-bar { width: 160px; height: 10px; background: #222; border-radius: 5px; overflow: hidden; }
     #hp-fill { height: 100%; width: 100%; background: #4f4; transition: background .3s; }
+    #progress-bar { width: 120px; height: 7px; background: #222; border-radius: 4px; overflow: hidden; }
+    #progress-fill { height: 100%; width: 0; background: #54f3ff; transition: width .2s; }
+    #coverage-bar { width: 90px; height: 7px; background: #222; border-radius: 4px; overflow: hidden; }
+    #coverage-fill { height: 100%; width: 0; background: #7cf7ff; transition: width .2s; }
     #roster {
       position: fixed; top: 44px; left: 20px;
       display: grid; grid-template-columns: repeat(2, max-content); gap: 6px 14px;
@@ -63,6 +67,17 @@
     #command-help {
       font-size: 10px; line-height: 1.4; color: #7e93ab;
     }
+    #meta-panel {
+      position: fixed; right: 16px; bottom: 16px; display: none; gap: 6px;
+      width: 220px; padding: 10px; border: 1px solid #365064; border-radius: 10px;
+      background: rgba(6, 12, 18, .9); color: #9fb4ca; font-size: 10px;
+    }
+    #meta-panel[data-open="true"] { display: grid; }
+    #meta-panel button { border: 1px solid #35516b; border-radius: 6px; background: #102033; color: #d9efff; padding: 6px; font: inherit; cursor: pointer; }
+    #meta-panel button:disabled { opacity: .45; cursor: default; }
+    #build-panel { position: fixed; left: 16px; bottom: 16px; display: flex; gap: 6px; padding: 8px; border: 1px solid #2a4055; border-radius: 10px; background: rgba(6, 12, 18, .86); }
+    #build-panel button { border: 1px solid #35516b; border-radius: 6px; background: #102033; color: #d9efff; padding: 6px; font: inherit; font-size: 10px; cursor: pointer; }
+    #build-panel button[data-active="true"] { border-color: #7cf7ff; color: #fff; }
     .chip {
       display: inline-flex; align-items: center; gap: 6px;
       padding: 2px 8px; border-radius: 999px; background: rgba(255,255,255,.05);
@@ -81,7 +96,13 @@
   <div id="hp-bar"><div id="hp-fill"></div></div>
   <span id="hp-val">400</span>
   <span style="color:#444">│</span>
+  <span>A→B</span><div id="progress-bar"><div id="progress-fill"></div></div><span id="progress-val">0%</span>
+  <span style="color:#444">│</span>
+  <span>COVER</span><div id="coverage-bar"><div id="coverage-fill"></div></div><span id="coverage-val">0%</span>
+  <span style="color:#444">│</span>
   <span>GOLD <b id="gold" style="color:#fd0">100</b></span>
+  <span style="color:#444">│</span>
+  <span>CHIP <b id="chip-total" style="color:#7cf7ff">0</b></span>
   <span style="color:#444">│</span>
   <span>WAVE <b id="wave" style="color:#f84">0</b></span>
 </div>
@@ -101,12 +122,28 @@
   <div id="command-buttons">
     <button type="button" id="cmd-deploy">D DEPLOY</button>
     <button type="button" id="cmd-stop">SPACE HOLD</button>
+    <button type="button" id="cmd-force">F FORCE</button>
     <button type="button" id="cmd-balanced" data-mode="balanced" data-active="true">1 BALANCED</button>
     <button type="button" id="cmd-ground" data-mode="ground">2 GROUND</button>
     <button type="button" id="cmd-air" data-mode="air">3 AIR</button>
     <button type="button" id="cmd-siege" data-mode="siege">4 SIEGE</button>
   </div>
-  <div id="command-help">KING は停止/前進のみ操作。機兵は自動警護し、DEPLOY で KING から増援が出ます。</div>
+  <div id="command-help">左クリックで配置、右クリックで70%回収。SPACEで待機、Fで監視外へ強行前進。</div>
+</div>
+<div id="meta-panel">
+  <strong>CHIP UPGRADES</strong>
+  <button type="button" data-meta="startGoldLevel"></button>
+  <button type="button" data-meta="kingHpLevel"></button>
+  <button type="button" data-meta="unitLimitLevel"></button>
+  <span>購入後に R で次の護送を開始</span>
+</div>
+<div id="build-panel">
+  <button type="button" data-build="pawn" data-active="true">PAWN 40</button>
+  <button type="button" data-build="rook">ROOK 80</button>
+  <button type="button" data-build="bishop">BISHOP 70</button>
+  <button type="button" data-build="knight">KNIGHT 90</button>
+  <button type="button" data-build="queen">QUEEN 150</button>
+  <button type="button" data-build="barricade">BARRIER 30</button>
 </div>
 <div id="legend">
   <span class="chip"><b>AUTO</b> DEPLOY</span>

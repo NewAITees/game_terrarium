@@ -4,10 +4,13 @@ import type {
   EscortTdCountsSnapshot,
   EscortTdEnemyKind,
   EscortTdEnemySnapshot,
+  EscortTdMetaProgress,
   EscortTdPieceType,
+  EscortTdRunResult,
   EscortTdStateSnapshot,
   EscortTdUnitSnapshot,
 } from '../shared/types/escort_td';
+import { calculateEscortCoverage, calculateEscortResult, getEscortMetaValues, getEscortReclaimGold, normalizeEscortMeta } from './escort_td_rules';
 
 const GW = 21;
 const GH = 17;
@@ -24,6 +27,10 @@ const GOLD_KILL = 8;
 const START_GOLD = 100;
 const SPAWN_SEC = 10;
 const WAVE_BASE = 8;
+const SIEGE_BARRICADE_DAMAGE_PER_SECOND = 35;
+const VIP_VISION = CS * 2;
+const PAWN_VISION = CS * 5;
+const ADVANCE_COVERAGE_THRESHOLD = 65;
 
 const PIECE: Record<EscortTdPieceType, { cost: number; range: number; fireRate: number; dmg: number; aoe: number; attackShape: 'fan' | 'circle' | 'square'; attackWindup: number }> = {
   pawn: { cost: 40, range: CS * 3.5, fireRate: 0.48, dmg: 14, aoe: 0, attackShape: 'fan', attackWindup: 0.08 },
@@ -50,32 +57,47 @@ type SpawnPoints = { ground: GridPt[]; air: GridPt[]; siege: GridPt[] };
 type CityData = { width: number; height: number; g: Uint8Array[]; start: GridPt; end: GridPt; route: GridPt[]; roads: RoadRoute[]; spawnPoints: SpawnPoints };
 type Enemy = EscortTdEnemySnapshot & { dead: boolean; speed: number };
 type Unit = EscortTdUnitSnapshot & { fireTimer: number; speedMul: number; windupTimer: number; patrolAngle: number; pendingAttack: null | { x: number; z: number; shape: 'fan' | 'circle' | 'square'; radius: number; facing: number } };
+type Barricade = { id: number; gx: number; gy: number; hp: number; hpMax: number };
 
 export class EscortTdRuntime {
   private readonly citySeed: number;
+  private readonly meta: EscortTdMetaProgress;
+  private readonly vipHpMax: number;
+  private readonly unitLimit: number;
   private readonly city: CityData;
   private readonly vipPath: Array<{ x: number; z: number }>;
   private readonly spawnPoints: SpawnPoints;
   private readonly units: Unit[] = [];
   private readonly enemies: Enemy[] = [];
-  private readonly vip = { hp: VIP_HP_MAX, pathIdx: 0, t: 0, x: 0, z: 0 };
+  private readonly barricades: Barricade[] = [];
+  private readonly vip: { hp: number; pathIdx: number; t: number; x: number; z: number };
   private readonly state = {
     gold: START_GOLD,
     spawnTimer: SPAWN_SEC * 0.35,
     wave: 0,
     commandMode: 'balanced' as EscortTdCommandMode,
     kingPaused: false,
+    forceAdvance: false,
     over: false,
     won: false,
+    kills: { ground: 0, air: 0, siege: 0 } as Record<EscortTdEnemyKind, number>,
+    result: null as EscortTdRunResult | null,
   };
   private lastTickAt = Date.now();
   private flowRefresh = 0;
   private enemyFlow: Int8Array;
   private nextUnitId = 1;
   private nextEnemyId = 1;
+  private nextBarricadeId = 1;
   private autoDeployTimer = 0.25;
 
-  constructor(seed = (Math.random() * 0xffffff) | 0) {
+  constructor(seed = (Math.random() * 0xffffff) | 0, meta: Partial<EscortTdMetaProgress> = {}) {
+    this.meta = normalizeEscortMeta(meta);
+    const metaValues = getEscortMetaValues(this.meta);
+    this.vipHpMax = metaValues.kingHpMax;
+    this.unitLimit = metaValues.unitLimit;
+    this.vip = { hp: this.vipHpMax, pathIdx: 0, t: 0, x: 0, z: 0 };
+    this.state.gold = metaValues.startGold;
     this.citySeed = seed;
     this.city = buildCity(GW, GH, seed);
     this.vipPath = buildVipPath(this.city.route);
@@ -102,12 +124,17 @@ export class EscortTdRuntime {
       wave: this.state.wave,
       gold: this.state.gold,
       commandMode: this.state.commandMode,
+      meta: this.meta,
+      progressPercent: this.progressPercent(),
       king: {
         x: this.vip.x,
         z: this.vip.z,
         hp: this.vip.hp,
-        hpMax: VIP_HP_MAX,
+        hpMax: this.vipHpMax,
         paused: this.state.kingPaused,
+        coveragePercent: this.coveragePercent(),
+        advanceBlocked: !this.state.kingPaused && this.coveragePercent() < ADVANCE_COVERAGE_THRESHOLD,
+        forcedAdvance: this.state.forceAdvance,
       },
       units: this.units.map((unit) => ({
         id: unit.id,
@@ -119,7 +146,9 @@ export class EscortTdRuntime {
         moveFacing: unit.moveFacing,
         aimFacing: unit.aimFacing,
         patrolRadius: unit.patrolRadius,
+        deployed: unit.deployed,
       })),
+      barricades: this.barricades.map((barricade) => ({ ...barricade })),
       enemies: this.enemies.filter((enemy) => !enemy.dead).map((enemy) => ({
         id: enemy.id,
         kind: enemy.kind,
@@ -130,6 +159,7 @@ export class EscortTdRuntime {
         hitFlash: enemy.hitFlash,
       })),
       counts: this.counts(),
+      result: this.state.result,
       over: this.state.over,
       won: this.state.won,
     };
@@ -145,6 +175,12 @@ export class EscortTdRuntime {
     }
     if (action.action === 'toggle_pause') {
       this.state.kingPaused = !this.state.kingPaused;
+      if (this.state.kingPaused) this.state.forceAdvance = false;
+      return { ok: true };
+    }
+    if (action.action === 'toggle_force_advance') {
+      this.state.forceAdvance = !this.state.forceAdvance;
+      if (this.state.forceAdvance) this.state.kingPaused = false;
       return { ok: true };
     }
     if (action.action === 'set_command_mode') {
@@ -152,13 +188,19 @@ export class EscortTdRuntime {
       this.state.commandMode = action.mode;
       return { ok: true };
     }
+    if (action.action === 'place_unit') return this.placeUnit(action.gx, action.gy, action.type);
+    if (action.action === 'place_barricade') return this.placeBarricade(action.gx, action.gy);
+    if (action.action === 'reclaim_at') return this.reclaimAt(action.gx, action.gy);
     return { ok: false, error: 'unknown action' };
   }
 
   private tick(dt: number): void {
     if (this.state.over || this.state.won) return;
     this.advanceVip(dt);
-    if (this.state.won) return;
+    if (this.state.won) {
+      this.finalizeRun('cleared');
+      return;
+    }
     this.flowRefresh -= dt;
     if (this.flowRefresh <= 0) {
       this.flowRefresh = 1.4;
@@ -178,7 +220,7 @@ export class EscortTdRuntime {
   }
 
   private advanceVip(dt: number): void {
-    if (this.state.kingPaused || this.vip.pathIdx >= this.vipPath.length - 1) return;
+    if (this.state.kingPaused || (!this.state.forceAdvance && this.coveragePercent() < ADVANCE_COVERAGE_THRESHOLD) || this.vip.pathIdx >= this.vipPath.length - 1) return;
     this.vip.t += (VIP_SPEED / CS) * dt;
     while (this.vip.t >= 1 && this.vip.pathIdx < this.vipPath.length - 1) {
       this.vip.t -= 1;
@@ -195,6 +237,7 @@ export class EscortTdRuntime {
     this.vip.x = last.x;
     this.vip.z = last.z;
     this.state.won = true;
+    this.finalizeRun('cleared');
   }
 
   private autoDeployUnits(): void {
@@ -210,6 +253,7 @@ export class EscortTdRuntime {
   }
 
   private spawnUnitNearKing(type: EscortTdPieceType): boolean {
+    if (this.units.length >= this.unitLimit) return false;
     const def = PIECE[type];
     if (this.state.gold < def.cost) return false;
     this.state.gold -= def.cost;
@@ -220,6 +264,14 @@ export class EscortTdRuntime {
     const wx = this.vip.x + Math.cos(ang) * radius;
     const wz = this.vip.z + Math.sin(ang) * radius;
     const grid = w2gi(wx, wz);
+    this.createUnit(type, wx, wz, false);
+    return true;
+  }
+
+  private createUnit(type: EscortTdPieceType, wx: number, wz: number, deployed: boolean): void {
+    const guard = UNIT_GUARD[type];
+    const grid = w2gi(wx, wz);
+    const facing = Math.atan2(wz - this.vip.z, wx - this.vip.x);
     this.units.push({
       id: this.nextUnitId++,
       type,
@@ -231,16 +283,17 @@ export class EscortTdRuntime {
       speedMul: guard.speedMul,
       windupTimer: 0,
       pendingAttack: null,
-      moveFacing: ang,
-      aimFacing: ang,
-      patrolAngle: ang,
+      moveFacing: facing,
+      aimFacing: facing,
+      patrolAngle: deployed ? 0 : Math.atan2(wz - this.vip.z, wx - this.vip.x),
       patrolRadius: guard.patrolRadius,
+      deployed,
     });
-    return true;
   }
 
   private moveUnits(dt: number): void {
     for (const unit of this.units) {
+      if (unit.deployed) continue;
       unit.patrolAngle += dt * (0.4 + unit.speedMul * 0.08);
       const intercept = pickInterceptTarget(unit, this.enemies, this.vip.x, this.vip.z);
       const desired = intercept
@@ -267,13 +320,20 @@ export class EscortTdRuntime {
 
   private refreshEnemyFlow(): void {
     const grid = w2gi(this.vip.x, this.vip.z);
-    this.enemyFlow = bfsFlow(this.city.g, this.city.width, this.city.height, clamp(grid.gx, 0, this.city.width - 1), clamp(grid.gy, 0, this.city.height - 1));
+    this.enemyFlow = bfsFlow(this.navigationGrid(), this.city.width, this.city.height, clamp(grid.gx, 0, this.city.width - 1), clamp(grid.gy, 0, this.city.height - 1));
   }
 
   private moveEnemies(dt: number): void {
     const hitR2 = (CS * 0.5) ** 2;
+    let barricadeDestroyed = false;
     for (const enemy of this.enemies) {
       if (enemy.dead) continue;
+      const blocked = enemy.kind !== 'air' && this.isBlockedByKnight(enemy);
+      if (blocked) {
+        enemy.bobPhase += dt;
+        enemy.hitFlash = Math.max(0, enemy.hitFlash - dt);
+        continue;
+      }
       if (enemy.kind === 'air') {
         moveEnemyToward(enemy, this.vip.x, this.vip.z, dt, 1.12);
       } else {
@@ -283,6 +343,8 @@ export class EscortTdRuntime {
           if (fi >= 0) {
             enemy.x += D4[fi][0] * enemy.speed * dt;
             enemy.z += D4[fi][1] * enemy.speed * dt;
+          } else if (enemy.kind === 'siege') {
+            barricadeDestroyed = this.damageNearestBarricade(enemy, dt) || barricadeDestroyed;
           }
         }
       }
@@ -296,9 +358,11 @@ export class EscortTdRuntime {
         if (this.vip.hp <= 0) {
           this.vip.hp = 0;
           this.state.over = true;
+          this.finalizeRun('failed');
         }
       }
     }
+    if (barricadeDestroyed) this.refreshEnemyFlow();
   }
 
   private separateEnemies(dt: number): void {
@@ -348,6 +412,7 @@ export class EscortTdRuntime {
       const range2 = def.range * def.range;
       for (const enemy of this.enemies) {
         if (enemy.dead) continue;
+        if (!this.isEnemyDetected(enemy)) continue;
         const dx = enemy.x - unit.wx;
         const dz = enemy.z - unit.wz;
         const d2 = dx * dx + dz * dz;
@@ -411,6 +476,7 @@ export class EscortTdRuntime {
     if (enemy.hp <= 0) {
       enemy.dead = true;
       this.state.gold += GOLD_KILL;
+      this.state.kills[enemy.kind] += 1;
     }
   }
 
@@ -452,6 +518,136 @@ export class EscortTdRuntime {
     for (const unit of this.units) counts[unit.type] += 1;
     for (const enemy of this.enemies) if (!enemy.dead) counts[enemy.kind] += 1;
     return counts;
+  }
+
+  private placeUnit(gx: number, gy: number, type: EscortTdPieceType): { ok: true } | { ok: false; error: string } {
+    if (!PIECE[type]) return { ok: false, error: 'invalid unit type' };
+    if (this.units.length >= this.unitLimit) return { ok: false, error: 'unit limit reached' };
+    if (!this.canPlaceAt(gx, gy, type === 'pawn' || type === 'queen')) return { ok: false, error: 'invalid placement' };
+    const def = PIECE[type];
+    if (this.state.gold < def.cost) return { ok: false, error: 'not enough gold' };
+    this.state.gold -= def.cost;
+    const world = g2w(gx, gy);
+    this.createUnit(type, world.x, world.z, true);
+    if (type !== 'pawn' && type !== 'queen') this.refreshEnemyFlow();
+    return { ok: true };
+  }
+
+  private placeBarricade(gx: number, gy: number): { ok: true } | { ok: false; error: string } {
+    const cost = 30;
+    if (!this.canPlaceAt(gx, gy, false)) return { ok: false, error: 'invalid placement' };
+    if (this.state.gold < cost) return { ok: false, error: 'not enough gold' };
+    this.state.gold -= cost;
+    this.barricades.push({ id: this.nextBarricadeId++, gx, gy, hp: 120, hpMax: 120 });
+    this.refreshEnemyFlow();
+    return { ok: true };
+  }
+
+  private reclaimAt(gx: number, gy: number): { ok: true } | { ok: false; error: string } {
+    const unitIndex = this.units.findIndex((unit) => unit.deployed && unit.gx === gx && unit.gy === gy);
+    if (unitIndex >= 0) {
+      const [unit] = this.units.splice(unitIndex, 1);
+      this.state.gold += getEscortReclaimGold(PIECE[unit.type].cost);
+      if (unit.type !== 'pawn' && unit.type !== 'queen') this.refreshEnemyFlow();
+      return { ok: true };
+    }
+    const barricadeIndex = this.barricades.findIndex((barricade) => barricade.gx === gx && barricade.gy === gy);
+    if (barricadeIndex >= 0) {
+      this.barricades.splice(barricadeIndex, 1);
+      this.state.gold += getEscortReclaimGold(30);
+      this.refreshEnemyFlow();
+      return { ok: true };
+    }
+    return { ok: false, error: 'nothing to reclaim' };
+  }
+
+  private canPlaceAt(gx: number, gy: number, flying: boolean): boolean {
+    if (gx < 0 || gx >= this.city.width || gy < 0 || gy >= this.city.height) return false;
+    if (!flying && this.city.g[gy][gx] !== 0) return false;
+    if (this.isRemainingKingPath(gx, gy)) return false;
+    if (this.barricades.some((barricade) => barricade.gx === gx && barricade.gy === gy)) return false;
+    return !this.units.some((unit) => unit.gx === gx && unit.gy === gy && unit.deployed);
+  }
+
+  private isRemainingKingPath(gx: number, gy: number): boolean {
+    for (let index = this.vip.pathIdx; index < this.vipPath.length; index++) {
+      const cell = w2gi(this.vipPath[index].x, this.vipPath[index].z);
+      if (cell.gx === gx && cell.gy === gy) return true;
+    }
+    return false;
+  }
+
+  private navigationGrid(): Uint8Array[] {
+    const grid = this.city.g.map((row) => row.slice());
+    for (const barricade of this.barricades) grid[barricade.gy][barricade.gx] = 1;
+    for (const unit of this.units) {
+      if (unit.deployed && unit.type !== 'pawn' && unit.type !== 'queen') grid[unit.gy][unit.gx] = 1;
+    }
+    return grid;
+  }
+
+  private damageNearestBarricade(enemy: Enemy, dt: number): boolean {
+    let target: Barricade | null = null;
+    let bestDistance = CS * CS * 2.2;
+    for (const barricade of this.barricades) {
+      const point = g2w(barricade.gx, barricade.gy);
+      const distance = (point.x - enemy.x) ** 2 + (point.z - enemy.z) ** 2;
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        target = barricade;
+      }
+    }
+    if (!target) return false;
+    target.hp -= SIEGE_BARRICADE_DAMAGE_PER_SECOND * dt;
+    if (target.hp > 0) return false;
+    const index = this.barricades.indexOf(target);
+    if (index >= 0) this.barricades.splice(index, 1);
+    return true;
+  }
+
+  private isBlockedByKnight(enemy: Enemy): boolean {
+    const blockRange2 = (CS * 0.85) ** 2;
+    return this.units.some((unit) => unit.type === 'knight' && (unit.wx - enemy.x) ** 2 + (unit.wz - enemy.z) ** 2 <= blockRange2);
+  }
+
+  private coveragePercent(): number {
+    const next = this.vipPath[Math.min(this.vip.pathIdx + 1, this.vipPath.length - 1)];
+    if (!next) return 100;
+    const samples = 8;
+    return calculateEscortCoverage(samples, (index) => {
+      const t = index / samples;
+      const x = this.vip.x + (next.x - this.vip.x) * t;
+      const z = this.vip.z + (next.z - this.vip.z) * t;
+      return this.isPointDetected(x, z);
+    });
+  }
+
+  private isEnemyDetected(enemy: Enemy): boolean {
+    return this.isPointDetected(enemy.x, enemy.z);
+  }
+
+  private isPointDetected(x: number, z: number): boolean {
+    if ((x - this.vip.x) ** 2 + (z - this.vip.z) ** 2 <= VIP_VISION ** 2) return true;
+    return this.units.some((unit) => unit.type === 'pawn' && (x - unit.wx) ** 2 + (z - unit.wz) ** 2 <= PAWN_VISION ** 2);
+  }
+
+  private progressPercent(): number {
+    const segments = Math.max(1, this.vipPath.length - 1);
+    return Math.round(Math.min(1, (this.vip.pathIdx + this.vip.t) / segments) * 100);
+  }
+
+  private finalizeRun(outcome: EscortTdRunResult['outcome']): void {
+    if (this.state.result) return;
+    const progressPercent = this.progressPercent();
+    const kills = { ...this.state.kills };
+    const { score, chips } = calculateEscortResult(outcome, progressPercent, kills);
+    this.state.result = {
+      outcome,
+      progressPercent,
+      kills,
+      score,
+      chips,
+    };
   }
 }
 
@@ -735,4 +931,3 @@ function blendAngle(current: number, target: number, t: number): number {
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
-

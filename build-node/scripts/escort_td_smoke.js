@@ -40,6 +40,19 @@ async function verifyApiActions() {
         throw new Error(`unexpected state page: ${initial.page}`);
     if (initial.gold < 40)
         throw new Error(`initial gold cannot fund deploy: ${initial.gold}`);
+    if (initial.progressPercent < 0 || initial.progressPercent > 100) {
+        throw new Error(`initial progress is outside 0-100: ${initial.progressPercent}`);
+    }
+    if (initial.king.coveragePercent < 0 || initial.king.coveragePercent > 100) {
+        throw new Error(`initial coverage is outside 0-100: ${initial.king.coveragePercent}`);
+    }
+    if (typeof initial.king.advanceBlocked !== 'boolean') {
+        throw new Error('initial king advanceBlocked is not boolean');
+    }
+    if (typeof initial.king.forcedAdvance !== 'boolean')
+        throw new Error('initial king forcedAdvance is not boolean');
+    if (initial.result !== null)
+        throw new Error('new escort run unexpectedly has a result');
     const deployed = await postJson('/api/escort-td/action', { action: 'deploy' });
     if (!deployed.ok)
         throw new Error('deploy action was not successful');
@@ -55,6 +68,19 @@ async function verifyApiActions() {
     if (!restored.ok || restored.state.king.paused !== pausedBefore) {
         throw new Error(`toggle_pause did not restore king.paused to ${pausedBefore}`);
     }
+    const forced = await postJson('/api/escort-td/action', { action: 'toggle_force_advance' });
+    if (!forced.ok || !forced.state.king.forcedAdvance || forced.state.king.paused) {
+        throw new Error('force advance did not enable the manual override');
+    }
+    const restarted = await postJson('/api/escort-td/action', {
+        action: 'restart',
+        meta: { startGoldLevel: 1, kingHpLevel: 1, unitLimitLevel: 1 },
+    });
+    if (!restarted.ok || restarted.state.gold !== 130 || restarted.state.king.hpMax !== 500) {
+        throw new Error(`restart did not apply meta progress: gold ${restarted.state.gold}, hp ${restarted.state.king.hpMax}`);
+    }
+    if (restarted.state.meta.unitLimitLevel !== 1)
+        throw new Error('restart did not retain unit-limit meta progress');
 }
 async function verifyEscortPage() {
     await postJson('/electron/action', { type: 'switch_page', page: 'escort_td' });

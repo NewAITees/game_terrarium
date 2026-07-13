@@ -2,12 +2,21 @@ export type EscortTdCommandMode = 'balanced' | 'ground' | 'air' | 'siege';
 export type EscortTdPieceType = 'pawn' | 'rook' | 'bishop' | 'knight' | 'queen';
 export type EscortTdEnemyKind = 'ground' | 'air' | 'siege';
 
+export type EscortTdMetaProgress = {
+  startGoldLevel: number;
+  kingHpLevel: number;
+  unitLimitLevel: number;
+};
+
 export type EscortTdKingSnapshot = {
   x: number;
   z: number;
   hp: number;
   hpMax: number;
   paused: boolean;
+  coveragePercent: number;
+  advanceBlocked: boolean;
+  forcedAdvance: boolean;
 };
 
 export type EscortTdUnitSnapshot = {
@@ -20,6 +29,15 @@ export type EscortTdUnitSnapshot = {
   moveFacing: number;
   aimFacing: number;
   patrolRadius: number;
+  deployed: boolean;
+};
+
+export type EscortTdBarricadeSnapshot = {
+  id: number;
+  gx: number;
+  gy: number;
+  hp: number;
+  hpMax: number;
 };
 
 export type EscortTdEnemySnapshot = {
@@ -43,6 +61,14 @@ export type EscortTdCountsSnapshot = {
   siege: number;
 };
 
+export type EscortTdRunResult = {
+  outcome: 'failed' | 'cleared';
+  progressPercent: number;
+  kills: Record<EscortTdEnemyKind, number>;
+  score: number;
+  chips: number;
+};
+
 export type EscortTdStateSnapshot = {
   page: 'escort_td';
   updatedAt: string;
@@ -50,10 +76,14 @@ export type EscortTdStateSnapshot = {
   wave: number;
   gold: number;
   commandMode: EscortTdCommandMode;
+  meta: EscortTdMetaProgress;
+  progressPercent: number;
   king: EscortTdKingSnapshot;
   units: EscortTdUnitSnapshot[];
+  barricades: EscortTdBarricadeSnapshot[];
   enemies: EscortTdEnemySnapshot[];
   counts: EscortTdCountsSnapshot;
+  result: EscortTdRunResult | null;
   over: boolean;
   won: boolean;
 };
@@ -61,4 +91,9 @@ export type EscortTdStateSnapshot = {
 export type EscortTdAction =
   | { action: 'deploy' }
   | { action: 'toggle_pause' }
-  | { action: 'set_command_mode'; mode: EscortTdCommandMode };
+  | { action: 'toggle_force_advance' }
+  | { action: 'set_command_mode'; mode: EscortTdCommandMode }
+  | { action: 'place_unit'; gx: number; gy: number; type: EscortTdPieceType }
+  | { action: 'place_barricade'; gx: number; gy: number }
+  | { action: 'reclaim_at'; gx: number; gy: number }
+  | { action: 'restart'; meta: EscortTdMetaProgress };

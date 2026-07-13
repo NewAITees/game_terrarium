@@ -1,4 +1,4 @@
-import { AmbientLight,BoxGeometry,CatmullRomCurve3,Color,CylinderGeometry,DirectionalLight,FogExp2,Group,Mesh,MeshBasicMaterial,MeshLambertMaterial,Object3D,PerspectiveCamera,PlaneGeometry,Scene,Vector3,WebGLRenderer, } from 'three';
+import { AmbientLight,BoxGeometry,CatmullRomCurve3,Color,CylinderGeometry,DirectionalLight,FogExp2,Group,Mesh,MeshBasicMaterial,MeshLambertMaterial,Object3D,PerspectiveCamera,Plane,PlaneGeometry,Raycaster,Scene,Vector2,Vector3,WebGLRenderer, } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { bindComposerResize } from '../../shared/browser-runtime.js';
@@ -53,21 +53,28 @@ export function bindEscortTdInputs(context: {
   camera: any;
   renderer: any;
   onPlaceUnit: (gx: number, gy: number, type: PieceType) => void;
+  onPlaceBarricade: (gx: number, gy: number) => void;
+  onReclaimAt: (gx: number, gy: number) => void;
   onDeployFromKing: () => void;
   onToggleKingPause: () => void;
+  onToggleForceAdvance: () => void;
   getCommandMode: () => CommandMode;
   isKingPaused: () => boolean;
+  isForceAdvance: () => boolean;
   onCommandModeChange: (mode: CommandMode) => void;
   onRestart: () => void;
 }): { getSelectedPiece: () => PieceType } {
-  void context.camera;
-  void context.renderer;
-  void context.onPlaceUnit;
+  const raycaster = new Raycaster();
+  const pointer = new Vector2();
+  const groundPlane = new Plane(new Vector3(0, 1, 0), 0);
+  let selectedBuild: PieceType | 'barricade' = 'pawn';
   const commandButtons = COMMAND_MODES.map((mode) => document.getElementById(`cmd-${mode}`) as HTMLButtonElement | null);
   const commandModeLabel = document.getElementById('command-mode') as HTMLElement | null;
   const kingStateLabel = document.getElementById('king-state') as HTMLElement | null;
   const deployButton = document.getElementById('cmd-deploy') as HTMLButtonElement | null;
   const stopButton = document.getElementById('cmd-stop') as HTMLButtonElement | null;
+  const forceButton = document.getElementById('cmd-force') as HTMLButtonElement | null;
+  const buildButtons = Array.from(document.querySelectorAll('[data-build]')) as HTMLButtonElement[];
 
   const syncCommandMode = (): void => {
     const mode = context.getCommandMode();
@@ -76,8 +83,9 @@ export function bindEscortTdInputs(context: {
       if (!button) continue;
       button.dataset.active = button.dataset.mode === mode ? 'true' : 'false';
     }
-    if (kingStateLabel) kingStateLabel.textContent = context.isKingPaused() ? 'HOLD' : 'ADVANCE';
+    if (kingStateLabel) kingStateLabel.textContent = context.isKingPaused() ? 'HOLD' : context.isForceAdvance() ? 'FORCE' : 'ADVANCE';
     if (stopButton) stopButton.dataset.active = context.isKingPaused() ? 'true' : 'false';
+    if (forceButton) forceButton.dataset.active = context.isForceAdvance() ? 'true' : 'false';
   };
 
   for (const button of commandButtons) {
@@ -90,12 +98,40 @@ export function bindEscortTdInputs(context: {
     });
   }
 
+  for (const button of buildButtons) {
+    button.addEventListener('click', () => {
+      const selected = button.dataset.build as PieceType | 'barricade' | undefined;
+      if (!selected) return;
+      selectedBuild = selected;
+      for (const other of buildButtons) other.dataset.active = String(other === button);
+    });
+  }
+
+  context.renderer.domElement.addEventListener('pointerdown', (event: PointerEvent) => {
+    if (event.button !== 0 && event.button !== 2) return;
+    const bounds = context.renderer.domElement.getBoundingClientRect();
+    pointer.x = ((event.clientX - bounds.left) / bounds.width) * 2 - 1;
+    pointer.y = -((event.clientY - bounds.top) / bounds.height) * 2 + 1;
+    raycaster.setFromCamera(pointer, context.camera);
+    const point = raycaster.ray.intersectPlane(groundPlane, new Vector3());
+    if (!point) return;
+    const { gx, gy } = w2gi(point.x, point.z);
+    if (event.button === 2) context.onReclaimAt(gx, gy);
+    else if (selectedBuild === 'barricade') context.onPlaceBarricade(gx, gy);
+    else context.onPlaceUnit(gx, gy, selectedBuild);
+  });
+  context.renderer.domElement.addEventListener('contextmenu', (event: MouseEvent) => event.preventDefault());
+
   deployButton?.addEventListener('click', () => {
     context.onDeployFromKing();
     syncCommandMode();
   });
   stopButton?.addEventListener('click', () => {
     context.onToggleKingPause();
+    syncCommandMode();
+  });
+  forceButton?.addEventListener('click', () => {
+    context.onToggleForceAdvance();
     syncCommandMode();
   });
 
@@ -106,22 +142,23 @@ export function bindEscortTdInputs(context: {
       event.preventDefault();
       context.onToggleKingPause();
     }
+    if (event.key === 'f' || event.key === 'F') context.onToggleForceAdvance();
     if (event.key === '1') context.onCommandModeChange('balanced');
     if (event.key === '2') context.onCommandModeChange('ground');
     if (event.key === '3') context.onCommandModeChange('air');
     if (event.key === '4') context.onCommandModeChange('siege');
-    if (event.key === '1' || event.key === '2' || event.key === '3' || event.key === '4' || event.key === 'd' || event.key === 'D' || event.key === ' ' || event.code === 'Space') syncCommandMode();
+    if (event.key === '1' || event.key === '2' || event.key === '3' || event.key === '4' || event.key === 'd' || event.key === 'D' || event.key === 'f' || event.key === 'F' || event.key === ' ' || event.code === 'Space') syncCommandMode();
   });
 
   syncCommandMode();
 
-  return { getSelectedPiece: () => 'pawn' };
+  return { getSelectedPiece: () => selectedBuild === 'barricade' ? 'pawn' : selectedBuild };
 }
 
 export function updateEscortTdVisibility(vipMesh: any, units: Unit[], enemies: Enemy[], fogCells: any[]): void {
   const sources = [
     { x: vipMesh.position.x, z: vipMesh.position.z, r: VISION.vip },
-    ...units.map((unit) => ({ x: unit.wx, z: unit.wz, r: VISION[unit.type] })),
+    ...units.filter((unit) => unit.type === 'pawn').map((unit) => ({ x: unit.wx, z: unit.wz, r: VISION.pawn })),
   ];
   const vis = new Uint8Array(GW * GH);
 
