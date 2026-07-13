@@ -14,7 +14,7 @@ export function loadShipAsset(path: string): Promise<Object3D | null> {
 
 function loadAsset(path: string): Promise<Object3D | null> {
   if (!assetCache.has(path)) {
-    const assetUrl = new URL(`../../${path}`, import.meta.url).href;
+    const assetUrl = `/${path.replace(/^\/+/, '')}`;
     assetCache.set(path, loader.loadAsync(assetUrl)
       .then((gltf: any) => gltf.scene ?? null)
       .catch((error: unknown) => {

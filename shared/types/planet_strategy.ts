@@ -258,6 +258,8 @@ export interface PlanetStrategyHudView {
   depletedCount?: number;
   scoreRows?: PlanetStrategyHudScoreRow[];
   empireRows?: PlanetStrategyHudEmpireRow[];
+  nextWatch?: { headline: string; detail: string };
+  causal?: Array<{ cause: string; impact: string; risk: string }>;
 }
 
 export interface PlanetStrategyUi {

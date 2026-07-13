@@ -47,6 +47,7 @@ export async function mountBrowserAssetRoutes(app: express.Express, projectRoot:
   app.use('/agent_rules',  express.static(path.join(projectRoot, 'agent_rules')));
   app.use('/faction_rules', express.static(path.join(projectRoot, 'faction_rules')));
   app.use('/assets',       express.static(path.join(projectRoot, 'assets')));
+  app.use('/assets',       express.static(path.join(projectRoot, 'build', 'assets')));
   app.use('/_vendor',      express.static(path.join(projectRoot, 'build', '_vendor')));
   app.use('/shared',       express.static(path.join(projectRoot, 'shared')));
 
@@ -69,5 +70,3 @@ export async function mountBrowserAssetRoutes(app: express.Express, projectRoot:
 
   registerFileRoutes(app, projectRoot, await collectBasenameJsRoutes(projectRoot));
 }
-
-

@@ -19,7 +19,7 @@
     .stat { padding: 8px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.06); border-radius: 6px; }
     .stat strong { display: block; color: #ffe7a2; font-size: 17px; line-height: 1.1; }
     .stat span { color: #6e8ca1; font-size: 10px; text-transform: uppercase; }
-    #summary, #busiest, #empires {
+    #summary, #busiest, #empires, #next-watch, #causal-panel, #timeline-panel {
       margin-top: 8px; padding: 8px; border-radius: 6px;
       background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.05);
     }
@@ -53,11 +53,19 @@
     .score-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-bottom: 4px; }
     .score-name { color: #d8edf7; font-size: 10px; }
     .score-value { color: #ffe7a2; font-size: 10px; }
-    #summary strong, #busiest strong, #empires strong {
+    #summary strong, #busiest strong, #empires strong, #next-watch strong, #causal-panel strong, #timeline-panel strong {
       display: block; margin-bottom: 6px; color: #d8edf7; font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
     }
     #summary-text { color: #b0d0dd; }
     #summary-detail, #busiest-route { color: #7391a3; font-size: 10px; margin-top: 4px; }
+    #next-watch-headline { color: #ffe7a2; }
+    #next-watch-detail, .feed-empty { color: #86a9ba; font-size: 10px; margin-top: 4px; }
+    .causal-card, .timeline-entry { margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,.06); color: #a7bfd0; font-size: 10px; }
+    .causal-line + .causal-line { margin-top: 2px; }
+    .causal-line:nth-child(1) { color: #d8edf7; }
+    .causal-line:nth-child(2) { color: #b0d0dd; }
+    .causal-line:nth-child(3) { color: #ffb294; }
+    .timeline-entry { color: #b0d0dd; word-break: break-word; }
     .empire-row { display: grid; grid-template-columns: 10px 1fr auto; gap: 8px; align-items: center; margin-bottom: 6px; }
     .empire-dot { width: 10px; height: 10px; border-radius: 999px; }
     .empire-meta { min-width: 0; }
@@ -97,6 +105,19 @@
       <strong>World Flow</strong>
       <div id="summary-text">Empires are building their first logistics web.</div>
       <div id="summary-detail">Factories are waiting for inbound cargo.</div>
+    </div>
+    <div id="next-watch">
+      <strong>Next Watch</strong>
+      <div id="next-watch-headline">Next Watch: logistics race</div>
+      <div id="next-watch-detail">No immediate collapse is visible. Watch the next fleet and ore lane.</div>
+    </div>
+    <div id="causal-panel">
+      <strong>Causal Feed</strong>
+      <div id="causal-feed"><div class="feed-empty">No critical chain is visible yet.</div></div>
+    </div>
+    <div id="timeline-panel">
+      <strong>Sector Timeline</strong>
+      <div id="sector-timeline"><div class="feed-empty">No sector turning points yet.</div></div>
     </div>
     <div id="busiest">
       <strong>Busiest Route</strong>

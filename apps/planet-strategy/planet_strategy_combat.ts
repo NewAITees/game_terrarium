@@ -1,4 +1,5 @@
 import { Color } from 'three';
+import { synchronizeFleetSpeed } from '../../shared/planet_strategy_fleet.js';
 import { scoreAttackTargets, stepPlanetStrategyMissiles } from './planet_strategy_wasm_bridge.js';
 
 export function createPlanetStrategyCombatRuntime(context: any) {
@@ -118,6 +119,7 @@ export function createPlanetStrategyCombatRuntime(context: any) {
       const fleetBias = goal === 'pressure' ? 0.8 : goal === 'expand' ? 0.65 : 0.48;
       const fleetSize = Math.max(2, Math.floor(myAttackers.length * fleetBias));
       const fleet = myAttackers.slice(0, fleetSize);
+      synchronizeFleetSpeed(fleet);
       if (base) context.touchRoute(base.id, target.id, 8, 16);
       empire.attackTargetLabel = target.label;
       empire.attackUntil = context.world.time + 25;

@@ -4,6 +4,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const child_process_1 = require("child_process");
+const promises_1 = require("fs/promises");
 const path_1 = __importDefault(require("path"));
 const projectRoot = path_1.default.resolve(__dirname, '..', '..');
 const electronBin = process.platform === 'win32'
@@ -68,6 +69,20 @@ async function assertStableLoad(page) {
     if (state?.currentPage === page && state?.lastLoadState?.status === 'failed') {
         throw new Error(`page failed after load: ${state.lastLoadState.error || page}`);
     }
+}
+async function assertAssetLoad(pathName) {
+    const response = await fetch(`${baseUrl}${pathName}`, { method: 'HEAD' });
+    if (!response.ok)
+        throw new Error(`asset failed: ${pathName} (${response.status})`);
+}
+async function assertPlanetStrategyAssets() {
+    await assertAssetLoad('/assets/ships/transport.glb');
+    await assertAssetLoad('/assets/structures/factory.glb');
+    const assetFiles = await (0, promises_1.readdir)(path_1.default.join(projectRoot, 'build', 'assets'));
+    const wasmFile = assetFiles.find((file) => /^network_core_wasm_bg-.*\.wasm$/.test(file));
+    if (!wasmFile)
+        throw new Error('generated network core WASM asset is missing');
+    await assertAssetLoad(`/assets/${wasmFile}`);
 }
 async function main() {
     const lines = [];
@@ -143,6 +158,7 @@ async function main() {
         if (fatalError)
             throw fatalError;
         await assertStableLoad('planet_strategy');
+        await assertPlanetStrategyAssets();
         console.log('electron startup smoke passed');
     }
     finally {

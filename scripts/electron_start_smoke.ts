@@ -1,4 +1,5 @@
 import { spawn } from 'child_process';
+import { readdir } from 'fs/promises';
 import path from 'path';
 
 const projectRoot = path.resolve(__dirname, '..', '..');
@@ -81,6 +82,20 @@ async function assertStableLoad(page: string): Promise<void> {
   }
 }
 
+async function assertAssetLoad(pathName: string): Promise<void> {
+  const response = await fetch(`${baseUrl}${pathName}`, { method: 'HEAD' });
+  if (!response.ok) throw new Error(`asset failed: ${pathName} (${response.status})`);
+}
+
+async function assertPlanetStrategyAssets(): Promise<void> {
+  await assertAssetLoad('/assets/ships/transport.glb');
+  await assertAssetLoad('/assets/structures/factory.glb');
+  const assetFiles = await readdir(path.join(projectRoot, 'build', 'assets'));
+  const wasmFile = assetFiles.find((file) => /^network_core_wasm_bg-.*\.wasm$/.test(file));
+  if (!wasmFile) throw new Error('generated network core WASM asset is missing');
+  await assertAssetLoad(`/assets/${wasmFile}`);
+}
+
 async function main(): Promise<void> {
   const lines: string[] = [];
   let fatalError: Error | null = null;
@@ -152,6 +167,7 @@ async function main(): Promise<void> {
     await waitForState((state) => state.currentPage === 'planet_strategy' && state.lastLoadState?.status === 'loaded', 30000, 'planet strategy load');
     if (fatalError) throw fatalError;
     await assertStableLoad('planet_strategy');
+    await assertPlanetStrategyAssets();
 
     console.log('electron startup smoke passed');
   } finally {
