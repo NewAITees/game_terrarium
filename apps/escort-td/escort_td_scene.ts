@@ -3,6 +3,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { bindComposerResize } from '../../shared/browser-runtime.js';
 import { COMMAND_MODE_LABEL, COMMAND_MODES, CS, GH, GW, VISION, g2w, w2gi, type CommandMode, type Enemy, type PieceType, type Unit } from './escort_td_core.js';
+import type { EscortTdRallyRole } from '../../shared/types/escort_td.js';
 
 export function createEscortTdScene(city: any, seed: number) {
   const renderer = new WebGLRenderer({ antialias: true });
@@ -65,6 +66,8 @@ export function bindEscortTdInputs(context: {
   isForceAdvance: () => boolean;
   getTimeScale: () => 0 | 1 | 2 | 4;
   onTimeScaleChange: (speed: 0 | 1 | 2 | 4) => void;
+  getKingBasis: () => { x: number; z: number; nextX: number; nextZ: number };
+  onSetRally: (role: EscortTdRallyRole, forward: number, side: number) => void;
   onCommandModeChange: (mode: CommandMode) => void;
   onRestart: () => void;
 }): { getSelectedPiece: () => PieceType } {
@@ -86,6 +89,8 @@ export function bindEscortTdInputs(context: {
   const forceButton = document.getElementById('cmd-force') as HTMLButtonElement | null;
   const buildButtons = Array.from(document.querySelectorAll('[data-build]')) as HTMLButtonElement[];
   const speedButtons = Array.from(document.querySelectorAll('[data-speed]')) as HTMLButtonElement[];
+  const rallyButtons = Array.from(document.querySelectorAll('[data-rally]')) as HTMLButtonElement[];
+  let selectedRally: EscortTdRallyRole = 'left';
 
   const syncCommandMode = (): void => {
     const mode = context.getCommandMode();
@@ -127,6 +132,15 @@ export function bindEscortTdInputs(context: {
     });
   }
 
+  for (const button of rallyButtons) {
+    button.addEventListener('click', () => {
+      const role = button.dataset.rally as EscortTdRallyRole | undefined;
+      if (!role) return;
+      selectedRally = role;
+      for (const other of rallyButtons) other.dataset.active = String(other === button);
+    });
+  }
+
   const getGridPoint = (event: PointerEvent): { gx: number; gy: number } | null => {
     const bounds = context.renderer.domElement.getBoundingClientRect();
     pointer.x = ((event.clientX - bounds.left) / bounds.width) * 2 - 1;
@@ -155,7 +169,17 @@ export function bindEscortTdInputs(context: {
     const grid = getGridPoint(event);
     if (!grid) return;
     const { gx, gy } = grid;
-    if (event.button === 2) context.onReclaimAt(gx, gy);
+    if (event.altKey && event.button === 0) {
+      const point = g2w(gx, gy);
+      const king = context.getKingBasis();
+      const dx = king.nextX - king.x;
+      const dz = king.nextZ - king.z;
+      const length = Math.hypot(dx, dz) || 1;
+      const forward = { x: dx / length, z: dz / length };
+      const side = { x: -forward.z, z: forward.x };
+      const relative = { x: (point.x - king.x) / CS, z: (point.z - king.z) / CS };
+      context.onSetRally(selectedRally, relative.x * forward.x + relative.z * forward.z, relative.x * side.x + relative.z * side.z);
+    } else if (event.button === 2) context.onReclaimAt(gx, gy);
     else if (selectedBuild === 'barricade') context.onPlaceBarricade(gx, gy);
     else context.onPlaceUnit(gx, gy, selectedBuild);
   });

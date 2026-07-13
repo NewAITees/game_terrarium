@@ -73,14 +73,21 @@
       background: rgba(6, 12, 18, .9); color: #9fb4ca; font-size: 10px;
     }
     #meta-panel[data-open="true"] { display: grid; }
+    #meta-panel .meta-group { color: #6f91aa; font-size: 9px; font-weight: 700; letter-spacing: .12em; margin-top: 3px; }
     #meta-panel button { border: 1px solid #35516b; border-radius: 6px; background: #102033; color: #d9efff; padding: 6px; font: inherit; cursor: pointer; }
     #meta-panel button:disabled { opacity: .45; cursor: default; }
+    #route-panel { position: fixed; left: 50%; top: 18%; transform: translateX(-50%); display: none; gap: 7px; min-width: 280px; padding: 12px; border: 1px solid #65d9ff; border-radius: 10px; background: rgba(5, 12, 20, .92); color: #d9efff; text-align: center; font-size: 11px; }
+    #route-panel[data-open="true"] { display: grid; }
+    #route-panel button { border: 1px solid #35516b; border-radius: 6px; background: #102033; color: #d9efff; padding: 7px; font: inherit; cursor: pointer; }
     #build-panel { position: fixed; left: 16px; bottom: 16px; display: flex; gap: 6px; padding: 8px; border: 1px solid #2a4055; border-radius: 10px; background: rgba(6, 12, 18, .86); }
     #build-panel button { border: 1px solid #35516b; border-radius: 6px; background: #102033; color: #d9efff; padding: 6px; font: inherit; font-size: 10px; cursor: pointer; }
     #build-panel button[data-active="true"] { border-color: #7cf7ff; color: #fff; }
     #speed-panel { position: fixed; right: 16px; top: 194px; display: flex; gap: 5px; padding: 7px; border: 1px solid #2a4055; border-radius: 9px; background: rgba(6, 12, 18, .86); }
     #speed-panel button { border: 1px solid #35516b; border-radius: 5px; background: #102033; color: #d9efff; padding: 5px 7px; font: inherit; font-size: 10px; cursor: pointer; }
     #speed-panel button[data-active="true"] { border-color: #7cf7ff; color: #fff; }
+    #rally-panel { position: fixed; right: 16px; top: 238px; display: grid; gap: 5px; padding: 8px; border: 1px solid #2a4055; border-radius: 9px; background: rgba(6, 12, 18, .86); color: #9fb4ca; font-size: 10px; }
+    #rally-panel button { border: 1px solid #35516b; border-radius: 5px; background: #102033; color: #d9efff; padding: 5px 7px; font: inherit; cursor: pointer; }
+    #rally-panel button[data-active="true"] { border-color: #7cf7ff; color: #fff; }
     .chip {
       display: inline-flex; align-items: center; gap: 6px;
       padding: 2px 8px; border-radius: 999px; background: rgba(255,255,255,.05);
@@ -106,6 +113,9 @@
   <span>GOLD <b id="gold" style="color:#fd0">100</b></span>
   <span style="color:#444">│</span>
   <span>CHIP <b id="chip-total" style="color:#7cf7ff">0</b></span>
+  <span style="color:#444">│</span>
+  <span>LIFE KILLS <b id="lifetime-kills" style="color:#ff9c78">0</b></span>
+  <span>LIFE SCORE <b id="lifetime-score" style="color:#d4b7ff">0</b></span>
   <span style="color:#444">│</span>
   <span>WAVE <b id="wave" style="color:#f84">0</b></span>
 </div>
@@ -135,10 +145,27 @@
 </div>
 <div id="meta-panel">
   <strong>CHIP UPGRADES</strong>
+  <span class="meta-group">FORCE</span>
   <button type="button" data-meta="startGoldLevel"></button>
   <button type="button" data-meta="kingHpLevel"></button>
+  <span class="meta-group">EXPANSION</span>
   <button type="button" data-meta="unitLimitLevel"></button>
+  <span class="meta-group">AUTOMATION</span>
+  <button type="button" data-meta="autoRestartLevel"></button>
+  <button type="button" data-meta="speedLevel"></button>
+  <span class="meta-group">UNIT POWER (+20% DMG / +8% RANGE / +6% RATE)</span>
+  <button type="button" data-meta="pawnPowerLevel"></button>
+  <button type="button" data-meta="rookPowerLevel"></button>
+  <button type="button" data-meta="bishopPowerLevel"></button>
+  <button type="button" data-meta="knightPowerLevel"></button>
+  <button type="button" data-meta="queenPowerLevel"></button>
   <span>購入後に R で次の護送を開始</span>
+</div>
+<div id="route-panel" data-open="false">
+  <strong>ROUTE DECISION</strong>
+  <span id="route-timer"></span>
+  <button type="button" data-route="direct"></button>
+  <button type="button" data-route="detour"></button>
 </div>
 <div id="build-panel">
   <button type="button" data-build="pawn" data-active="true">PAWN 40</button>
@@ -153,6 +180,12 @@
   <button type="button" data-speed="1" data-active="true">1x</button>
   <button type="button" data-speed="2">2x</button>
   <button type="button" data-speed="4">4x</button>
+</div>
+<div id="rally-panel">
+  <span>ALT+CLICK RALLY</span>
+  <button type="button" data-rally="left" data-active="true">LEFT GUARD</button>
+  <button type="button" data-rally="right">RIGHT GUARD</button>
+  <button type="button" data-rally="rear">REARGUARD</button>
 </div>
 <div id="legend">
   <span class="chip"><b>AUTO</b> DEPLOY</span>

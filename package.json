@@ -22,7 +22,7 @@
   },
   "devDependencies": {
     "@types/three": "^0.184.1",
-    "electron": "^42.3.3",
+    "electron": "^42.5.0",
     "typescript": "^6.0.3",
     "vite": "^8.0.16"
   },

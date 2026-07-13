@@ -32,6 +32,8 @@ async function bootstrap(): Promise<void> {
     isForceAdvance: runtime.isForceAdvance,
     getTimeScale: runtime.getTimeScale,
     onTimeScaleChange: runtime.setTimeScale,
+    getKingBasis: runtime.getKingBasis,
+    onSetRally: runtime.setRally,
     onCommandModeChange: runtime.setCommandMode,
     onRestart: runtime.restartIfFinished,
   });
