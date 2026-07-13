@@ -82,6 +82,9 @@ async function verifyApiActions(): Promise<void> {
     throw new Error('force advance did not enable the manual override');
   }
 
+  const accelerated = await postJson<ActionResponse>('/api/escort-td/action', { action: 'set_speed', speed: 4 });
+  if (!accelerated.ok || accelerated.state.timeScale !== 4) throw new Error('set_speed did not set 4x speed');
+
   const restarted = await postJson<ActionResponse>('/api/escort-td/action', {
     action: 'restart',
     meta: { startGoldLevel: 1, kingHpLevel: 1, unitLimitLevel: 1 },

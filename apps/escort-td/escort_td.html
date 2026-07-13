@@ -78,6 +78,9 @@
     #build-panel { position: fixed; left: 16px; bottom: 16px; display: flex; gap: 6px; padding: 8px; border: 1px solid #2a4055; border-radius: 10px; background: rgba(6, 12, 18, .86); }
     #build-panel button { border: 1px solid #35516b; border-radius: 6px; background: #102033; color: #d9efff; padding: 6px; font: inherit; font-size: 10px; cursor: pointer; }
     #build-panel button[data-active="true"] { border-color: #7cf7ff; color: #fff; }
+    #speed-panel { position: fixed; right: 16px; top: 194px; display: flex; gap: 5px; padding: 7px; border: 1px solid #2a4055; border-radius: 9px; background: rgba(6, 12, 18, .86); }
+    #speed-panel button { border: 1px solid #35516b; border-radius: 5px; background: #102033; color: #d9efff; padding: 5px 7px; font: inherit; font-size: 10px; cursor: pointer; }
+    #speed-panel button[data-active="true"] { border-color: #7cf7ff; color: #fff; }
     .chip {
       display: inline-flex; align-items: center; gap: 6px;
       padding: 2px 8px; border-radius: 999px; background: rgba(255,255,255,.05);
@@ -144,6 +147,12 @@
   <button type="button" data-build="knight">KNIGHT 90</button>
   <button type="button" data-build="queen">QUEEN 150</button>
   <button type="button" data-build="barricade">BARRIER 30</button>
+</div>
+<div id="speed-panel">
+  <button type="button" data-speed="0">PAUSE</button>
+  <button type="button" data-speed="1" data-active="true">1x</button>
+  <button type="button" data-speed="2">2x</button>
+  <button type="button" data-speed="4">4x</button>
 </div>
 <div id="legend">
   <span class="chip"><b>AUTO</b> DEPLOY</span>

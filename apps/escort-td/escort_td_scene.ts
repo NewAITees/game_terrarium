@@ -63,6 +63,8 @@ export function bindEscortTdInputs(context: {
   getCommandMode: () => CommandMode;
   isKingPaused: () => boolean;
   isForceAdvance: () => boolean;
+  getTimeScale: () => 0 | 1 | 2 | 4;
+  onTimeScaleChange: (speed: 0 | 1 | 2 | 4) => void;
   onCommandModeChange: (mode: CommandMode) => void;
   onRestart: () => void;
 }): { getSelectedPiece: () => PieceType } {
@@ -83,6 +85,7 @@ export function bindEscortTdInputs(context: {
   const stopButton = document.getElementById('cmd-stop') as HTMLButtonElement | null;
   const forceButton = document.getElementById('cmd-force') as HTMLButtonElement | null;
   const buildButtons = Array.from(document.querySelectorAll('[data-build]')) as HTMLButtonElement[];
+  const speedButtons = Array.from(document.querySelectorAll('[data-speed]')) as HTMLButtonElement[];
 
   const syncCommandMode = (): void => {
     const mode = context.getCommandMode();
@@ -112,6 +115,15 @@ export function bindEscortTdInputs(context: {
       if (!selected) return;
       selectedBuild = selected;
       for (const other of buildButtons) other.dataset.active = String(other === button);
+    });
+  }
+
+  for (const button of speedButtons) {
+    button.addEventListener('click', () => {
+      const speed = Number(button.dataset.speed);
+      if (speed !== 0 && speed !== 1 && speed !== 2 && speed !== 4) return;
+      context.onTimeScaleChange(speed);
+      for (const other of speedButtons) other.dataset.active = String(other === button);
     });
   }
 
