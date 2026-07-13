@@ -51,7 +51,9 @@ export function createEscortTdScene(city: any, seed: number) {
 
 export function bindEscortTdInputs(context: {
   camera: any;
+  city: any;
   renderer: any;
+  scene: any;
   onPlaceUnit: (gx: number, gy: number, type: PieceType) => void;
   onPlaceBarricade: (gx: number, gy: number) => void;
   onReclaimAt: (gx: number, gy: number) => void;
@@ -67,6 +69,12 @@ export function bindEscortTdInputs(context: {
   const raycaster = new Raycaster();
   const pointer = new Vector2();
   const groundPlane = new Plane(new Vector3(0, 1, 0), 0);
+  const previewMaterial = new MeshBasicMaterial({ color: 0x5dffcc, transparent: true, opacity: 0.42, depthWrite: false });
+  const previewMesh = new Mesh(new PlaneGeometry(CS * 0.82, CS * 0.82), previewMaterial);
+  previewMesh.rotation.x = -Math.PI / 2;
+  previewMesh.position.y = 0.08;
+  previewMesh.visible = false;
+  context.scene.add(previewMesh);
   let selectedBuild: PieceType | 'barricade' = 'pawn';
   const commandButtons = COMMAND_MODES.map((mode) => document.getElementById(`cmd-${mode}`) as HTMLButtonElement | null);
   const commandModeLabel = document.getElementById('command-mode') as HTMLElement | null;
@@ -107,15 +115,34 @@ export function bindEscortTdInputs(context: {
     });
   }
 
-  context.renderer.domElement.addEventListener('pointerdown', (event: PointerEvent) => {
-    if (event.button !== 0 && event.button !== 2) return;
+  const getGridPoint = (event: PointerEvent): { gx: number; gy: number } | null => {
     const bounds = context.renderer.domElement.getBoundingClientRect();
     pointer.x = ((event.clientX - bounds.left) / bounds.width) * 2 - 1;
     pointer.y = -((event.clientY - bounds.top) / bounds.height) * 2 + 1;
     raycaster.setFromCamera(pointer, context.camera);
     const point = raycaster.ray.intersectPlane(groundPlane, new Vector3());
-    if (!point) return;
-    const { gx, gy } = w2gi(point.x, point.z);
+    return point ? w2gi(point.x, point.z) : null;
+  };
+
+  context.renderer.domElement.addEventListener('pointermove', (event: PointerEvent) => {
+    const grid = getGridPoint(event);
+    if (!grid || grid.gx < 0 || grid.gx >= GW || grid.gy < 0 || grid.gy >= GH) {
+      previewMesh.visible = false;
+      return;
+    }
+    const point = g2w(grid.gx, grid.gy);
+    previewMesh.position.set(point.x, 0.08, point.z);
+    previewMesh.visible = true;
+    const requiresRoad = selectedBuild !== 'pawn' && selectedBuild !== 'queen';
+    const valid = (!requiresRoad || context.city.g[grid.gy][grid.gx] === 0) && !isMainRouteCell(context.city.route, grid.gx, grid.gy);
+    previewMaterial.color.set(valid ? 0x5dffcc : 0xff5d43);
+  });
+
+  context.renderer.domElement.addEventListener('pointerdown', (event: PointerEvent) => {
+    if (event.button !== 0 && event.button !== 2) return;
+    const grid = getGridPoint(event);
+    if (!grid) return;
+    const { gx, gy } = grid;
     if (event.button === 2) context.onReclaimAt(gx, gy);
     else if (selectedBuild === 'barricade') context.onPlaceBarricade(gx, gy);
     else context.onPlaceUnit(gx, gy, selectedBuild);
@@ -153,6 +180,16 @@ export function bindEscortTdInputs(context: {
   syncCommandMode();
 
   return { getSelectedPiece: () => selectedBuild === 'barricade' ? 'pawn' : selectedBuild };
+}
+
+function isMainRouteCell(route: Array<{ x: number; y: number }>, gx: number, gy: number): boolean {
+  for (let index = 0; index < route.length - 1; index++) {
+    const from = route[index];
+    const to = route[index + 1];
+    if (from.x === to.x && gx === from.x && gy >= Math.min(from.y, to.y) && gy <= Math.max(from.y, to.y)) return true;
+    if (from.y === to.y && gy === from.y && gx >= Math.min(from.x, to.x) && gx <= Math.max(from.x, to.x)) return true;
+  }
+  return false;
 }
 
 export function updateEscortTdVisibility(vipMesh: any, units: Unit[], enemies: Enemy[], fogCells: any[]): void {

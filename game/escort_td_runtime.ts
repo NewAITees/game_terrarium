@@ -10,7 +10,7 @@ import type {
   EscortTdStateSnapshot,
   EscortTdUnitSnapshot,
 } from '../shared/types/escort_td';
-import { calculateEscortCoverage, calculateEscortResult, getEscortMetaValues, getEscortReclaimGold, normalizeEscortMeta } from './escort_td_rules';
+import { calculateEscortCoverage, calculateEscortResult, getEscortMetaValues, getEscortReclaimGold, getEscortSpawnInterval, normalizeEscortMeta } from './escort_td_rules';
 
 const GW = 21;
 const GH = 17;
@@ -25,7 +25,6 @@ const ENEMY_SEP_RADIUS = CS * 0.6;
 const ENEMY_SEP_FORCE = 3.5;
 const GOLD_KILL = 8;
 const START_GOLD = 100;
-const SPAWN_SEC = 10;
 const WAVE_BASE = 8;
 const SIEGE_BARRICADE_DAMAGE_PER_SECOND = 35;
 const VIP_VISION = CS * 2;
@@ -73,7 +72,6 @@ export class EscortTdRuntime {
   private readonly vip: { hp: number; pathIdx: number; t: number; x: number; z: number };
   private readonly state = {
     gold: START_GOLD,
-    spawnTimer: SPAWN_SEC * 0.35,
     wave: 0,
     commandMode: 'balanced' as EscortTdCommandMode,
     kingPaused: false,
@@ -90,6 +88,7 @@ export class EscortTdRuntime {
   private nextEnemyId = 1;
   private nextBarricadeId = 1;
   private autoDeployTimer = 0.25;
+  private nextSpawnProgress = 0.02;
 
   constructor(seed = (Math.random() * 0xffffff) | 0, meta: Partial<EscortTdMetaProgress> = {}) {
     this.meta = normalizeEscortMeta(meta);
@@ -216,7 +215,7 @@ export class EscortTdRuntime {
     this.separateEnemies(dt);
     this.cleanupDeadEnemies();
     this.runUnitAttacks(dt);
-    this.updateSpawns(dt);
+    this.updateSpawns();
   }
 
   private advanceVip(dt: number): void {
@@ -480,12 +479,12 @@ export class EscortTdRuntime {
     }
   }
 
-  private updateSpawns(dt: number): void {
-    this.state.spawnTimer -= dt;
-    if (this.state.spawnTimer > 0) return;
-    this.state.spawnTimer = SPAWN_SEC;
+  private updateSpawns(): void {
+    const progress = this.progressPercent() / 100;
+    if (progress < this.nextSpawnProgress) return;
     this.state.wave += 1;
     this.spawnWave(this.state.wave, this.spawnPoints);
+    this.nextSpawnProgress += getEscortSpawnInterval(progress);
   }
 
   private spawnWave(wave: number, points: SpawnPoints): void {

@@ -26,3 +26,8 @@ const escort_td_rules_1 = require("../game/escort_td_rules");
     strict_1.default.equal((0, escort_td_rules_1.getEscortReclaimGold)(90), 63);
     strict_1.default.equal((0, escort_td_rules_1.getEscortReclaimGold)(40), 28);
 });
+(0, node_test_1.default)('spawn intervals tighten as the king advances', () => {
+    strict_1.default.equal((0, escort_td_rules_1.getEscortSpawnInterval)(0), 0.09);
+    strict_1.default.ok(Math.abs((0, escort_td_rules_1.getEscortSpawnInterval)(1) - 0.04) < Number.EPSILON);
+    strict_1.default.ok((0, escort_td_rules_1.getEscortSpawnInterval)(0.75) < (0, escort_td_rules_1.getEscortSpawnInterval)(0.25));
+});

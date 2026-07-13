@@ -54,3 +54,8 @@ export function calculateEscortResult(
 export function getEscortReclaimGold(cost: number): number {
   return Math.floor((cost * 7) / 10);
 }
+
+export function getEscortSpawnInterval(progress: number): number {
+  const normalized = Math.max(0, Math.min(1, progress));
+  return Math.max(0.025, 0.09 - normalized * 0.05);
+}

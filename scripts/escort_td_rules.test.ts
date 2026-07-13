@@ -6,6 +6,7 @@ import {
   getEscortMetaUpgradeCost,
   getEscortMetaValues,
   getEscortReclaimGold,
+  getEscortSpawnInterval,
   normalizeEscortMeta,
 } from '../game/escort_td_rules';
 
@@ -37,4 +38,10 @@ test('run result rewards progress, enemy tiers, victory, and minimum chips', () 
 test('reclaim returns 70 percent rounded down', () => {
   assert.equal(getEscortReclaimGold(90), 63);
   assert.equal(getEscortReclaimGold(40), 28);
+});
+
+test('spawn intervals tighten as the king advances', () => {
+  assert.equal(getEscortSpawnInterval(0), 0.09);
+  assert.ok(Math.abs(getEscortSpawnInterval(1) - 0.04) < Number.EPSILON);
+  assert.ok(getEscortSpawnInterval(0.75) < getEscortSpawnInterval(0.25));
 });

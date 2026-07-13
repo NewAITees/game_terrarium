@@ -18,7 +18,9 @@ async function bootstrap(): Promise<void> {
 
   bindEscortTdInputs({
     camera: sceneState.camera,
+    city,
     renderer: sceneState.renderer,
+    scene: sceneState.scene,
     onPlaceUnit: runtime.placeUnit,
     onPlaceBarricade: runtime.placeBarricade,
     onReclaimAt: runtime.reclaimAt,
