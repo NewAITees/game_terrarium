@@ -103,7 +103,7 @@ export function createPlanetStrategyBootstrap({
       empires.push(empire);
 
       for (let i = 0; i < 2; i++) {
-        ships.push(createTransportShip(empire, homeMine.id, homeFactory.id, shipSerial++));
+        ships.push(createInitialTransportShip(empire, homeMine, homeFactory, shipSerial++));
       }
     });
 
@@ -243,6 +243,43 @@ export function createPlanetStrategyBootstrap({
     };
   }
 
+  function createInitialTransportShip(
+    empire: PlanetStrategyEmpire,
+    fromPlanet: PlanetStrategyPlanet,
+    toPlanet: PlanetStrategyPlanet,
+    serial: number,
+  ): PlanetStrategyShip {
+    return {
+      id: `s${serial}`,
+      kind: 'transport',
+      owner: empire.id,
+      fromPlanetId: fromPlanet.id,
+      toPlanetId: toPlanet.id,
+      homePlanetId: fromPlanet.id,
+      targetPlanetId: null,
+      position: getDockPosition(fromPlanet, 'transport'),
+      progress: 0,
+      speed: 0.06 + rng() * 0.03,
+      cargo: 0,
+      capacity: 50,
+      status: 'docked',
+      hp: 20,
+      maxHp: 20,
+      physAttack: 0,
+      laserAttack: 0,
+      physDef: 0,
+      heatDef: 0,
+      attack: 0,
+      defense: 0,
+      orbitAngle: rng() * Math.PI * 2,
+      orbitRadius: 10 + rng() * 8,
+      orbitSpeed: 0.45 + rng() * 0.25,
+      launchTimer: 0,
+      fireCooldown: 0,
+      mesh: null,
+    };
+  }
+
   function createCombatShip(
     empire: PlanetStrategyEmpire,
     planetId: string,
@@ -296,19 +333,20 @@ export function createPlanetStrategyBootstrap({
 
   function getDockPosition(planet: PlanetStrategyPlanet | null | undefined, kind: PlanetStrategyShipKind) {
     if (!planet) return { x: 0, y: 0, z: 0 };
-    const shipScale = kind === 'transport' ? 6.4 : kind === 'gunship' ? 7.8 : 8.8;
+    const shipScale = kind === 'transport' ? 7.8 : kind === 'gunship' ? 9.2 : 10.4;
+    const dockGap = kind === 'transport' ? 3.4 : kind === 'gunship' ? 3 : 2.6;
     const orbitAngle = kind === 'transport' ? Math.PI * 0.5 : kind === 'gunship' ? Math.PI * 0.1 : Math.PI * 0.7;
-    const radius = getOrbitRadius(planet, kind) + shipScale;
+    const radius = getOrbitRadius(planet, kind) + shipScale + dockGap;
     return {
       x: planet.x + Math.cos(orbitAngle) * radius,
-      y: planet.y + 1.8 + (planet.type === 'factory' ? 1.8 : 0),
+      y: planet.y + 2.8 + (planet.type === 'factory' ? 2.4 : 0),
       z: planet.z + Math.sin(orbitAngle) * radius,
     };
   }
 
   function getOrbitRadius(planet: PlanetStrategyPlanet, kind: PlanetStrategyShipKind) {
-    const base = planet.type === 'factory' ? 8.5 : 6.5;
-    return base + (kind === 'transport' ? 2.2 : kind === 'gunship' ? 1.8 : 1.4);
+    const base = planet.type === 'factory' ? 9.8 : 7.6;
+    return base + (kind === 'transport' ? 2.8 : kind === 'gunship' ? 2.4 : 2.0);
   }
 
   function touchRoute(rendererView: any, fromPlanetId: string, toPlanetId: string, weight = 1, hostileSeconds = 0): void {

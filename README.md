@@ -85,6 +85,21 @@ Final evaluation of "fun" belongs to the human, not the AI.
 - `docs/`: planning notes and design documents
 - `scripts/`: helper scripts for manual testing
 
+## Ctrl Number Registry
+
+`shared/page_registry.ts` is the source of truth for which `Ctrl` number opens which game.
+
+- `Ctrl+0` - AI Planet Strategy
+- `Ctrl+1` - City Traffic
+- `Ctrl+2` - MOSS
+- `Ctrl+3` - Escort TD
+- `Ctrl+4` - Network Small World
+- `Ctrl+5` - Submarine Cables
+- `Ctrl+6` - Submarine Network 3D
+- `Ctrl+7` - Network Tower Defense
+- `Ctrl+8` - Network Ecosystem
+- `Ctrl+9` - AI Colony Sandbox
+
 ## TypeScript
 
 - **New browser-side files must be `.ts`.** Do not create new `.js` files under `apps/` or `shared/`.

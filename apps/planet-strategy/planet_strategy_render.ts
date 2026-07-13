@@ -29,6 +29,7 @@ export function createPlanetStrategyRenderer({
     removeMissileMesh,
     removeShipMesh,
     triggerPlanetFlash,
+    triggerMissileHit,
     triggerShipFlash,
     updateVisuals,
   } = createPlanetStrategyRenderVisuals({
@@ -66,6 +67,7 @@ export function createPlanetStrategyRenderer({
     removeMissileMesh,
     removeShipMesh,
     triggerPlanetFlash,
+    triggerMissileHit,
     triggerShipFlash,
     renderFrame,
     updateVisuals,

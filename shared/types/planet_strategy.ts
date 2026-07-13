@@ -120,6 +120,7 @@ export interface PlanetStrategyMissile extends PlanetStrategyPosition {
   sourcePlanetId: string | null;
   targetShipId: string | null;
   targetPlanetId: string | null;
+  weaponKind?: PlanetStrategyShipKind;
   speed: number;
   hp: number;
   maxHp: number;
@@ -216,6 +217,7 @@ export interface PlanetStrategyRenderer {
   removeMissileMesh: (missile: PlanetStrategyMissile) => void;
   removeShipMesh: (ship: PlanetStrategyShip) => void;
   triggerPlanetFlash: (planet: PlanetStrategyPlanet, kind?: 'damage' | 'destroyed') => void;
+  triggerMissileHit: (position: PlanetStrategyPosition, colorValue?: string) => void;
   triggerShipFlash: (ship: PlanetStrategyShip) => void;
   renderFrame: () => void;
   updateVisuals: (dt?: number) => void;

@@ -7,6 +7,11 @@ import type {
 } from '../../shared/types/planet_strategy.js';
 
 export function createPlanetStrategyUi(): PlanetStrategyUi {
+  const empireColors = new Map<string, string>([
+    ['Aster Union', '#7de8ff'],
+    ['Red Meridian', '#ff9f80'],
+    ['Verdant Ring', '#c8ff8a'],
+  ]);
   const el = {
     elapsed: document.getElementById('elapsed'),
     planets: document.getElementById('planets'),
@@ -83,7 +88,14 @@ export function createPlanetStrategyUi(): PlanetStrategyUi {
     }
     const div = document.createElement('div');
     div.className = `le le-${type}`;
-    div.textContent = text;
+    const matchedColor = pickEmpireColor(text, empireColors);
+    if (matchedColor) {
+      div.style.color = matchedColor;
+      div.style.textShadow = `0 0 10px ${matchedColor}33`;
+    } else {
+      div.textContent = text;
+    }
+    if (matchedColor) appendColoredText(div, text, empireColors);
     el.logEntries.appendChild(div);
     while (el.logEntries.children.length > 220) el.logEntries.removeChild(el.logEntries.firstChild);
     el.logEntries.scrollTop = el.logEntries.scrollHeight;
@@ -113,6 +125,38 @@ export function createPlanetStrategyUi(): PlanetStrategyUi {
     if (typeof view.depletedCount === 'number') parts.push(`Depleted: ${view.depletedCount}`);
     if (view.topDeliveryEmpire) parts.push(`Top delivery: ${view.topDeliveryEmpire}`);
     return parts.join(' / ') || 'Waiting for more movement.';
+  }
+
+  function pickEmpireColor(text: string, colors: Map<string, string>): string | null {
+    for (const [name, color] of colors) {
+      if (text.includes(name)) return color;
+    }
+    return null;
+  }
+
+  function appendColoredText(container: HTMLDivElement, text: string, colors: Map<string, string>): void {
+    const names = Array.from(colors.keys()).sort((a, b) => b.length - a.length);
+    const pattern = new RegExp(`(${names.map(escapeRegExp).join('|')})`, 'g');
+    let lastIndex = 0;
+    for (const match of text.matchAll(pattern)) {
+      if (match.index == null) continue;
+      if (match.index > lastIndex) {
+        container.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
+      }
+      const name = match[0];
+      const span = document.createElement('span');
+      span.style.color = colors.get(name) ?? '';
+      span.textContent = name;
+      container.appendChild(span);
+      lastIndex = match.index + name.length;
+    }
+    if (lastIndex < text.length) {
+      container.appendChild(document.createTextNode(text.slice(lastIndex)));
+    }
+  }
+
+  function escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
   return { update, log };

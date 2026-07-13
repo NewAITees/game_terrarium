@@ -1,0 +1,283 @@
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.STYLE = exports.YL = exports.LAYERS = exports.RNG = void 0;
+exports.layerCounts = layerCounts;
+exports.edgeKey = edgeKey;
+exports.assignRadialPositions = assignRadialPositions;
+exports.buildTopology = buildTopology;
+exports.findTreePath = findTreePath;
+exports.buildAdj = buildAdj;
+exports.findShortestPath = findShortestPath;
+const three_1 = require("three");
+let _wasm = null;
+// @ts-ignore — served at runtime by Express, not statically resolvable
+Promise.resolve().then(() => __importStar(require('/_vendor/wasm/network_core_wasm.js'))).then(async (m) => {
+    await m.default();
+    _wasm = m;
+}).catch(() => { });
+// ─────────────────────────────────────────────────────────────────────────────
+class RNG {
+    s;
+    constructor(s) { this.s = ((s || Math.random() * 2 ** 32) ^ 0xDEADBEEF) >>> 0; }
+    next() { let x = this.s; x ^= x << 13; x ^= x >> 17; x ^= x << 5; return (this.s = x >>> 0) / 0x100000000; }
+    range(a, b) { return a + this.next() * (b - a); }
+    int(a, b) { return a + (this.next() * (b - a + 1) | 0); }
+    pick(arr) { return arr[this.next() * arr.length | 0]; }
+}
+exports.RNG = RNG;
+exports.LAYERS = ['core', 'dist', 'acc', 'term'];
+exports.YL = { core: 36, dist: 20, acc: 4, term: -16 };
+function layerCounts(n) {
+    const core = 1;
+    const dist = Math.max(2, Math.min(4, Math.floor(n * 0.10)));
+    const acc = Math.max(3, Math.min(10, Math.floor(n * 0.25)));
+    return { core, dist, acc, term: Math.max(1, n - core - dist - acc) };
+}
+function edgeKey(a, b) { return `${Math.min(a, b)}-${Math.max(a, b)}`; }
+function assignRadialPositions(lnodes, rng) {
+    const radius = { dist: 27, acc: 56, term: 86 };
+    const jitter = { dist: 2, acc: 3, term: 4 };
+    const leafCounts = new Map();
+    function leafCount(node) {
+        if (leafCounts.has(node.id))
+            return leafCounts.get(node.id);
+        const value = node.children.length ? node.children.reduce((sum, child) => sum + leafCount(child), 0) : 1;
+        leafCounts.set(node.id, value);
+        return value;
+    }
+    function assignArc(node, lo, hi) {
+        node._a = (lo + hi) / 2;
+        if (!node.children.length)
+            return;
+        const total = node.children.reduce((sum, child) => sum + leafCount(child), 0);
+        let angle = lo;
+        for (const child of node.children) {
+            const arc = (leafCount(child) / total) * (hi - lo);
+            assignArc(child, angle, angle + arc);
+            angle += arc;
+        }
+    }
+    for (const node of lnodes.core) {
+        node.x = rng.range(-2, 2);
+        node.z = rng.range(-2, 2);
+        node._a = 0;
+        assignArc(node, 0, Math.PI * 2);
+    }
+    for (const layer of ['dist', 'acc', 'term']) {
+        for (const node of lnodes[layer]) {
+            const r = radius[layer] + rng.range(-jitter[layer], jitter[layer]);
+            node.x = Math.cos(node._a) * r;
+            node.z = Math.sin(node._a) * r;
+        }
+    }
+}
+function buildTopology(total, seed, mode = 'tree', rewirePct = 0) {
+    if (_wasm)
+        return _buildTopologyWasm(total, seed, mode, rewirePct);
+    return _buildTopologyTS(total, seed, mode, rewirePct);
+}
+function _buildTopologyWasm(total, seed, mode, rewirePct) {
+    const raw = _wasm.buildTopology(total, seed, mode, rewirePct);
+    const nodes = raw.nodes.map((n) => ({
+        id: n.id, layer: n.layer, x: n.x, y: n.y, z: n.z,
+        isServer: n.isServer, parent: null, children: [],
+    }));
+    for (const n of raw.nodes) {
+        if (n.parent != null)
+            nodes[n.id].parent = nodes[n.parent];
+        nodes[n.id].children = n.children.map((c) => nodes[c]);
+    }
+    const treeEdges = raw.treeEdges.map((e) => ({ a: nodes[e.a], b: nodes[e.b] }));
+    const shortcutEdges = raw.shortcutEdges.map((e) => ({ a: nodes[e.a], b: nodes[e.b] }));
+    const server = nodes[raw.server];
+    const lnodes = { core: [], dist: [], acc: [], term: [] };
+    for (const n of nodes)
+        lnodes[n.layer].push(n);
+    return { nodes, treeEdges, shortcutEdges, lnodes, server };
+}
+function _buildTopologyTS(total, seed, mode, rewirePct) {
+    const rng = new RNG(seed);
+    const counts = layerCounts(total);
+    const spread = Math.max(110, counts.term * 14);
+    const nodes = [];
+    const lnodes = {};
+    for (const layer of exports.LAYERS) {
+        const count = counts[layer];
+        lnodes[layer] = [];
+        for (let i = 0; i < count; i++) {
+            const x = ((i + 1) / (count + 1) - 0.5) * spread + rng.range(-4, 4);
+            const z = rng.range(-12, 12);
+            const node = { id: nodes.length, layer, x, z, y: exports.YL[layer], parent: null, children: [], isServer: false };
+            nodes.push(node);
+            lnodes[layer].push(node);
+        }
+    }
+    const terms = lnodes.term;
+    const server = terms.reduce((best, node) => Math.abs(node.x) < Math.abs(best.x) ? node : best);
+    server.isServer = true;
+    const accNodes = lnodes.acc;
+    const srvSwitch = accNodes.reduce((best, node) => Math.abs(node.x - server.x) < Math.abs(best.x - server.x) ? node : best);
+    const freeAcc = accNodes.filter((node) => node !== srvSwitch);
+    const treeEdges = [];
+    for (let li = 1; li < exports.LAYERS.length - 1; li++) {
+        const parents = lnodes[exports.LAYERS[li - 1]];
+        const children = lnodes[exports.LAYERS[li]];
+        for (const child of children) {
+            const parent = parents.reduce((best, node) => Math.abs(node.x - child.x) < Math.abs(best.x - child.x) ? node : best);
+            child.parent = parent;
+            parent.children.push(child);
+            treeEdges.push({ a: parent, b: child });
+        }
+        for (const parent of parents) {
+            if (parent.children.length)
+                continue;
+            const child = rng.pick(children);
+            parent.children.push(child);
+            treeEdges.push({ a: parent, b: child });
+        }
+    }
+    server.parent = srvSwitch;
+    srvSwitch.children.push(server);
+    treeEdges.push({ a: srvSwitch, b: server });
+    const otherTerms = terms.filter((node) => !node.isServer);
+    for (const node of otherTerms) {
+        const pool = freeAcc.length ? freeAcc : accNodes;
+        const parent = pool.reduce((best, candidate) => Math.abs(candidate.x - node.x) < Math.abs(best.x - node.x) ? candidate : best);
+        node.parent = parent;
+        parent.children.push(node);
+        treeEdges.push({ a: parent, b: node });
+    }
+    for (const parent of freeAcc) {
+        if (parent.children.length)
+            continue;
+        const child = rng.pick(otherTerms);
+        if (!child)
+            continue;
+        parent.children.push(child);
+        treeEdges.push({ a: parent, b: child });
+    }
+    assignRadialPositions(lnodes, rng);
+    const shortcutEdges = [];
+    if (mode === 'smallworld' && rewirePct > 0) {
+        const existing = new Set(treeEdges.map((edge) => edgeKey(edge.a.id, edge.b.id)));
+        const k = Math.max(1, Math.round(nodes.length * rewirePct / 100));
+        let added = 0;
+        let attempts = 0;
+        while (added < k && attempts < k * 30) {
+            attempts++;
+            const u = rng.pick(nodes);
+            const v = rng.pick(nodes);
+            if (u === v || u.layer === 'core' || u.layer === 'term' || v.layer === 'core' || v.layer === 'term')
+                continue;
+            const key = edgeKey(u.id, v.id);
+            if (existing.has(key))
+                continue;
+            existing.add(key);
+            shortcutEdges.push({ a: u, b: v });
+            added++;
+        }
+    }
+    return { nodes, treeEdges, shortcutEdges, lnodes, server };
+}
+function findTreePath(from, to) {
+    const pathA = [];
+    let node = from;
+    while (node) {
+        pathA.push(node);
+        node = node.parent;
+    }
+    const pathB = [];
+    node = to;
+    while (node) {
+        pathB.push(node);
+        node = node.parent;
+    }
+    const setA = new Set(pathA);
+    let ia = pathA.length - 1;
+    let ib = 0;
+    for (let i = 0; i < pathB.length; i++) {
+        if (!setA.has(pathB[i]))
+            continue;
+        ia = pathA.indexOf(pathB[i]);
+        ib = i;
+        break;
+    }
+    return [...pathA.slice(0, ia + 1), ...pathB.slice(0, ib).reverse()];
+}
+function buildAdj(nodes, edgeMap) {
+    const adj = new Map();
+    for (const node of nodes)
+        adj.set(node.id, []);
+    for (const [, edge] of edgeMap) {
+        adj.get(edge.an.id).push(edge.bn);
+        adj.get(edge.bn.id).push(edge.an);
+    }
+    return adj;
+}
+function findShortestPath(from, to, adj) {
+    if (from === to)
+        return [from];
+    const visited = new Set([from.id]);
+    const prev = new Map([[from.id, null]]);
+    const queue = [from];
+    while (queue.length) {
+        const curr = queue.shift();
+        if (curr === to) {
+            const path = [];
+            let node = to;
+            while (node !== null) {
+                path.unshift(node);
+                node = prev.get(node.id);
+            }
+            return path;
+        }
+        for (const nb of (adj.get(curr.id) || [])) {
+            if (visited.has(nb.id))
+                continue;
+            visited.add(nb.id);
+            prev.set(nb.id, curr);
+            queue.push(nb);
+        }
+    }
+    return findTreePath(from, to);
+}
+exports.STYLE = {
+    core: { color: 0x3B8BD4, em: 0x0d2d55, emI: 1.4, geo: () => new three_1.TorusGeometry(4, 1.1, 12, 26), halo: 10, hOp: .06, rx: .18, rz: .10 },
+    dist: { color: 0x1D9E75, em: 0x073d2c, emI: 1.3, geo: () => new three_1.TorusGeometry(2.6, .72, 10, 20), halo: 6.5, hOp: .05, rx: .22, rz: .14 },
+    acc: { color: 0xBA7517, em: 0x4a2c06, emI: 1.1, geo: () => new three_1.BoxGeometry(4.8, .85, 2.6), halo: 5, hOp: .04 },
+    term: { color: 0xb4c8de, em: 0x2a3c50, emI: 1.2, geo: () => new three_1.ConeGeometry(1.0, 2.5, 6), halo: 3.2, hOp: .04, ry: .28 },
+    server: { color: 0xFFD060, em: 0x7a4a00, emI: 1.8, geo: () => new three_1.CylinderGeometry(1.9, 2.3, 5.5, 10), halo: 9, hOp: .07, ry: .12 },
+};

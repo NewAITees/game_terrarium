@@ -48,6 +48,7 @@ export function createPlanetStrategyCombatRuntime(context: any) {
       maxHp: 6,
       physAttack: sourceShip.physAttack ?? sourceShip.attack ?? 0,
       laserAttack: sourceShip.laserAttack ?? 0,
+      weaponKind: sourceShip.kind,
       physDef: 0,
       heatDef: 0,
       life: 6,
@@ -237,6 +238,12 @@ export function createPlanetStrategyCombatRuntime(context: any) {
           continue;
         }
         if (output.reached || context.distance3d(missile, targetPos) <= 5.5) {
+          const hitColor = targetShip
+            ? context.world.empires[targetShip.owner]?.color ?? '#fff0c0'
+            : pdTargetPlanet?.owner >= 0
+              ? context.world.empires[pdTargetPlanet.owner]?.color ?? '#fff0c0'
+              : '#fff0c0';
+          context.rendererView.triggerMissileHit?.(targetPos, hitColor);
           if (targetShip) {
             const damage = damageFromAttack(missile, targetShip);
             targetShip.hp -= damage;

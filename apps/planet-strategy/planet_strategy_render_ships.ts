@@ -3,13 +3,9 @@ import {
   BufferAttribute,
   BufferGeometry,
   Color,
-  ConeGeometry,
-  DoubleSide,
-  EdgesGeometry,
   Group,
   Line,
   LineBasicMaterial,
-  LineSegments,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
@@ -19,90 +15,43 @@ import {
   SphereGeometry,
   Vector3,
 } from 'three';
+import { loadShipAsset, normalizeAssetInstance } from './planet_strategy_render_assets.js';
 
 export function createPlanetStrategyShipVisuals(context: any) {
+  type WeaponPalette = {
+    core: number;
+    trail: number;
+    trailOpacity: number;
+    lineWidth: number;
+    coreScale: number;
+  };
+  const shipAssetPaths: Record<string, string> = {
+    transport: 'assets/ships/transport.glb',
+    attacker: 'assets/ships/attacker.glb',
+    defender: 'assets/ships/defender.glb',
+    gunship: 'assets/ships/defender.glb',
+  };
+
   function makeShipMesh(empire: any, kind = 'transport') {
-    const color = new Color(empire.color);
-    const material = new MeshStandardMaterial({
-      color,
-      emissive: color,
-      emissiveIntensity: 0.25,
-      metalness: 0.45,
-      roughness: 0.35,
-    });
+    const root = new Group();
+    root.userData.shipKind = kind;
+    void applyShipAsset(root, empire.color, kind);
+    return root;
+  }
 
-    if (kind === 'transport') {
-      const hull = new Group();
-      const body = new Mesh(new BoxGeometry(1.1, 0.68, 2.9), material);
-      body.userData.shipPart = 'body';
-      hull.add(body);
-
-      const frameMaterial = new LineBasicMaterial({ color: 0xbfe2ff, transparent: true, opacity: 0.42 });
-      const frame = new LineSegments(
-        new EdgesGeometry(new BoxGeometry(1.16, 0.74, 2.96)),
-        frameMaterial
-      );
-      frame.userData.shipPart = 'frame';
-      hull.add(frame);
-      return hull;
+  async function applyShipAsset(root: Group, colorValue: string, kind: string): Promise<void> {
+    const path = shipAssetPaths[kind];
+    if (!path) return;
+    const asset = await loadShipAsset(path);
+    if (!asset) {
+      console.error(`Ship asset missing: ${path}`);
+      return;
     }
-
-    if (kind === 'attacker') {
-      const geometry = new ConeGeometry(0.55, 4.2, 5);
-      geometry.rotateX(Math.PI / 2);
-      return new Mesh(geometry, material);
-    }
-
-    if (kind === 'gunship') {
-      const hull = new Group();
-      const core = new Mesh(new BoxGeometry(0.95, 0.72, 3.2), material);
-      hull.add(core);
-      const wings = new LineSegments(
-        new EdgesGeometry(new BoxGeometry(1.8, 0.2, 2.6)),
-        new LineBasicMaterial({ color: 0xf0fbff, transparent: true, opacity: 0.65 })
-      );
-      wings.position.y = 0.05;
-      hull.add(wings);
-      const nose = new Mesh(
-        new ConeGeometry(0.32, 1.4, 4),
-        new MeshBasicMaterial({ color: 0xe1f7ff, transparent: true, opacity: 0.8 })
-      );
-      nose.rotation.x = Math.PI / 2;
-      nose.position.z = 2.0;
-      hull.add(nose);
-      return hull;
-    }
-
-    const hull = new Group();
-    hull.add(new Mesh(new BoxGeometry(1.45, 1.45, 1.45), material));
-    hull.add(new LineSegments(
-      new EdgesGeometry(new BoxGeometry(1.52, 1.52, 1.52)),
-      new LineBasicMaterial({ color: 0xe6f4ff, transparent: true, opacity: 0.9 })
-    ));
-
-    const faceGeo = new PlaneGeometry(0.46, 0.46);
-    const faceMat = new MeshBasicMaterial({
-      color: 0xc8f2ff,
-      transparent: true,
-      opacity: 0.5,
-      side: DoubleSide,
-    });
-    const offsets = [
-      [0, 0, 0.77, 0, 0, 0],
-      [0, 0, -0.77, 0, Math.PI, 0],
-      [0.77, 0, 0, 0, Math.PI / 2, 0],
-      [-0.77, 0, 0, 0, -Math.PI / 2, 0],
-      [0, 0.77, 0, -Math.PI / 2, 0, 0],
-      [0, -0.77, 0, Math.PI / 2, 0, 0],
-    ];
-    for (const [x, y, z, rx, ry, rz] of offsets) {
-      const panel = new Mesh(faceGeo, faceMat.clone());
-      panel.position.set(x, y, z);
-      panel.rotation.set(rx, ry, rz);
-      hull.add(panel);
-    }
-
-    return hull;
+    root.clear();
+    const instance = normalizeAssetInstance(asset, kind === 'transport' ? 2.9 : kind === 'gunship' ? 3.3 : 3.5);
+    instance.rotation.y = Math.PI;
+    tintShipAsset(instance, colorValue);
+    root.add(instance);
   }
 
   function attachShipMesh(ship: any, empire: any): void {
@@ -116,10 +65,11 @@ export function createPlanetStrategyShipVisuals(context: any) {
   }
 
   function attachMissileMesh(missile: any): void {
+    const palette = getWeaponPalette(missile.weaponKind, missile.laserAttack ?? 0, missile.physAttack ?? 0);
     const mesh = new Mesh(
       new SphereGeometry(0.18, 8, 8),
       new MeshBasicMaterial({
-        color: 0xfff2c4,
+        color: palette.core,
         transparent: true,
         opacity: 0.98,
         depthWrite: false,
@@ -128,9 +78,12 @@ export function createPlanetStrategyShipVisuals(context: any) {
     context.shipGroup.add(mesh);
     missile.mesh = mesh;
     missile.trailPoints = [];
-    missile.trailLine = createTrailLine('#fff0c0', 0.22);
+    missile.trailLine = createTrailLine(palette.trail, palette.trailOpacity, palette.lineWidth);
     context.shipGroup.add(missile.trailLine);
     mesh.position.set(missile.x, missile.y, missile.z);
+    mesh.scale.setScalar(palette.coreScale);
+    missile.mesh.userData.weaponKind = missile.weaponKind ?? 'attacker';
+    missile.mesh.userData.weaponPalette = palette;
   }
 
   function syncShipMesh(ship: any) {
@@ -267,8 +220,15 @@ export function createPlanetStrategyShipVisuals(context: any) {
   function updateMissileVisuals(): void {
     for (const missile of context.world.missiles) {
       if (!missile.mesh) continue;
+      const palette = missile.mesh.userData.weaponPalette ?? getWeaponPalette(missile.weaponKind, missile.laserAttack ?? 0, missile.physAttack ?? 0);
       missile.mesh.position.set(missile.x, missile.y, missile.z);
-      missile.mesh.scale.setScalar(0.95 + Math.sin(performance.now() / 90) * 0.12);
+      missile.mesh.scale.setScalar(palette.coreScale * (0.95 + Math.sin(performance.now() / 90) * 0.12));
+      if (missile.mesh.material) missile.mesh.material.color.set(palette.core);
+      if (missile.trailLine?.material) {
+        missile.trailLine.material.color.set(palette.trail);
+        missile.trailLine.material.opacity = palette.trailOpacity;
+        missile.trailLine.material.linewidth = palette.lineWidth;
+      }
       updateMissileTrail(missile);
     }
   }
@@ -282,6 +242,35 @@ export function createPlanetStrategyShipVisuals(context: any) {
     missile.trailLine.geometry.dispose();
     missile.trailLine.geometry = new BufferGeometry().setFromPoints(missile.trailPoints);
     missile.trailLine.material.opacity = 0.26;
+  }
+
+  function tintShipAsset(root: any, colorValue: string): void {
+    const color = new Color(colorValue);
+    root.traverse((node: any) => {
+      if (!node.material) return;
+      const materials = Array.isArray(node.material) ? node.material : [node.material];
+      for (const material of materials) {
+        if ('color' in material && material.color) material.color.lerp(color, 0.35);
+        if ('emissive' in material && material.emissive) material.emissive.copy(color).multiplyScalar(0.2);
+        if ('emissiveIntensity' in material) material.emissiveIntensity = Math.max(material.emissiveIntensity ?? 0, 0.18);
+      }
+    });
+  }
+
+  function getWeaponPalette(kind: string | undefined, laserAttack: number, physAttack: number): WeaponPalette {
+    if (kind === 'gunship') {
+      return { core: 0x8feeff, trail: 0x56d7ff, trailOpacity: 0.48, lineWidth: 2.2, coreScale: 1.15 };
+    }
+    if (kind === 'defender') {
+      return { core: 0xb8ffcf, trail: 0x72f0a5, trailOpacity: 0.42, lineWidth: 1.8, coreScale: 1.05 };
+    }
+    if (kind === 'attacker') {
+      return { core: 0xffd28f, trail: 0xffa43b, trailOpacity: 0.36, lineWidth: 1.4, coreScale: 0.98 };
+    }
+    if (laserAttack > physAttack) {
+      return { core: 0xa9f0ff, trail: 0x5ed6ff, trailOpacity: 0.4, lineWidth: 1.7, coreScale: 1.02 };
+    }
+    return { core: 0xfff2c4, trail: 0xffe3a3, trailOpacity: 0.3, lineWidth: 1.1, coreScale: 0.92 };
   }
 
   return {
@@ -375,23 +364,40 @@ function createShipFlash(ship: any) {
   };
 }
 
-function createTrailLine(color: any, opacity: number) {
-  const material = new LineBasicMaterial({
-    color: new Color(color),
-    transparent: true,
-    opacity,
-  });
-  const geometry = new BufferGeometry().setFromPoints([new Vector3(), new Vector3()]);
-  return new Line(geometry, material);
-}
+  function createTrailLine(color: any, opacity: number, linewidth = 1) {
+    const material = new LineBasicMaterial({
+      color: new Color(color),
+      transparent: true,
+      opacity,
+    });
+    material.linewidth = linewidth;
+    const geometry = new BufferGeometry().setFromPoints([new Vector3(), new Vector3()]);
+    return new Line(geometry, material);
+  }
 
-function updateTrail(ship: any) {
-  if (!ship.trailLine || !ship.mesh) return;
-  const point = ship.mesh.position.clone();
-  ship.trailPoints.push(point);
-  while (ship.trailPoints.length > 12) ship.trailPoints.shift();
-  if (ship.trailPoints.length < 2) return;
-  ship.trailLine.geometry.dispose();
-  ship.trailLine.geometry = new BufferGeometry().setFromPoints(ship.trailPoints);
-  ship.trailLine.material.opacity = ship.status === 'engaging' ? 0.58 : 0.32;
-}
+  function updateTrail(ship: any) {
+    if (!ship.trailLine || !ship.mesh) return;
+    const point = ship.mesh.position.clone();
+    ship.trailPoints.push(point);
+    while (ship.trailPoints.length > 12) ship.trailPoints.shift();
+    if (ship.trailPoints.length < 2) return;
+    ship.trailLine.geometry.dispose();
+    ship.trailLine.geometry = new BufferGeometry().setFromPoints(ship.trailPoints);
+    ship.trailLine.material.opacity = ship.status === 'engaging' ? 0.58 : 0.32;
+  }
+
+  function getWeaponPalette(kind: string | undefined, laserAttack: number, physAttack: number) {
+    if (kind === 'gunship') {
+      return { core: 0x8feeff, trail: 0x56d7ff, trailOpacity: 0.48, lineWidth: 2.2, coreScale: 1.15 };
+    }
+    if (kind === 'defender') {
+      return { core: 0xb8ffcf, trail: 0x72f0a5, trailOpacity: 0.42, lineWidth: 1.8, coreScale: 1.05 };
+    }
+    if (kind === 'attacker') {
+      return { core: 0xffd28f, trail: 0xffa43b, trailOpacity: 0.36, lineWidth: 1.4, coreScale: 0.98 };
+    }
+    if (laserAttack > physAttack) {
+      return { core: 0xa9f0ff, trail: 0x5ed6ff, trailOpacity: 0.4, lineWidth: 1.7, coreScale: 1.02 };
+    }
+    return { core: 0xfff2c4, trail: 0xffe3a3, trailOpacity: 0.3, lineWidth: 1.1, coreScale: 0.92 };
+  }

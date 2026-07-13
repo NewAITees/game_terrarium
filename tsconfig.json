@@ -15,8 +15,13 @@
     "verbatimModuleSyntax": true
   },
   "include": [
+    "apps/city-traffic/**/*.ts",
+    "apps/moss/**/*.ts",
     "apps/escort-td/**/*.ts",
+    "apps/submarine-cables/**/*.ts",
+    "apps/submarine-network-3d/**/*.ts",
     "apps/colony/**/*.ts",
+    "apps/network-smallworld/**/*.ts",
     "apps/network-defense/**/*.ts",
     "apps/network-ecosystem/**/*.ts",
     "apps/planet-strategy/**/*.ts",
@@ -26,3 +31,5 @@
     "shared/types/**/*.d.ts"
   ]
 }
+
+

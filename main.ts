@@ -1,4 +1,3 @@
-import path from 'path';
 import { app, BrowserWindow, globalShortcut, Menu, type MenuItemConstructorOptions } from 'electron';
 import { startServer } from './server';
 import { describePage, isPageKey, PAGE_REGISTRY, type PageKey } from './shared/page_registry';
@@ -8,27 +7,26 @@ app.commandLine.appendSwitch('disable-features', 'HardwareMediaKeyHandling,Media
 const IS_DEBUG_MINIMAL = process.env.ELECTRON_DEBUG_MINIMAL === '1';
 const ENABLE_APP_MENU = process.env.ELECTRON_DISABLE_MENU !== '1';
 const ENABLE_GLOBAL_SHORTCUTS = process.env.ELECTRON_DISABLE_SHORTCUTS !== '1';
-const ENABLE_ALWAYS_ON_TOP = process.env.ELECTRON_DISABLE_ALWAYS_ON_TOP !== '1' && !IS_DEBUG_MINIMAL;
-const ENABLE_ALL_WORKSPACES = process.env.ELECTRON_DISABLE_ALL_WORKSPACES !== '1' && !IS_DEBUG_MINIMAL;
+const ENABLE_ALWAYS_ON_TOP = process.env.ELECTRON_ENABLE_ALWAYS_ON_TOP === '1' && !IS_DEBUG_MINIMAL;
+const ENABLE_ALL_WORKSPACES = process.env.ELECTRON_ENABLE_ALL_WORKSPACES === '1' && !IS_DEBUG_MINIMAL;
 const ENABLE_SERVER = process.env.ELECTRON_DISABLE_SERVER !== '1';
 
 let win: BrowserWindow | null = null;
 let currentPage: PageKey = 'city';
+let lastLoadState: { page: PageKey; status: 'idle' | 'loading' | 'loaded' | 'failed'; error?: string } = {
+  page: 'city',
+  status: 'idle',
+};
 
 function loadPage(pageKey: PageKey): void {
   if (!win) return;
   const page = PAGE_REGISTRY.find((entry) => entry.key === pageKey);
   if (!page) return;
   currentPage = pageKey;
-  const target = page.loadMode === 'file'
-    ? path.join(__dirname, '..', page.target)
-    : page.target;
+  lastLoadState = { page: pageKey, status: 'loading' };
+  const target = page.target;
   console.log(`[page] switching -> ${describePage(page)}: ${target}`);
-  if (page.loadMode === 'http') {
-    void win.loadURL(target);
-  } else {
-    void win.loadFile(target);
-  }
+  void win.loadURL(target);
   refreshMenu();
 }
 
@@ -94,12 +92,25 @@ function createMainWindow(): void {
   }
 
   win.webContents.on('did-finish-load', () => {
+    lastLoadState = { page: currentPage, status: 'loaded' };
     console.log(`[page] loaded -> ${currentPage}`);
   });
   win.webContents.on('did-fail-load', (_event, code, description, validatedURL) => {
+    lastLoadState = {
+      page: currentPage,
+      status: 'failed',
+      error: `${validatedURL} (${code}) ${description}`,
+    };
     console.error(`[page] failed -> ${validatedURL} (${code}) ${description}`);
   });
   win.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    if (level >= 3 && /(?:Uncaught|ReferenceError|TypeError|ENOENT|Cannot access )/.test(message)) {
+      lastLoadState = {
+        page: currentPage,
+        status: 'failed',
+        error: `${sourceId}:${line} ${message}`,
+      };
+    }
     console.log(`[renderer:${level}] ${sourceId}:${line} ${message}`);
   });
 
@@ -114,7 +125,7 @@ app.whenReady().then(async () => {
   if (ENABLE_SERVER) {
     try {
       await startServer(
-        () => ({ currentPage }),
+        () => ({ currentPage, lastLoadState }),
         (type: string, payload: any) => {
           if (type === 'switch_page') {
             const page = String(payload?.page ?? '');

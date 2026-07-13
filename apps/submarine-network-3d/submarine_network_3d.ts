@@ -1,0 +1,718 @@
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    const API = {
+      landings: ['http://localhost:3000/submarine-data/landings', 'https://www.submarinecablemap.com/api/v3/landing-point/landing-point-geo.json'],
+      routes: ['http://localhost:3000/submarine-data/routes', 'https://www.submarinecablemap.com/api/v3/cable/cable-geo.json'],
+      world: ['https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json']
+    };
+
+    const statusEl = qs('#status');
+    const tooltip = qs('#tooltip');
+    const limitEl = qs('#limit');
+    const limitValueEl = qs('#limit-value');
+    const heightScaleEl = qs('#height-scale');
+    const heightValueEl = qs('#height-value');
+    const arcScaleEl = qs('#arc-scale');
+    const arcValueEl = qs('#arc-value');
+    const topListEl = qs('#top-list');
+    const FLOOR_Y = -41.2;
+    const NODE_GROUND_Y = -38.6;
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x10181d);
+    scene.fog = new THREE.FogExp2(0x10181d, 0.0028);
+
+    const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 0.5, 900);
+    camera.position.set(0, 155, 230);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.toneMapping = THREE.NoToneMapping;
+    document.body.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.045;
+    controls.autoRotate = true;
+    controls.autoRotateSpeed = 0.2;
+    controls.target.set(0, -36, 0);
+    controls.minDistance = 55;
+    controls.maxDistance = 360;
+
+    scene.add(new THREE.AmbientLight(0x5d7f7b, 1.25));
+    const key = new THREE.DirectionalLight(0xeaf8ec, 1.15);
+    key.position.set(50, 80, 55);
+    scene.add(key);
+    const fill = new THREE.DirectionalLight(0x2d7c9c, 0.7);
+    fill.position.set(-70, 30, -80);
+    scene.add(fill);
+
+    const group = new THREE.Group();
+    const packetGroup = new THREE.Group();
+    scene.add(group);
+    scene.add(packetGroup);
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+    const hitObjects = [];
+
+    let landingFeatures = [];
+    let routeFeatures = [];
+    let worldData = null;
+    let graph = null;
+    let topojson = null;
+	    let currentPositions = new Map();
+	    let visibleNodeIds = new Set();
+	    let packets = [];
+	    let packetClock = 0;
+	    let lastGraphTelemetry = null;
+
+    async function fetchFirst(urls) {
+      let lastError;
+      for (const url of urls) {
+        try {
+          const response = await fetch(url);
+          if (!response.ok) throw new Error(`${response.status} ${url}`);
+          return await response.json();
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      throw lastError;
+    }
+
+    function countryFromLanding(feature) {
+      const parts = (feature.properties.name || '').split(',').map(part => part.trim()).filter(Boolean);
+      return parts.length > 1 ? parts[parts.length - 1] : '';
+    }
+
+    function distanceSq(a, b) {
+      const dx = a[0] - b[0];
+      const dy = a[1] - b[1];
+      return dx * dx + dy * dy;
+    }
+
+    function nearestLanding(point) {
+      let best = null;
+      let bestDistance = Infinity;
+      for (const landing of landingFeatures) {
+        const dist = distanceSq(point, landing.geometry.coordinates);
+        if (dist < bestDistance) {
+          bestDistance = dist;
+          best = landing;
+        }
+      }
+      return best && bestDistance < 4 ? best : null;
+    }
+
+    function routeEndpoints(feature) {
+      const geometry = feature.geometry;
+      if (!geometry) return [];
+      if (geometry.type === 'LineString') {
+        return [geometry.coordinates[0], geometry.coordinates[geometry.coordinates.length - 1]].filter(Boolean);
+      }
+      if (geometry.type === 'MultiLineString') {
+        return geometry.coordinates.flatMap(line => [line[0], line[line.length - 1]]).filter(Boolean);
+      }
+      return [];
+    }
+
+    function addEdge(edges, neighbors, a, b, cableName) {
+      if (!a || !b || a === b) return;
+      const key = a < b ? `${a}|${b}` : `${b}|${a}`;
+      if (edges.has(key)) return;
+      edges.set(key, { a, b, cableName });
+      neighbors.get(a).add(b);
+      neighbors.get(b).add(a);
+    }
+
+    function computePageRank(nodes, neighbors) {
+      const ids = [...nodes.keys()];
+      const damping = 0.86;
+      let ranks = new Map(ids.map(id => [id, 1 / ids.length]));
+      for (let i = 0; i < 38; i++) {
+        const next = new Map(ids.map(id => [id, (1 - damping) / ids.length]));
+        for (const id of ids) {
+          const linked = [...neighbors.get(id)];
+          if (!linked.length) continue;
+          const share = ranks.get(id) / linked.length;
+          for (const target of linked) next.set(target, next.get(target) + damping * share);
+        }
+        ranks = next;
+      }
+      return ranks;
+    }
+
+    function buildGraph() {
+      const nodes = new Map();
+      const neighbors = new Map();
+      const edges = new Map();
+
+      for (const feature of landingFeatures) {
+        const id = feature.properties.id;
+        const country = countryFromLanding(feature);
+        if (!id || !country) continue;
+        nodes.set(id, {
+          id,
+          type: 'landing',
+          name: feature.properties.name,
+          country,
+          lon: feature.geometry.coordinates[0],
+          lat: feature.geometry.coordinates[1]
+        });
+        neighbors.set(id, new Set());
+      }
+
+      for (const route of routeFeatures) {
+        const landings = [...new Set(routeEndpoints(route)
+          .map(nearestLanding)
+          .filter(Boolean)
+          .map(landing => landing.properties.id))];
+        if (landings.length === 2) {
+          addEdge(edges, neighbors, landings[0], landings[1], route.properties.name);
+        } else if (landings.length > 2) {
+          for (let i = 0; i < landings.length; i++) {
+            for (let j = i + 1; j < landings.length; j++) {
+              if (j - i <= 2) addEdge(edges, neighbors, landings[i], landings[j], route.properties.name);
+            }
+          }
+        }
+      }
+
+      const ranks = computePageRank(nodes, neighbors);
+      for (const [id, node] of nodes) {
+        node.rank = ranks.get(id) || 0;
+        node.degree = neighbors.get(id).size;
+      }
+      return { nodes, neighbors, edges };
+    }
+
+    function clearGroup() {
+      hitObjects.length = 0;
+      while (group.children.length) {
+        const child = group.children[0];
+        group.remove(child);
+        disposeObject(child);
+      }
+    }
+
+    function disposeObject(object) {
+      object.geometry?.dispose();
+      if (object.userData.sharedMaterial) return;
+      if (Array.isArray(object.material)) object.material.forEach(material => material.dispose());
+      else object.material?.dispose();
+    }
+
+    function mapPosition(lon, lat) {
+      return new THREE.Vector3(lon * 0.96, -39.8, -lat * 0.98);
+    }
+
+    function addWorldMap() {
+      if (!worldData || !topojson) return;
+      const floorGeometry = new THREE.PlaneGeometry(328, 150);
+      const floorMaterial = new THREE.MeshBasicMaterial({
+        color: 0xf0f2e8,
+        transparent: true,
+        opacity: 0.82,
+        side: THREE.DoubleSide
+      });
+      const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+      floor.rotation.x = -Math.PI / 2;
+      floor.position.y = FLOOR_Y;
+      floor.renderOrder = -10;
+      group.add(floor);
+
+      const borderCoreMaterial = new THREE.MeshBasicMaterial({
+        color: 0x073b8e,
+        transparent: true,
+        opacity: 0.96,
+        depthTest: false
+      });
+      const borderGlowMaterial = new THREE.MeshBasicMaterial({
+        color: 0x31b8ff,
+        transparent: true,
+        opacity: 0.2,
+        depthTest: false
+      });
+
+      for (const ring of countryOutlineRings()) {
+        for (const segment of splitAntimeridian(ring)) {
+          const points = segment.map(([lon, lat]) => mapPosition(lon, lat));
+          if (points.length < 2) continue;
+          const closed = isClosedRing(segment);
+          addNeonTube(points, 0.22, borderCoreMaterial, 12, closed);
+          addNeonTube(points, 0.62, borderGlowMaterial, 11, closed);
+        }
+      }
+
+      const gridMaterial = new THREE.LineBasicMaterial({ color: 0x4064a0, transparent: true, opacity: 0.3, depthTest: false });
+      for (const lat of [-60, -30, 0, 30, 60]) {
+        const points = [];
+        for (let lon = -180; lon <= 180; lon += 6) points.push(mapPosition(lon, lat));
+        const gridLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), gridMaterial);
+        gridLine.userData.sharedMaterial = true;
+        gridLine.renderOrder = 9;
+        group.add(gridLine);
+      }
+      for (const lon of [-120, -60, 0, 60, 120]) {
+        const points = [];
+        for (let lat = -72; lat <= 78; lat += 6) points.push(mapPosition(lon, lat));
+        const gridLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), gridMaterial);
+        gridLine.userData.sharedMaterial = true;
+        gridLine.renderOrder = 9;
+        group.add(gridLine);
+      }
+    }
+
+    function countryOutlineRings() {
+      const countries = topojson.feature(worldData, worldData.objects.countries);
+      return countries.features.flatMap(feature => {
+        const geometry = feature.geometry;
+        if (!geometry) return [];
+        if (geometry.type === 'Polygon') return geometry.coordinates;
+        if (geometry.type === 'MultiPolygon') return geometry.coordinates.flat();
+        return [];
+      }).map(thinRing).filter(ring => ring.length > 1);
+    }
+
+    function thinRing(ring) {
+      if (ring.length <= 120) return ring;
+      const step = Math.ceil(ring.length / 120);
+      return ring.filter((_, index) => index === 0 || index === ring.length - 1 || index % step === 0);
+    }
+
+    function splitAntimeridian(ring) {
+      const segments = [];
+      let segment = [];
+      for (const point of ring) {
+        const previous = segment[segment.length - 1];
+        if (previous && Math.abs(point[0] - previous[0]) > 180) {
+          if (segment.length > 1) segments.push(segment);
+          segment = [point];
+        } else {
+          segment.push(point);
+        }
+      }
+      if (segment.length > 1) segments.push(segment);
+      return segments;
+    }
+
+    function isClosedRing(points) {
+      if (points.length < 3) return false;
+      const first = points[0];
+      const last = points[points.length - 1];
+      return Math.abs(first[0] - last[0]) < 0.001 && Math.abs(first[1] - last[1]) < 0.001;
+    }
+
+    function addNeonTube(points, radius, material, renderOrder, closed = false) {
+      const tubePoints = closed ? points.slice(0, -1) : points;
+      if (tubePoints.length < 2) return;
+      const curve = new THREE.CatmullRomCurve3(tubePoints, closed, 'centripetal', 0.35);
+      const geometry = new THREE.TubeGeometry(curve, Math.max(2, Math.min(36, tubePoints.length - 1)), radius, 5, closed);
+      const tube = new THREE.Mesh(geometry, material);
+      tube.userData.sharedMaterial = true;
+      tube.renderOrder = renderOrder;
+      group.add(tube);
+    }
+
+    function projectNode(node, rankMin, rankMax) {
+      const lon = node.lon;
+      const lat = node.lat;
+      const rankNorm = rankMax === rankMin ? 0 : (node.rank - rankMin) / (rankMax - rankMin);
+      const heightScale = Number(heightScaleEl.value) / 100;
+      const y = NODE_GROUND_Y + Math.pow(rankNorm, 0.55) * 104 * heightScale;
+      const pull = 1 - rankNorm * 0.58;
+      return new THREE.Vector3(lon * 1.02 * pull, y, -lat * 1.05 * pull);
+    }
+
+    function buildCountryNodes(visibleLandings) {
+      const countries = new Map();
+      for (const node of visibleLandings) {
+        if (!countries.has(node.country)) countries.set(node.country, []);
+        countries.get(node.country).push(node);
+      }
+      return [...countries.entries()].map(([country, landings]) => {
+        const anchor = [...landings].sort((a, b) => b.rank - a.rank || b.degree - a.degree)[0];
+        return {
+          id: `country:${country}`,
+          type: 'country',
+          name: country,
+          country,
+          lon: anchor.lon,
+          lat: anchor.lat,
+          anchorName: anchor.name,
+          landings
+        };
+      });
+    }
+
+    function addLine(a, b, color, opacity) {
+      const geometry = new THREE.BufferGeometry().setFromPoints([a, b]);
+      const material = new THREE.LineBasicMaterial({ color, transparent: true, opacity });
+      const line = new THREE.Line(geometry, material);
+      group.add(line);
+    }
+
+    function parabolicPoints(a, b, height, segments = 18) {
+      const points = [];
+      for (let i = 0; i <= segments; i++) {
+        const t = i / segments;
+        const point = a.clone().lerp(b, t);
+        point.y += 4 * height * t * (1 - t);
+        points.push(point);
+      }
+      return points;
+    }
+
+    function addCableLink(a, b, strength = 1) {
+      const arcScale = Number(arcScaleEl.value) / 100;
+      const height = (10 + strength * 12) * arcScale;
+      const points = parabolicPoints(a, b, height);
+      const coreMaterial = new THREE.MeshBasicMaterial({
+        color: 0x2df6ff,
+        transparent: true,
+        opacity: 0.82,
+        depthTest: false
+      });
+      const glowMaterial = new THREE.MeshBasicMaterial({
+        color: 0x8fffff,
+        transparent: true,
+        opacity: 0.18,
+        depthTest: false
+      });
+      addNeonTube(points, 0.14 + strength * 0.08, coreMaterial, 24);
+      addNeonTube(points, 0.38 + strength * 0.14, glowMaterial, 23);
+    }
+
+    function addAnchorLink(a, b) {
+      const coreMaterial = new THREE.MeshBasicMaterial({
+        color: 0xf0d25b,
+        transparent: true,
+        opacity: 0.72,
+        depthTest: false
+      });
+      const glowMaterial = new THREE.MeshBasicMaterial({
+        color: 0xfff3a0,
+        transparent: true,
+        opacity: 0.16,
+        depthTest: false
+      });
+      addNeonTube([a, b], 0.22, coreMaterial, 26);
+      addNeonTube([a, b], 0.56, glowMaterial, 25);
+    }
+
+    function addNode(node, position, size, color) {
+      const geometry = new THREE.SphereGeometry(size, 16, 12);
+      const material = new THREE.MeshStandardMaterial({
+        color,
+        emissive: color,
+        emissiveIntensity: node.type === 'country' ? 0.16 : 0.32,
+        roughness: 0.55,
+        metalness: 0.1
+      });
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.position.copy(position);
+      mesh.userData.node = node;
+      group.add(mesh);
+      hitObjects.push(mesh);
+      return mesh;
+    }
+
+    function addDensityMarker(node, position, rankNorm) {
+      if (node.degree < 4) return;
+      const radius = 2.8 + Math.min(9, node.degree * 0.7);
+      const geometry = new THREE.TorusGeometry(radius, 0.08 + rankNorm * 0.08, 8, 36);
+      const material = new THREE.MeshBasicMaterial({
+        color: rankNorm > 0.72 ? 0xf0d25b : 0x2df6ff,
+        transparent: true,
+        opacity: 0.34,
+        depthTest: false
+      });
+      const ring = new THREE.Mesh(geometry, material);
+      ring.position.copy(position);
+      ring.position.y = Math.max(position.y + 0.08, NODE_GROUND_Y + 0.08);
+      ring.rotation.x = Math.PI / 2;
+      ring.renderOrder = 28;
+      group.add(ring);
+    }
+
+    function clearPackets() {
+      while (packetGroup.children.length) {
+        const child = packetGroup.children[0];
+        packetGroup.remove(child);
+        disposeObject(child);
+      }
+      packets = [];
+    }
+
+    function randomVisibleNode() {
+      const candidates = [...visibleNodeIds].filter(id => {
+        const neighbors = graph.neighbors.get(id);
+        return neighbors && [...neighbors].some(next => visibleNodeIds.has(next));
+      });
+      return candidates[Math.floor(Math.random() * candidates.length)] || null;
+    }
+
+    function buildPacketPath(startId) {
+      const pathIds = [startId];
+      let current = startId;
+      for (let i = 0; i < 4; i++) {
+        const options = [...graph.neighbors.get(current)].filter(id => visibleNodeIds.has(id) && id !== pathIds[pathIds.length - 2]);
+        if (!options.length) break;
+        current = options[Math.floor(Math.random() * options.length)];
+        pathIds.push(current);
+      }
+      return pathIds.map(id => currentPositions.get(id)).filter(Boolean);
+    }
+
+    function spawnPacket() {
+      if (!graph || visibleNodeIds.size < 2 || packets.length > 14) return;
+      const startId = randomVisibleNode();
+      if (!startId) return;
+      const points = buildPacketPath(startId);
+      if (points.length < 2) return;
+      const geometry = new THREE.SphereGeometry(1.15, 12, 8);
+      const material = new THREE.MeshBasicMaterial({ color: 0xdfffff });
+      const mesh = new THREE.Mesh(geometry, material);
+      packetGroup.add(mesh);
+      packets.push({
+        mesh,
+        points,
+        segment: 0,
+        t: 0,
+        speed: 0.012 + Math.random() * 0.012
+      });
+    }
+
+    function updatePackets() {
+      packetClock += 1;
+      if (packetClock % 18 === 0) spawnPacket();
+
+      for (let i = packets.length - 1; i >= 0; i--) {
+        const packet = packets[i];
+        const from = packet.points[packet.segment];
+        const to = packet.points[packet.segment + 1];
+        packet.t += packet.speed;
+        if (packet.t >= 1) {
+          packet.segment += 1;
+          packet.t = 0;
+          if (packet.segment >= packet.points.length - 1) {
+            packetGroup.remove(packet.mesh);
+            disposeObject(packet.mesh);
+            packets.splice(i, 1);
+            continue;
+          }
+        }
+        packet.mesh.position.lerpVectors(from, to, packet.t);
+        packet.mesh.scale.setScalar(0.7 + Math.sin(packet.t * Math.PI) * 0.75);
+      }
+    }
+
+	    function renderGraph() {
+	      if (!graph) return;
+      clearGroup();
+      clearPackets();
+      const limit = Number(limitEl.value);
+      limitValueEl.textContent = limit;
+      heightValueEl.textContent = `${heightScaleEl.value}%`;
+      arcValueEl.textContent = `${arcScaleEl.value}%`;
+      const allLandings = [...graph.nodes.values()].filter(node => node.degree > 0);
+      const sorted = allLandings.sort((a, b) => b.rank - a.rank || b.degree - a.degree);
+      const visibleLandings = sorted.slice(0, limit);
+      const visibleIds = new Set(visibleLandings.map(node => node.id));
+      const ranks = visibleLandings.map(node => node.rank);
+      const rankMin = Math.min(...ranks);
+      const rankMax = Math.max(...ranks);
+      const positions = new Map();
+
+      addWorldMap();
+
+      for (const node of visibleLandings) {
+        positions.set(node.id, projectNode(node, rankMin, rankMax));
+      }
+
+      currentPositions = positions;
+      visibleNodeIds = visibleIds;
+
+      for (const edge of graph.edges.values()) {
+        if (!visibleIds.has(edge.a) || !visibleIds.has(edge.b)) continue;
+        const source = graph.nodes.get(edge.a);
+        const target = graph.nodes.get(edge.b);
+        const strength = Math.min(1.5, ((source?.rank || 0) + (target?.rank || 0)) * 420);
+        addCableLink(positions.get(edge.a), positions.get(edge.b), strength);
+      }
+
+      const countryNodes = buildCountryNodes(visibleLandings);
+      for (const country of countryNodes) {
+        const countryPosition = mapPosition(country.lon, country.lat);
+        countryPosition.y = NODE_GROUND_Y;
+        positions.set(country.id, countryPosition);
+        addNode(country, countryPosition, 1.9, 0xf0d25b);
+        for (const landing of country.landings.slice(0, 8)) {
+          addAnchorLink(countryPosition, positions.get(landing.id));
+        }
+      }
+
+      for (const node of visibleLandings) {
+        const rankNorm = rankMax === rankMin ? 0 : (node.rank - rankMin) / (rankMax - rankMin);
+        const size = 0.7 + Math.pow(rankNorm, 0.65) * 2.5;
+        const color = rankNorm > 0.82 ? 0xf0d25b : rankNorm > 0.52 ? 0x78d6c8 : 0x4a8aa2;
+        addNode(node, positions.get(node.id), size, color);
+        addDensityMarker(node, positions.get(node.id), rankNorm);
+      }
+
+      qs('#landing-count').textContent = visibleLandings.length.toLocaleString();
+      qs('#country-count').textContent = countryNodes.length.toLocaleString();
+	      const visibleEdges = [...graph.edges.values()]
+	        .filter(edge => visibleIds.has(edge.a) && visibleIds.has(edge.b));
+	      qs('#edge-count').textContent = visibleEdges.length.toLocaleString();
+
+	      const topNodes = sorted.slice(0, 5);
+	      topListEl.replaceChildren(...topNodes.map((node, index) => {
+	        const row = document.createElement('div');
+	        const name = document.createElement('span');
+	        const degree = document.createElement('span');
+        name.textContent = `${index + 1}. ${node.name}`;
+        degree.textContent = node.degree;
+        row.append(name, degree);
+        return row;
+	      }));
+	      statusEl.textContent = 'Physical cable topology, arranged by centrality';
+	      lastGraphTelemetry = { visibleLandings, visibleEdges, countryNodes, topNodes };
+	      reportTelemetry();
+	    }
+
+	    function reportTelemetry() {
+	      const visibleLandings = lastGraphTelemetry?.visibleLandings || [];
+	      const visibleEdges = lastGraphTelemetry?.visibleEdges || [];
+	      const countryNodes = lastGraphTelemetry?.countryNodes || [];
+	      const topNodes = lastGraphTelemetry?.topNodes || [];
+	      window.Telemetry?.report('submarine_network_3d', {
+	        landings: landingFeatures.length,
+	        routes: routeFeatures.length,
+	        graphNodes: graph ? graph.nodes.size : 0,
+	        graphEdges: graph ? graph.edges.size : 0,
+	        visibleLandings: visibleLandings.length || visibleNodeIds.size,
+	        visibleEdges: visibleEdges.length,
+	        countryAnchors: countryNodes.length,
+	        packets: packets.length,
+	        limit: Number(limitEl.value),
+	        heightScale: Number(heightScaleEl.value),
+	        arcScale: Number(arcScaleEl.value),
+	                topNodes: topNodes.map(node => ({
+          id: node.id,
+          name: node.name,
+          degree: node.degree,
+          rank: Number(node.rank.toFixed(5)),
+        })),
+        analysis: {
+          phase: 'graph_view',
+          progress: Math.min(1, visibleLandings.length / Math.max(1, graph ? graph.nodes.size : 1)),
+          health: Math.min(1, (visibleLandings.length / Math.max(1, graph ? graph.nodes.size : 1)) * 0.35 + (topNodes.length / 5) * 0.25 + (packets.length / Math.max(1, visibleEdges.length + 1)) * 0.15 + 0.25),
+          stability: Math.min(1, 1 - Math.abs((graph ? graph.edges.size / Math.max(1, graph.nodes.size) : 0) - 1.25) / 1.25),
+          pressure: Math.min(1, visibleEdges.length / Math.max(1, graph ? graph.edges.size : 1) * 0.45 + packets.length / 24),
+          momentum: Math.min(1, (packets.length / Math.max(1, visibleLandings.length)) * 0.45 + (topNodes.length / 5) * 0.3 + (visibleEdges.length / Math.max(1, graph ? graph.edges.size : 1)) * 0.25),
+          activity: Math.min(1, (visibleLandings.length + visibleEdges.length + countryNodes.length) / Math.max(1, (graph ? graph.nodes.size : 1) * 1.5)),
+          risk: Math.min(1, topNodes.length < 3 ? 0.35 : 0.12),
+          fun: Math.min(1, 0.2 + (topNodes.length / 5) * 0.25 + (visibleEdges.length / Math.max(1, graph ? graph.edges.size : 1)) * 0.3 + (packets.length > 0 ? 0.15 : 0.05)),
+          summary: `${visibleLandings.length} visible landings, ${visibleEdges.length} visible edges, ${countryNodes.length} country anchors`,
+          signals: [
+            { key: 'visibleShare', value: visibleLandings.length / Math.max(1, graph ? graph.nodes.size : 1), target: 0.25, weight: 1 },
+            { key: 'edgeCoverage', value: visibleEdges.length / Math.max(1, graph ? graph.edges.size : 1), target: 0.2, weight: 0.8 },
+            { key: 'packetCount', value: packets.length, target: 6, weight: 0.6 },
+          ],
+          highlights: topNodes.map(node => `${node.name}:${node.degree}`),
+          details: {
+            landings: landingFeatures.length,
+            routes: routeFeatures.length,
+            graphNodes: graph ? graph.nodes.size : 0,
+            graphEdges: graph ? graph.edges.size : 0,
+            visibleLandings: visibleLandings.length || visibleNodeIds.size,
+            visibleEdges: visibleEdges.length,
+            countryAnchors: countryNodes.length,
+            packets: packets.length,
+          },
+        },
+      });
+	    }
+
+    function showTooltip(event, node) {
+      tooltip.style.left = `${event.clientX}px`;
+      tooltip.style.top = `${event.clientY}px`;
+      tooltip.style.opacity = '1';
+      tooltip.textContent = node.type === 'country'
+        ? `${node.name} / anchor: ${node.anchorName || 'landing point'}`
+        : `${node.name} / centrality ${(node.rank * 1000).toFixed(2)} / degree ${node.degree}`;
+    }
+
+    function hideTooltip() {
+      tooltip.style.opacity = '0';
+    }
+
+    function onPointerMove(event) {
+      pointer.x = (event.clientX / innerWidth) * 2 - 1;
+      pointer.y = -(event.clientY / innerHeight) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+      const hits = raycaster.intersectObjects(hitObjects, false);
+      if (!hits.length) {
+        hideTooltip();
+        return;
+      }
+      showTooltip(event, hits[0].object.userData.node);
+    }
+
+    async function init() {
+      try {
+        const [landings, routes, world, topo] = await Promise.all([
+          fetchFirst(API.landings),
+          fetchFirst(API.routes),
+          fetchFirst(API.world),
+          Promise.resolve((window as any).topojson)
+        ]);
+        landingFeatures = landings.features || [];
+        routeFeatures = routes.features || [];
+        worldData = world;
+        topojson = topo;
+        graph = buildGraph();
+        renderGraph();
+      } catch (error) {
+        statusEl.textContent = `Data load failed: ${error.message}`;
+      }
+    }
+
+    limitEl.addEventListener('input', renderGraph);
+    heightScaleEl.addEventListener('input', renderGraph);
+    arcScaleEl.addEventListener('input', renderGraph);
+    qs('#ground-nodes').addEventListener('click', () => {
+      heightScaleEl.value = 0;
+      arcScaleEl.value = Math.max(Number(arcScaleEl.value), 100);
+      renderGraph();
+    });
+    qs('#restore-height').addEventListener('click', () => {
+      heightScaleEl.value = 100;
+      arcScaleEl.value = 100;
+      renderGraph();
+    });
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerleave', hideTooltip);
+    window.addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+    });
+
+    function animate() {
+      requestAnimationFrame(animate);
+	      group.rotation.y += 0.00045;
+	      packetGroup.rotation.y = group.rotation.y;
+	      updatePackets();
+	      reportTelemetry();
+	      controls.update();
+      renderer.render(scene, camera);
+    }
+
+    init();
+    animate();
+  
+
