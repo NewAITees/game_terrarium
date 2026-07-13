@@ -17,6 +17,7 @@ const META_LABEL: Record<keyof EscortTdMetaProgress, string> = {
 
 export function createEscortTdRuntime(context: any) {
   const vipMesh = createVipMesh(context.scene);
+  const coverageGuide = createCoverageGuide(context.scene);
   const unitMeshes = new Map<number, any>();
   const enemyMeshes = new Map<number, any>();
   const barricadeMeshes = new Map<number, any>();
@@ -34,6 +35,10 @@ export function createEscortTdRuntime(context: any) {
 
   function isForceAdvance(): boolean {
     return latest.king.forcedAdvance;
+  }
+
+  function getTimeScale(): 0 | 1 | 2 | 4 {
+    return latest.timeScale;
   }
 
   function updateHud(): void {
@@ -63,6 +68,7 @@ export function createEscortTdRuntime(context: any) {
     latest = state;
     if (state.result) recordResultChips(state);
     vipMesh.position.set(state.king.x, CS * 0.36, state.king.z);
+    syncCoverageGuide(coverageGuide, state);
     syncUnits(state.units);
     syncEnemies(state.enemies);
     syncBarricades(state.barricades);
@@ -216,14 +222,40 @@ export function createEscortTdRuntime(context: any) {
     toggleKingPause: () => void postAction({ action: 'toggle_pause' }),
     toggleForceAdvance: () => void postAction({ action: 'toggle_force_advance' }),
     setCommandMode: (mode: CommandMode) => void postAction({ action: 'set_command_mode', mode }),
+    setTimeScale: (speed: 0 | 1 | 2 | 4) => void postAction({ action: 'set_speed', speed }),
     getCommandMode,
     isKingPaused,
     isForceAdvance,
+    getTimeScale,
     restartIfFinished: () => {
       if (latest.over || latest.won) void postAction({ action: 'restart', meta });
     },
     start,
   };
+}
+
+function createCoverageGuide(scene: any): Mesh {
+  const mesh = new Mesh(
+    new BoxGeometry(1, 0.05, CS * 0.18),
+    new MeshLambertMaterial({ color: 0x5dffcc, emissive: 0x1b6b62, emissiveIntensity: 0.6, transparent: true, opacity: 0.65 }),
+  );
+  mesh.position.y = 0.28;
+  scene.add(mesh);
+  return mesh;
+}
+
+function syncCoverageGuide(guide: Mesh, state: EscortTdStateSnapshot): void {
+  const dx = state.king.nextX - state.king.x;
+  const dz = state.king.nextZ - state.king.z;
+  const length = Math.max(0.1, Math.hypot(dx, dz));
+  guide.position.set((state.king.x + state.king.nextX) * 0.5, 0.28, (state.king.z + state.king.nextZ) * 0.5);
+  guide.rotation.y = Math.atan2(dx, dz);
+  guide.scale.x = length;
+  const material = guide.material as MeshLambertMaterial;
+  const danger = state.king.advanceBlocked && !state.king.forcedAdvance;
+  material.color.set(danger ? 0xff5d43 : 0x5dffcc);
+  material.emissive.set(danger ? 0x701a12 : 0x1b6b62);
+  material.opacity = danger ? 0.9 : 0.45;
 }
 
 function readChipTotal(): number {

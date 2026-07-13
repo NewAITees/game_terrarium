@@ -23,6 +23,12 @@ const sidePalette: Record<EscortSide, { base: number; accent: number; emissive: 
   enemy: { base: 0xff8a66, accent: 0xff3d3d, emissive: 0x5d1111 },
 };
 
+const enemyPalette: Record<EnemyKind, { base: number; accent: number; emissive: number }> = {
+  ground: { base: 0xf05252, accent: 0xffb199, emissive: 0x641515 },
+  air: { base: 0x65d9ff, accent: 0xc5f5ff, emissive: 0x124c6b },
+  siege: { base: 0xf39a45, accent: 0xffd08a, emissive: 0x74340d },
+};
+
 export function createEscortUnitVisual(type: PieceType, side: EscortSide): Group {
   return createVisual(type, side);
 }
@@ -45,7 +51,7 @@ function createVisual(key: PieceType | EnemyKind, side: EscortSide): Group {
     if (!asset) return;
     root.clear();
     const instance = normalizeAssetInstance(asset, sizeFor(key));
-    tintObject(instance, side);
+    tintObject(instance, key, side);
     if (key === 'knight') addMechDetails(instance, side);
     addGroundRing(instance, side, key);
     if (side === 'ally') addAimMarker(instance, side, key);
@@ -71,7 +77,7 @@ function loadAsset(key: PieceType | EnemyKind): Promise<Object3D | null> {
 }
 
 function buildFallbackVisual(key: PieceType | EnemyKind, side: EscortSide): Group {
-  const palette = sidePalette[side];
+  const palette = paletteFor(key, side);
   const group = new Group();
   const bodyMat = new MeshStandardMaterial({ color: palette.base, emissive: palette.emissive, emissiveIntensity: 0.35, metalness: 0.25, roughness: 0.45 });
   const accentMat = new MeshStandardMaterial({ color: palette.accent, emissive: palette.emissive, emissiveIntensity: 0.45, metalness: 0.35, roughness: 0.3 });
@@ -170,8 +176,8 @@ function sizeFor(key: PieceType | EnemyKind): number {
   }
 }
 
-function tintObject(root: Object3D, side: EscortSide): void {
-  const palette = sidePalette[side];
+function tintObject(root: Object3D, key: PieceType | EnemyKind, side: EscortSide): void {
+  const palette = paletteFor(key, side);
   root.traverse((node: any) => {
     if (!node.isMesh) return;
     const materials = Array.isArray(node.material) ? node.material : [node.material];
@@ -184,6 +190,10 @@ function tintObject(root: Object3D, side: EscortSide): void {
       return clone;
     });
   });
+}
+
+function paletteFor(key: PieceType | EnemyKind, side: EscortSide): { base: number; accent: number; emissive: number } {
+  return side === 'enemy' ? enemyPalette[key as EnemyKind] ?? sidePalette.enemy : sidePalette.ally;
 }
 
 function addGroundRing(root: Object3D, side: EscortSide, key: PieceType | EnemyKind): void {

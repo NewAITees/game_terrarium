@@ -13,6 +13,8 @@ export type EscortTdKingSnapshot = {
   z: number;
   hp: number;
   hpMax: number;
+  nextX: number;
+  nextZ: number;
   paused: boolean;
   coveragePercent: number;
   advanceBlocked: boolean;
@@ -76,6 +78,7 @@ export type EscortTdStateSnapshot = {
   wave: number;
   gold: number;
   commandMode: EscortTdCommandMode;
+  timeScale: 0 | 1 | 2 | 4;
   meta: EscortTdMetaProgress;
   progressPercent: number;
   king: EscortTdKingSnapshot;
@@ -92,6 +95,7 @@ export type EscortTdAction =
   | { action: 'deploy' }
   | { action: 'toggle_pause' }
   | { action: 'toggle_force_advance' }
+  | { action: 'set_speed'; speed: 0 | 1 | 2 | 4 }
   | { action: 'set_command_mode'; mode: EscortTdCommandMode }
   | { action: 'place_unit'; gx: number; gy: number; type: EscortTdPieceType }
   | { action: 'place_barricade'; gx: number; gy: number }

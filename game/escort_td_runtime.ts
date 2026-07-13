@@ -74,6 +74,7 @@ export class EscortTdRuntime {
     gold: START_GOLD,
     wave: 0,
     commandMode: 'balanced' as EscortTdCommandMode,
+    timeScale: 1 as 0 | 1 | 2 | 4,
     kingPaused: false,
     forceAdvance: false,
     over: false,
@@ -109,13 +110,14 @@ export class EscortTdRuntime {
 
   tickToNow(): void {
     const now = Date.now();
-    const dt = Math.min((now - this.lastTickAt) / 1000, 0.05);
+    const dt = Math.min((now - this.lastTickAt) / 1000, 0.05) * this.state.timeScale;
     this.lastTickAt = now;
     if (dt > 0) this.tick(dt);
   }
 
   getSnapshot(): EscortTdStateSnapshot {
     this.tickToNow();
+    const nextPoint = this.vipPath[Math.min(this.vip.pathIdx + 1, this.vipPath.length - 1)] ?? this.vip;
     return {
       page: 'escort_td',
       updatedAt: new Date().toISOString(),
@@ -123,6 +125,7 @@ export class EscortTdRuntime {
       wave: this.state.wave,
       gold: this.state.gold,
       commandMode: this.state.commandMode,
+      timeScale: this.state.timeScale,
       meta: this.meta,
       progressPercent: this.progressPercent(),
       king: {
@@ -130,6 +133,8 @@ export class EscortTdRuntime {
         z: this.vip.z,
         hp: this.vip.hp,
         hpMax: this.vipHpMax,
+        nextX: nextPoint.x,
+        nextZ: nextPoint.z,
         paused: this.state.kingPaused,
         coveragePercent: this.coveragePercent(),
         advanceBlocked: !this.state.kingPaused && this.coveragePercent() < ADVANCE_COVERAGE_THRESHOLD,
@@ -180,6 +185,10 @@ export class EscortTdRuntime {
     if (action.action === 'toggle_force_advance') {
       this.state.forceAdvance = !this.state.forceAdvance;
       if (this.state.forceAdvance) this.state.kingPaused = false;
+      return { ok: true };
+    }
+    if (action.action === 'set_speed') {
+      this.state.timeScale = action.speed;
       return { ok: true };
     }
     if (action.action === 'set_command_mode') {
@@ -297,6 +306,8 @@ export class EscortTdRuntime {
       const intercept = pickInterceptTarget(unit, this.enemies, this.vip.x, this.vip.z);
       const desired = intercept
         ? buildInterceptPoint(unit, intercept, this.vip.x, this.vip.z)
+        : unit.type === 'knight'
+          ? this.knightFormationTarget(unit)
         : {
             x: this.vip.x + Math.cos(unit.patrolAngle) * unit.patrolRadius,
             z: this.vip.z + Math.sin(unit.patrolAngle) * unit.patrolRadius,
@@ -315,6 +326,27 @@ export class EscortTdRuntime {
       unit.gx = grid.gx;
       unit.gy = grid.gy;
     }
+  }
+
+  private knightFormationTarget(unit: Unit): { x: number; z: number } {
+    const next = this.vipPath[Math.min(this.vip.pathIdx + 1, this.vipPath.length - 1)] ?? this.vip;
+    const dx = next.x - this.vip.x;
+    const dz = next.z - this.vip.z;
+    const length = Math.hypot(dx, dz) || 1;
+    const forward = { x: dx / length, z: dz / length };
+    const side = { x: -forward.z, z: forward.x };
+    const knightIndex = this.units.filter((other) => !other.deployed && other.type === 'knight').findIndex((other) => other.id === unit.id);
+    const role = Math.max(0, knightIndex) % 4;
+    const offsets = [
+      { forward: 1.6, side: 0 },
+      { forward: 0.35, side: 1.35 },
+      { forward: 0.35, side: -1.35 },
+      { forward: -1.45, side: 0 },
+    ][role];
+    return {
+      x: this.vip.x + forward.x * CS * offsets.forward + side.x * CS * offsets.side,
+      z: this.vip.z + forward.z * CS * offsets.forward + side.z * CS * offsets.side,
+    };
   }
 
   private refreshEnemyFlow(): void {
