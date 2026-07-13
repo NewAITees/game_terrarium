@@ -10,10 +10,12 @@
     "check:dom": "npm run build && node build-node/scripts/validate_dom_ids.js",
     "smoke:escort-td": "npm run build && node build-node/scripts/escort_td_smoke.js",
     "test:escort-td": "npm run build && node --test build-node/scripts/escort_td_rules.test.js",
+    "test:apps": "npm run build && node --test build-node/scripts/apps_build.test.js",
+    "test:projects": "npm run build && node --test build-node/scripts/*.test.js",
     "smoke:planet-fleet": "tsc -p tsconfig.node.json && node build-node/scripts/planet_strategy_fleet_smoke.js",
     "smoke:planet-watchability": "tsc -p tsconfig.node.json && node build-node/scripts/planet_strategy_watchability_smoke.js",
     "smoke:start": "npm run build && node build-node/scripts/electron_start_smoke.js",
-    "smoke": "npm run typecheck && npm run check:dom",
+    "smoke": "npm run typecheck && npm run check:dom && npm run test:apps",
     "prestart": "npm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit",
     "start": "electron ."
