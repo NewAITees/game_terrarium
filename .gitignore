@@ -4,6 +4,7 @@ node_modules/
 .playwright-cli/
 tasks/
 build/
+build-node/
 shared/network-core-wasm/pkg/
 shared/network-core-wasm/target/
 start.log
