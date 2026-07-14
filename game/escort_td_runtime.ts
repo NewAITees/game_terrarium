@@ -13,7 +13,7 @@ import type {
   EscortTdStateSnapshot,
   EscortTdUnitSnapshot,
 } from '../shared/types/escort_td';
-import { calculateEscortCoverage, calculateEscortResult, getEscortDamageMultiplier, getEscortMetaValues, getEscortReclaimGold, getEscortSpawnInterval, getEscortUnitPowerMultipliers, normalizeEscortMeta } from './escort_td_rules';
+import { calculateEscortCoverage, calculateEscortResult, canEscortUnitAttackTarget, getEscortDamageMultiplier, getEscortMetaValues, getEscortReclaimGold, getEscortSpawnInterval, getEscortUnitPowerMultipliers, normalizeEscortMeta } from './escort_td_rules';
 
 const GW = 21;
 const GH = 17;
@@ -148,6 +148,20 @@ export class EscortTdRuntime {
     const dt = Math.min((now - this.lastTickAt) / 1000, 0.05) * this.state.timeScale;
     this.lastTickAt = now;
     if (dt > 0) this.tick(dt);
+  }
+
+  /**
+   * Deterministic fast-forward for headless simulation/testing: advances game time by
+   * `totalSeconds` in fixed `stepSeconds` increments, ignoring timeScale and wall-clock time.
+   */
+  advance(totalSeconds: number, stepSeconds = 0.05): void {
+    let remaining = totalSeconds;
+    while (remaining > 0 && !this.state.over && !this.state.won) {
+      const dt = Math.min(stepSeconds, remaining);
+      this.tick(dt);
+      remaining -= dt;
+    }
+    this.lastTickAt = Date.now();
   }
 
   getSnapshot(): EscortTdStateSnapshot {
@@ -337,6 +351,7 @@ export class EscortTdRuntime {
   }
 
   private autoDeployUnits(): void {
+    if (this.state.wave >= 3) this.autoRepositionEmplacement();
     const targetCount = 4 + this.state.wave * 2;
     if (this.units.length >= targetCount) return;
     let guard = 0;
@@ -351,15 +366,29 @@ export class EscortTdRuntime {
 
   private autoPlaceNearKing(type: 'rook' | 'bishop'): boolean {
     if (this.state.gold < PIECE[type].cost || this.units.length >= this.unitLimit) return false;
+    const placement = this.findAutoPlacement();
+    return placement !== null && this.placeUnit(placement.gx, placement.gy, type).ok;
+  }
+
+  private autoRepositionEmplacement(): void {
+    const stale = this.units.find((unit) => unit.deployed && (unit.type === 'rook' || unit.type === 'bishop') && Math.hypot(unit.wx - this.vip.x, unit.wz - this.vip.z) > CS * 9);
+    const placement = this.findAutoPlacement();
+    if (!stale || !placement || this.state.gold + getEscortReclaimGold(PIECE[stale.type].cost) < PIECE[stale.type].cost) return;
+    const type = stale.type;
+    if (!this.reclaimAt(stale.gx, stale.gy).ok) return;
+    this.placeUnit(placement.gx, placement.gy, type);
+  }
+
+  private findAutoPlacement(): { gx: number; gy: number } | null {
     const center = w2gi(this.vip.x, this.vip.z);
     for (let radius = 2; radius <= 6; radius++) {
       for (const [dx, dy] of [[radius, 0], [-radius, 0], [0, radius], [0, -radius], [radius, radius], [-radius, radius], [radius, -radius], [-radius, -radius]]) {
         const gx = center.gx + dx;
         const gy = center.gy + dy;
-        if (this.canPlaceAt(gx, gy, false) && this.placeUnit(gx, gy, type).ok) return true;
+        if (this.canPlaceAt(gx, gy, false)) return { gx, gy };
       }
     }
-    return false;
+    return null;
   }
 
   private spawnUnitNearKing(type: EscortTdPieceType): boolean {
@@ -563,7 +592,7 @@ export class EscortTdRuntime {
       const range2 = def.range * def.range;
       for (const enemy of this.enemies) {
         if (enemy.dead) continue;
-        if (!this.isEnemyDetected(enemy)) continue;
+        if (!canEscortUnitAttackTarget(unit.type, this.isEnemyDetected(enemy))) continue;
         const dx = enemy.x - unit.wx;
         const dz = enemy.z - unit.wz;
         const d2 = dx * dx + dz * dz;

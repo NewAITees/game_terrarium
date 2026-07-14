@@ -112,3 +112,8 @@ export function getEscortDamageMultiplier(attacker: EscortTdPieceType, target: E
   };
   return multipliers[attacker][target];
 }
+
+// Mortar fire can barrage a known approach corridor without a tracked target.
+export function canEscortUnitAttackTarget(type: EscortTdPieceType, isDetected: boolean): boolean {
+  return isDetected || type === 'rook';
+}

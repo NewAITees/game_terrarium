@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   calculateEscortCoverage,
   calculateEscortResult,
+  canEscortUnitAttackTarget,
   getEscortDamageMultiplier,
   getEscortMetaMaxLevel,
   getEscortMetaUpgradeCost,
@@ -74,6 +75,13 @@ test('soft counters reward the intended unit without making targets immune', () 
   assert.equal(getEscortDamageMultiplier('pawn', 'air'), 2.1);
   assert.ok(getEscortDamageMultiplier('knight', 'air') > 0);
   assert.ok(getEscortDamageMultiplier('queen', 'siege') > 1);
+});
+
+test('only indirect Rook fire can engage outside of detection', () => {
+  assert.equal(canEscortUnitAttackTarget('rook', false), true);
+  assert.equal(canEscortUnitAttackTarget('bishop', false), false);
+  assert.equal(canEscortUnitAttackTarget('pawn', false), false);
+  assert.equal(canEscortUnitAttackTarget('bishop', true), true);
 });
 
 test('unit power increases damage and range while reducing attack intervals', () => {
