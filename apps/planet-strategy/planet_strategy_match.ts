@@ -53,6 +53,7 @@ export function createPlanetStrategyMatchRuntime(context: any) {
     if (empire.collapsed) return;
     empire.collapsed = true;
     empire.collapseReason = reason;
+    context.world.turningPoints.push({ second: Math.floor(context.world.time), type: 'empire_collapsed', empireId: empire.id, detail: `${empire.name} collapsed: ${reason}` });
     empire.intent = `collapsed: ${reason}`;
     const survivors = [];
     for (const ship of context.world.ships) {
@@ -90,12 +91,45 @@ export function createPlanetStrategyMatchRuntime(context: any) {
     context.world.endReason = reason;
     context.world.winnerId = winner?.id ?? null;
     context.world.finalScores = scores;
+    const runnerUp = scores.find((score: any) => score.id !== winner?.id);
+    const winnerEmpire = context.world.empires.find((empire: any) => empire.id === winner?.id);
+    const victory = winnerEmpire && winnerEmpire.stalledTime < 20
+      ? `${winner.name} kept its factories supplied when the sector tightened.`
+      : `${winner?.name ?? 'The surviving empire'} accumulated the strongest victory score.`;
+    const loser = context.world.empires.find((empire: any) => empire.collapsed) ?? context.world.empires.find((empire: any) => empire.id === runnerUp?.id);
+    const defeat = loser?.collapseReason
+      ? `${loser.name} fell because it ${loser.collapseReason}.`
+      : loser ? `${loser.name} could not match the winner's delivery and production pace.` : 'No decisive collapse occurred.';
     context.world.finalSummary = winner
-      ? `${winner.name} wins the sector through logistics efficiency.`
+      ? victory
       : 'No empire could secure the sector.';
-    context.world.finalDetail = busiest
+    context.world.finalDetail = `${defeat} ${busiest
       ? `Top lane: ${busiest.fromPlanetId} ⇄ ${busiest.toPlanetId}.`
-      : 'No stable route survived to the finish.';
+      : 'No stable route survived to the finish.'}`;
+    const result = {
+      matchId: `${Date.now()}-${context.world.cycleNumber}`,
+      cycleNumber: context.world.cycleNumber,
+      endedAt: Date.now(),
+      durationSeconds: Math.floor(context.world.time),
+      winnerEmpireId: winner?.id ?? null,
+      winnerName: winner?.name ?? null,
+      empireResults: context.world.empires.map((empire: any) => ({
+        empireId: empire.id,
+        empireName: empire.name,
+        victoryScore: Math.round(scores.find((score: any) => score.id === empire.id)?.total ?? 0),
+        delivered: Math.round(empire.delivered),
+        shipsProduced: empire.producedShips,
+        planetsControlled: context.world.planets.filter((planet: any) => planet.owner === empire.id).length,
+        factoryStalledSeconds: Math.round(empire.stalledTime),
+        collapsed: empire.collapsed,
+        collapseReason: empire.collapseReason,
+      })),
+      firstCollapsedEmpireId: context.world.empires.find((empire: any) => empire.collapsed)?.id ?? null,
+      depletedPlanetCount: context.world.planets.filter((planet: any) => planet.resources <= 0).length,
+      summary: victory,
+      detail: defeat,
+    };
+    context.onMatchComplete?.(result);
     context.maybeLog('match:end', context.world.finalSummary, 'empire', 999);
   }
 
@@ -157,6 +191,32 @@ export function createPlanetStrategyMatchRuntime(context: any) {
       depletedCount: context.world.planets.filter((planet: any) => planet.resources <= 0).length,
       nextWatch: watchability.nextWatch,
       causal: watchability.causal,
+      cycleNumber: context.world.cycleNumber,
+      autoRun: context.isAutoRun?.(),
+      doctrineRows: context.world.empires.map((empire: any) => ({
+        name: empire.name,
+        generation: empire.doctrineGeneration,
+        summary: `E${Math.round(empire.doctrine.expansionBias * 100)} L${Math.round(empire.doctrine.logisticsBias * 100)} S${Math.round(empire.doctrine.stockpileBias * 100)}`,
+      })),
+      historyRows: context.history?.() ?? [],
+      analysis: context.world.gameOver ? {
+        victory: context.world.finalSummary,
+        defeat: context.world.finalDetail,
+        mutation: context.lastMutation?.() ?? 'Awaiting the next cycle.',
+      } : undefined,
+      observatory: {
+        points: context.observationPoints?.() ?? 0,
+        world: context.world.worldModifier ? `${context.world.worldModifier.name}: ${context.world.worldModifier.description}` : 'Standard sector',
+        turningPoints: context.world.turningPoints.slice(-3).map((point: any) => `${point.second}s — ${point.detail}`),
+        charges: context.world.interventionCharges,
+        setup: context.setupLabel?.() ?? 'Random world · unlimited cycles',
+        lineage: context.lineageSummary?.() ?? [],
+      },
+      scoreTrend: context.world.empires.map((empire: any) => ({
+        name: empire.name,
+        color: empire.color,
+        values: [...context.world.telemetrySamples.map((sample: any) => sample.scores[empire.id] ?? 0), scores.find((score: any) => score.id === empire.id)?.total ?? 0],
+      })),
       scoreRows: scores.slice(0, 3).map((score: any) => ({
         name: score.name,
         collapsed: score.collapsed,
@@ -192,6 +252,25 @@ export function createPlanetStrategyMatchRuntime(context: any) {
         intent: empire.intent,
       };
     });
+    const second = Math.floor(context.world.time);
+    if (second > 0 && second % 10 === 0 && !context.world.telemetrySamples.some((sample: any) => sample.second === second)) {
+      const sampleScores = Object.fromEntries(scores.map((score: any) => [score.id, Math.round(score.total)]));
+      context.world.telemetrySamples.push({
+        second,
+        scores: sampleScores,
+        deliveries: Object.fromEntries(context.world.empires.map((empire: any) => [empire.id, Math.round(empire.delivered)])),
+        planets: Object.fromEntries(context.world.empires.map((empire: any) => [empire.id, context.world.planets.filter((planet: any) => planet.owner === empire.id).length])),
+      });
+      if (context.world.telemetrySamples.length > 1) {
+        const previous = context.world.telemetrySamples.at(-2);
+        const previousLeader = Object.entries(previous.scores).sort((a: any, b: any) => b[1] - a[1])[0]?.[0];
+        const currentLeader = Object.entries(sampleScores).sort((a: any, b: any) => b[1] - a[1])[0]?.[0];
+        if (previousLeader && currentLeader && previousLeader !== currentLeader) {
+          const empire = context.world.empires.find((entry: any) => String(entry.id) === currentLeader);
+          context.world.turningPoints.push({ second, type: 'score_lead_changed', empireId: empire?.id ?? null, detail: `${empire?.name ?? 'An empire'} took the score lead` });
+        }
+      }
+    }
     reportPlanetStrategyTelemetry({
       elapsed: Math.round(context.world.time),
       matchEndSeconds: context.matchEndSeconds,

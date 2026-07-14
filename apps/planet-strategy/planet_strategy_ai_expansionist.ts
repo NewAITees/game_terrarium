@@ -9,7 +9,7 @@ export const updateStrategy: PlanetStrategyAiStrategy = (empire, ctx) => {
   const ownedFacts  = world.planets.filter(p => p.owner === empire.id && p.structures.factory > 0);
   const activeMines = ownedMines.filter(m => m.resources > 0);
   const ref         = factory ?? getPlanet(empire.homeMineId);
-  const goal = pickGoal(rng, combineGoalWeights(baseGoalWeights(empire.personality), {
+  const goal = pickGoal(rng, combineGoalWeights(baseGoalWeights(empire.personality, empire.doctrine), {
     expand: activeMines.length < 4 || activeMines.some(m => m.resources / Math.max(m.maxResources, 1) < 0.5) ? 1.55 : 0.95,
     pressure: ownShips.length > 6 ? 1.15 : 0.9,
     stabilize: factory && factory.stock < 20 ? 1.3 : ownShips.length < 5 ? 1.1 : 0.95,
@@ -28,8 +28,8 @@ export const updateStrategy: PlanetStrategyAiStrategy = (empire, ctx) => {
       .filter(({ dist }) => dist <= (goal === 'expand' ? 300 : goal === 'pressure' ? 240 : 180))
       .sort((a, b) => {
         // 資源量も考慮してスコアリング（距離が近く資源が多い星を優先）
-        const scoreA = a.p.resources / Math.max(a.p.maxResources, 1) - a.dist / 600;
-        const scoreB = b.p.resources / Math.max(b.p.maxResources, 1) - b.dist / 600;
+        const scoreA = a.p.resources / Math.max(a.p.maxResources, 1) - a.dist / (420 + empire.doctrine.logisticsBias * 360) + empire.doctrine.expansionBias * 0.2;
+        const scoreB = b.p.resources / Math.max(b.p.maxResources, 1) - b.dist / (420 + empire.doctrine.logisticsBias * 360) + empire.doctrine.expansionBias * 0.2;
         return scoreB - scoreA;
       })[0]?.p;
     if (candidate) queueConstruction(empire, candidate, 'mine');

@@ -8,7 +8,7 @@ export const updateStrategy: PlanetStrategyAiStrategy = (empire, ctx) => {
   const ownedMines  = world.planets.filter(p => p.owner === empire.id && p.structures.mine > 0);
   const activeMines = ownedMines.filter(m => m.resources > 0);
   const ref         = factory ?? getPlanet(empire.homeMineId);
-  const goal = pickGoal(rng, combineGoalWeights(baseGoalWeights(empire.personality), {
+  const goal = pickGoal(rng, combineGoalWeights(baseGoalWeights(empire.personality, empire.doctrine), {
     expand: activeMines.length < 2 || activeMines.some(m => m.resources / Math.max(m.maxResources, 1) < 0.35) ? 1.1 : 0.8,
     pressure: ownShips.length > 4 ? 1.5 : 1.05,
     stabilize: factory && factory.stock < 20 ? 1.8 : ownShips.length < 5 ? 1.2 : 0.9,

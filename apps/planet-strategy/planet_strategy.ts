@@ -10,6 +10,7 @@ import { createPlanetStrategyMatchRuntime } from './planet_strategy_match.js';
 import { createPlanetStrategyEconomyRuntime } from './planet_strategy_economy.js';
 import { createPlanetStrategyCombatRuntime } from './planet_strategy_combat.js';
 import { createPlanetStrategyBootstrap } from './planet_strategy_bootstrap.js';
+import { createPlanetStrategyCycle } from './planet_strategy_cycle.js';
 import type {
   PlanetStrategyAiStrategy,
   PlanetStrategyInterventionType,
@@ -42,21 +43,29 @@ const ATTACK_RANGE = 200;
 
 const rng = mulberry32(Math.floor(Math.random() * 1e9));
 const ui = createPlanetStrategyUi();
+const cycle = createPlanetStrategyCycle();
+let activeWorldModifier = cycle.pickWorldModifier();
+let lastMutation = 'Doctrine changes are applied between cycles.';
 const {
   createCombatShip,
   createTransportShip,
   getEmpire,
   getPlanet,
   routeKey,
+  resetWorld,
   seedInitialRoutes,
   touchRoute,
   world,
 } = createPlanetStrategyBootstrap({
   colors: COLORS,
   distance3d,
+  getDoctrine: cycle.getDoctrine,
+  getGeneration: cycle.getGeneration,
+  getWorldModifier: () => activeWorldModifier,
   personalities: PERSONALITIES,
   rng,
 });
+world.cycleNumber = cycle.cycleNumber();
 const rendererView = createPlanetStrategyRenderer({ world, rng, getPlanet, distance3d, routeKey });
 const clock = new Clock();
 let aiTick = 0;
@@ -64,6 +73,8 @@ let mineTick = 0;
 let factoryTick = 0;
 let telemetryTick = 0;
 let attackTick = 0;
+let lowFpsMode = localStorage.getItem('planet-strategy-low-fps') === 'true';
+let lastRenderTime = 0;
 
 seedInitialRoutes(rendererView);
 logEvent('Planet strategy initialized. Logistics web coming online.', 'info');
@@ -177,7 +188,78 @@ const {
   rendererView,
   tieBreakDelta: TIE_BREAK_DELTA,
   ui,
+  history: cycle.history,
+  isAutoRun: cycle.isAutoRun,
+  setupLabel: () => {
+    const setup = cycle.setup();
+    const modifier = setup.selectedModifierId.replace('_', ' ');
+    return `${setup.worldMode === 'fixed' ? `Fixed: ${modifier}` : 'Random world'} · ${setup.maxCycles === null ? 'unlimited cycles' : `through C${setup.maxCycles}`}`;
+  },
+  lineageSummary: () => Object.values(cycle.lineages()).map((lineage) => `${lineage.name}: G${lineage.generation}, ${lineage.totalWins}W-${lineage.totalLosses}L`),
+  lastMutation: () => lastMutation,
+  onMatchComplete: (result) => {
+    const mutations = cycle.record(result);
+    lastMutation = mutations.length
+      ? mutations.map((mutation) => `${mutation.name} ${mutation.reason}.`).join(' ')
+      : 'No doctrine mutation was needed after this cycle.';
+    cycle.scheduleNext(startNextCycle);
+  },
   world,
+});
+
+function startNextCycle() {
+  if (!world.gameOver) return;
+  cycle.cancelScheduledNext();
+  rendererView.resetVisuals();
+  activeWorldModifier = cycle.pickWorldModifier();
+  resetWorld(cycle.cycleNumber());
+  aiTick = 0;
+  mineTick = 0;
+  factoryTick = 0;
+  telemetryTick = 0;
+  attackTick = 0;
+  seedInitialRoutes(rendererView);
+  logEvent(`Cycle ${world.cycleNumber} initialized. Empire lineages continue observing.`, 'info');
+  rendererView.updateVisuals(0);
+  updateHud();
+}
+
+window.addEventListener('planet-strategy-next-cycle', startNextCycle);
+window.addEventListener('planet-strategy-toggle-auto-run', () => {
+  const enabled = !cycle.isAutoRun();
+  cycle.setAutoRun(enabled);
+  if (!enabled) cycle.cancelScheduledNext();
+  if (enabled && world.gameOver) cycle.scheduleNext(startNextCycle);
+  updateHud();
+});
+window.addEventListener('planet-strategy-cycle-world-mode', () => { cycle.cycleWorldMode(); updateHud(); });
+window.addEventListener('planet-strategy-cycle-world', () => { cycle.cycleSelectedModifier(); updateHud(); });
+window.addEventListener('planet-strategy-cycle-limit', () => { cycle.cycleMaxCycles(); updateHud(); });
+window.addEventListener('planet-strategy-intervention', (event: Event) => {
+  if (world.gameOver || world.interventionCharges <= 0) return;
+  const type = (event as CustomEvent<{ type: PlanetStrategyInterventionType }>).detail?.type;
+  if (type === 'resource_burst') {
+    const target = [...world.planets].filter((planet) => planet.owner >= 0).sort((a, b) => a.stock - b.stock)[0];
+    if (!target) return;
+    target.stock += 80;
+    logEvent(`Observer injected 80 ore into ${target.label}.`, 'resource');
+  } else if (type === 'panic_repair') {
+    const target = world.planets.filter((planet) => planet.type === 'factory' && planet.stalled).sort((a, b) => a.stock - b.stock)[0];
+    if (!target) return;
+    target.stalled = false;
+    target.stock += 24;
+    logEvent(`Observer stabilized ${target.label} for a short recovery.`, 'resource');
+  } else if (type === 'route_jam') {
+    const route = [...world.routes.values()].sort((a, b) => b.traffic - a.traffic)[0];
+    if (!route) return;
+    route.hostileTimer = Math.max(route.hostileTimer ?? 0, 20);
+    logEvent(`Observer jammed ${route.fromPlanetId} ⇄ ${route.toPlanetId} for 20 seconds.`, 'warning');
+  } else return;
+  world.interventionCharges--;
+  updateHud();
+});
+window.addEventListener('planet-strategy-render-settings', (event: Event) => {
+  lowFpsMode = Boolean((event as CustomEvent<{ lowFps: boolean }>).detail?.lowFps);
 });
 
 function maybeLog(key, text, type, intervalSeconds) {
@@ -207,7 +289,12 @@ window.__planetStrategy = { world, computeVictoryScores, finalizeMatch };
 startAnimationFrameLoop({
   clock,
   step: (dt) => tick(dt),
-  render: () => rendererView.renderFrame(),
+  render: () => {
+    const now = performance.now();
+    if (lowFpsMode && now - lastRenderTime < 1000 / 20) return;
+    lastRenderTime = now;
+    rendererView.renderFrame();
+  },
 });
 
 // バックグラウンドタブでも動作するようにMessageChannelでループを補完

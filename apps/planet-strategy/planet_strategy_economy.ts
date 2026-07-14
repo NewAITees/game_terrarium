@@ -87,10 +87,12 @@ export function createPlanetStrategyEconomyRuntime(context: any) {
     ship.orbitAngle += dt * ship.orbitSpeed;
     const anchor = getOrbitAnchor(planet, ship);
     setShipPosition(ship, anchor);
-    if (ship.kind !== 'defender') {
-      ship.mesh.rotation.y = ship.orbitAngle + Math.PI / 2;
-    } else {
-      ship.mesh.rotation.y += dt * 1.2;
+    if (ship.mesh) {
+      if (ship.kind !== 'defender') {
+        ship.mesh.rotation.y = ship.orbitAngle + Math.PI / 2;
+      } else {
+        ship.mesh.rotation.y += dt * 1.2;
+      }
     }
     const hpFrac = ship.hp / Math.max(ship.maxHp, 1);
     const intensity = ship.status === 'engaging'

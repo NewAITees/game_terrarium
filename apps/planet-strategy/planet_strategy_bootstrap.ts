@@ -12,12 +12,16 @@ import type {
 export function createPlanetStrategyBootstrap({
   colors,
   distance3d,
+  getDoctrine = () => ({ expansionBias: 0.5, logisticsBias: 0.5, stockpileBias: 0.5, riskTolerance: 0.5, factoryPriority: 0.5, repairPriority: 0.5, routeDiversity: 0.5 }),
+  getGeneration = () => 1,
+  getWorldModifier = () => null,
   personalities,
   rng,
 }: any) {
   const world = createWorld();
 
   function createWorld() {
+    const worldModifier = getWorldModifier();
     const planets: PlanetStrategyPlanet[] = [];
     const empires: PlanetStrategyEmpire[] = [];
     const ships: PlanetStrategyShip[] = [];
@@ -40,7 +44,7 @@ export function createPlanetStrategyBootstrap({
       verticalRange: 120,
     });
     for (let i = 0; i < count; i++) {
-      const initialResources = 500 + Math.floor(rng() * 1000);
+      const initialResources = Math.round((500 + Math.floor(rng() * 1000)) * (worldModifier?.resourceMultiplier ?? 1));
       planets.push({
         id: `p${i}`,
         label: `P-${i + 1}`,
@@ -49,7 +53,7 @@ export function createPlanetStrategyBootstrap({
         z: positions[i].z,
         resources: initialResources,
         maxResources: initialResources,
-        mineRate: 4 + rng() * 6,
+        mineRate: (4 + rng() * 6) * (worldModifier?.mineRateMultiplier ?? 1),
         owner: -1,
         stock: 0,
         type: 'neutral',
@@ -99,6 +103,8 @@ export function createPlanetStrategyBootstrap({
         homeFactoryId: homeFactory.id,
         shipCap: 999,
         goal: 'stabilize',
+        doctrine: getDoctrine(config.name),
+        doctrineGeneration: getGeneration(config.name),
       };
       empires.push(empire);
 
@@ -128,6 +134,11 @@ export function createPlanetStrategyBootstrap({
       finalDetail: '',
       finalScores: [],
       oreFalloffStart: null,
+      cycleNumber: 1,
+      worldModifier: worldModifier ? { id: worldModifier.id, name: worldModifier.name, description: worldModifier.description } : null,
+      telemetrySamples: [],
+      turningPoints: [],
+      interventionCharges: 2,
     };
   }
 
@@ -369,12 +380,19 @@ export function createPlanetStrategyBootstrap({
     }
   }
 
+  function resetWorld(cycleNumber = 1) {
+    const next = createWorld();
+    Object.keys(world).forEach((key) => delete (world as any)[key]);
+    Object.assign(world, next, { cycleNumber });
+  }
+
   return {
     createCombatShip,
     createTransportShip,
     getEmpire,
     getPlanet,
     routeKey,
+    resetWorld,
     seedInitialRoutes,
     touchRoute,
     world,
