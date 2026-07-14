@@ -2,7 +2,7 @@ import { Clock, } from 'three';
 import {
   edgeKey,
   tickEdges,
-} from './network-core.js';
+} from '../../shared/network-core.js';
 import {
   applyPersonalitiesToRules,
   applyPersonalityToAgent,

@@ -57,8 +57,6 @@ export default defineConfig({
         'apps/planet-strategy/planet_strategy':
           resolve(__dirname, 'apps/planet-strategy/planet_strategy.ts'),
       },
-      // network-core.js is plain JS served by Express at runtime — keep external
-      external: ['./network-core.js'],
       output: {
         format: 'es',
         entryFileNames: '[name].js',
@@ -67,7 +65,6 @@ export default defineConfig({
     },
   },
 });
-
 
 
 

@@ -13,7 +13,7 @@ import {
   buildTopology,
   makeMats,
   tickEdges,
-} from './network-core.js';
+} from '../../shared/network-core.js';
 import {
   primeInitialEcology,
   updateCarnivoreSpawns,

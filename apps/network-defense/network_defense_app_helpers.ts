@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { findShortestPath } from './network-core.js';
+import { findShortestPath } from '../../shared/network-core.js';
 import {
   createAgent as createDefenseAgent,
   createPacket as createDefensePacket,
