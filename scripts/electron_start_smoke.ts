@@ -162,6 +162,16 @@ async function main(): Promise<void> {
     if (fatalError) throw fatalError;
     await assertStableLoad('colony');
 
+    await postElectronAction('switch_page', { page: 'arena_shooter' });
+    if (fatalError) throw fatalError;
+    await waitForState(
+      (state) => state.currentPage === 'arena_shooter' && state.lastLoadState?.status === 'loaded',
+      30000,
+      'RL arena shooter load',
+    );
+    if (fatalError) throw fatalError;
+    await assertStableLoad('arena_shooter');
+
     await postElectronAction('switch_page', { page: 'planet_strategy' });
     if (fatalError) throw fatalError;
     await waitForState((state) => state.currentPage === 'planet_strategy' && state.lastLoadState?.status === 'loaded', 30000, 'planet strategy load');
@@ -175,7 +185,7 @@ async function main(): Promise<void> {
       child.kill();
     }
     if (fatalError) {
-      throw fatalError;
+      throw new Error(`${fatalError.message}\n${lines.slice(-20).join('\n')}`);
     }
     if (exitCode !== null && exitCode !== 0) {
       throw new Error(`electron smoke exited with code ${exitCode}`);

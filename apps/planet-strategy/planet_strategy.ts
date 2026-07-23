@@ -203,16 +203,16 @@ const {
       ? mutations.map((mutation) => `${mutation.name} ${mutation.reason}.`).join(' ')
       : 'No doctrine mutation was needed after this cycle.';
     cycle.scheduleNext(startNextCycle);
+    if (cycle.isAutoRun()) logEvent('Auto Run will start the next cycle in 5 seconds.', 'info');
   },
   world,
 });
 
 function startNextCycle() {
   if (!world.gameOver) return;
-  cycle.cancelScheduledNext();
-  rendererView.resetVisuals();
   activeWorldModifier = cycle.pickWorldModifier();
   resetWorld(cycle.cycleNumber());
+  rendererView.resetVisuals();
   aiTick = 0;
   mineTick = 0;
   factoryTick = 0;
@@ -230,6 +230,7 @@ window.addEventListener('planet-strategy-toggle-auto-run', () => {
   cycle.setAutoRun(enabled);
   if (!enabled) cycle.cancelScheduledNext();
   if (enabled && world.gameOver) cycle.scheduleNext(startNextCycle);
+  if (enabled && world.gameOver) logEvent('Auto Run will start the next cycle in 5 seconds.', 'info');
   updateHud();
 });
 window.addEventListener('planet-strategy-cycle-world-mode', () => { cycle.cycleWorldMode(); updateHud(); });

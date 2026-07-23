@@ -15,6 +15,11 @@ export function createPlanetStrategyRenderVisuals(context: any) {
 
   shipVisuals.buildShipObjects();
 
+  function rebuildWorldVisuals(): void {
+    planetVisuals.rebuildSceneObjects();
+    shipVisuals.buildShipObjects();
+  }
+
   function triggerShipFlash(ship: any): void {
     const position = ship.mesh?.position?.clone?.();
     if (!position) return;
@@ -143,6 +148,7 @@ export function createPlanetStrategyRenderVisuals(context: any) {
     triggerPlanetFlash,
     triggerMissileHit,
     triggerShipFlash,
+    rebuildWorldVisuals,
     updateVisuals,
   };
 }

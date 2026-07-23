@@ -376,7 +376,18 @@ export function createPlanetStrategyPlanetVisuals(context: any) {
       }
     }
   }
-  return { updatePlanetVisuals };
+  return {
+    rebuildSceneObjects: () => {
+      homePlanetIds.clear();
+      for (const empire of context.world.empires) {
+        homePlanetIds.add(empire.homeFactoryId);
+        homePlanetIds.add(empire.homeMineId);
+      }
+      buildSceneObjects();
+      void hydrateStructureAssets();
+    },
+    updatePlanetVisuals,
+  };
 }
 
 export function createPlanetFlashEffect(planet: any, kind = 'damage') {

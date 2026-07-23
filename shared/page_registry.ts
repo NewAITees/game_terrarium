@@ -1,7 +1,7 @@
 export type PageLoadMode = 'file' | 'http';
 
 export type PageDefinition = {
-  number: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
+  number: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
   key: string;
   label: string;
   accelerator: string;
@@ -101,6 +101,15 @@ export const PAGE_REGISTRY = [
     htmlPath: 'apps/colony/colony.html',
     target: 'http://localhost:3000/colony.html',
   },
+  {
+    number: 10,
+    key: 'arena_shooter',
+    label: 'RL Arena Shooter',
+    accelerator: 'CmdOrCtrl+Shift+0',
+    loadMode: 'http',
+    htmlPath: 'apps/arena-shooter/arena_shooter.html',
+    target: 'http://localhost:3000/arena_shooter.html',
+  },
 ] as const satisfies readonly PageDefinition[];
 
 export type PageKey = (typeof PAGE_REGISTRY)[number]['key'];
@@ -118,7 +127,6 @@ export function isPageKey(value: string): value is PageKey {
 }
 
 export function describePage(page: { number: number; key: string; label: string }): string {
-  return `Ctrl+${page.number} / ${page.label} (${page.key})`;
+  return `${page.number === 10 ? 'Ctrl+Shift+0' : `Ctrl+${page.number}`} / ${page.label} (${page.key})`;
 }
-
 

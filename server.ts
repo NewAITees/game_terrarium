@@ -12,6 +12,7 @@ import { MossRuntime } from './game/moss_runtime';
 import { SubmarineCablesRuntime } from './game/submarine_cables_runtime';
 import { SubmarineNetwork3DRuntime } from './game/submarine_network_3d_runtime';
 import { EscortTdRuntime } from './game/escort_td_runtime';
+import { ArenaShooterSaveStore, type ArenaSaveBundle } from './game/arena_shooter_save_store';
 
 const PORT = Number.parseInt(process.env.GAME_TERRARIUM_PORT || process.env.PORT || '3000', 10) || 3000;
 const telemetry = new Map<string, any>();
@@ -292,7 +293,11 @@ function buildEscortAnalysis(snapshot: any): any {
     },
   };
 }
-export async function startServer(getElectronState: () => any, electronDispatch: ElectronDispatch): Promise<void> {
+export async function startServer(
+  getElectronState: () => any,
+  electronDispatch: ElectronDispatch,
+  userDataRoot = path.resolve(__dirname, '..', '.runtime-data'),
+): Promise<void> {
   const projectRoot = path.resolve(__dirname, '..');
   const shipJumpLogPath = path.join(projectRoot, 'logs', 'planet_strategy_ship_jumps.log');
   const engineModuleUrl = pathToFileURL(path.join(projectRoot, 'build-node', 'game', 'engine.js')).href;
@@ -305,6 +310,7 @@ export async function startServer(getElectronState: () => any, electronDispatch:
   const submarineCables = new SubmarineCablesRuntime();
   const submarineNetwork3D = new SubmarineNetwork3DRuntime();
   let escortTd = new EscortTdRuntime();
+  const arenaSaveStore = new ArenaShooterSaveStore(userDataRoot);
   const app = express();
 
   app.use((req, res, next) => {
@@ -316,6 +322,27 @@ export async function startServer(getElectronState: () => any, electronDispatch:
   });
   app.use(express.json());
   await mountBrowserAssetRoutes(app, projectRoot);
+
+  app.get('/api/game-terrarium/health', (_req, res) => {
+    res.json({ ok: true, service: 'game-terrarium', port: PORT });
+  });
+
+  app.get('/api/arena-shooter/save', async (_req, res) => {
+    try {
+      res.json({ ok: true, save: await arenaSaveStore.load() });
+    } catch (error) {
+      res.status(500).json({ ok: false, error: String(error) });
+    }
+  });
+
+  app.post('/api/arena-shooter/save', async (req, res) => {
+    try {
+      await arenaSaveStore.save(req.body as ArenaSaveBundle);
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(400).json({ ok: false, error: String(error) });
+    }
+  });
 
   app.get('/colony/state', (_req, res) => {
     res.json(telemetry.get('colony') || null);
@@ -506,16 +533,16 @@ export async function startServer(getElectronState: () => any, electronDispatch:
     ws.send(JSON.stringify({ type: 'state', state: game.getFullState() }));
   });
 
-  await new Promise<void>((resolve) => {
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
     server.listen(PORT, () => {
+      server.off('error', reject);
       console.log(`Game server:  http://localhost:${PORT}`);
       console.log(`Dungeon view: http://localhost:${PORT}/index.html`);
       resolve();
     });
   });
 }
-
-
 
 
 

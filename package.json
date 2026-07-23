@@ -14,6 +14,7 @@
     "sim:colony": "tsc -p tsconfig.node.json && node build-node/scripts/colony_headless_sim.js",
     "sim:planet-strategy": "tsc -p tsconfig.node.json && node build-node/scripts/planet_strategy_headless_sim.js",
     "sim:network-defense": "tsc -p tsconfig.node.json && node build-node/scripts/network_defense_headless_sim.js",
+    "sim:arena-shooter": "tsc -p tsconfig.node.json && node build-node/scripts/arena_shooter_headless_sim.js",
     "sim:all": "npm run sim:escort-td && npm run sim:roguelike && npm run sim:colony && npm run sim:planet-strategy && npm run sim:network-defense",
     "test:escort-td": "npm run build && node --test build-node/scripts/escort_td_rules.test.js",
     "test:apps": "npm run build && node --test build-node/scripts/apps_build.test.js",
@@ -24,7 +25,18 @@
     "smoke": "npm run typecheck && npm run check:dom && npm run test:apps",
     "prestart": "npm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit",
-    "start": "electron ."
+    "start": "electron .",
+    "start:city": "npm start -- --page=city",
+    "start:moss": "npm start -- --page=moss",
+    "start:escort-td": "npm start -- --page=escort_td",
+    "start:network-smallworld": "npm start -- --page=net_sw",
+    "start:planet-strategy": "npm start -- --page=planet_strategy",
+    "start:network-defense": "npm start -- --page=net_defense",
+    "start:network-ecosystem": "npm start -- --page=net_ecosystem",
+    "start:submarine-cables": "npm start -- --page=submarine",
+    "start:submarine-3d": "npm start -- --page=submarine_3d",
+    "start:colony": "npm start -- --page=colony",
+    "start:arena-shooter": "npm start -- --page=arena_shooter"
   },
   "devDependencies": {
     "@types/three": "^0.184.1",

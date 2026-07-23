@@ -84,6 +84,13 @@ const appBuildTargets: readonly AppBuildTarget[] = [
     bundle: 'build/apps/colony/colony.js',
     htmlModuleSrc: './colony.js',
   },
+  {
+    name: 'RL Arena Shooter',
+    source: 'apps/arena-shooter/arena_shooter.ts',
+    html: 'apps/arena-shooter/arena_shooter.html',
+    bundle: 'build/apps/arena-shooter/arena_shooter.js',
+    htmlModuleSrc: './arena_shooter.js',
+  },
 ];
 
 for (const app of appBuildTargets) {

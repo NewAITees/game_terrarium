@@ -137,7 +137,11 @@ export function createPlanetStrategyCycle() {
   function scheduleNext(start: () => void): void {
     if (!profile.autoRun) return;
     if (profile.maxCycles !== null && profile.cycleNumber > profile.maxCycles) return;
-    restartTimer = window.setTimeout(start, 30000);
+    cancelScheduledNext();
+    restartTimer = window.setTimeout(() => {
+      restartTimer = null;
+      start();
+    }, 5000);
   }
 
   function cancelScheduledNext(): void {

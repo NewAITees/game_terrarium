@@ -31,6 +31,7 @@ export function createPlanetStrategyRenderer({
     triggerPlanetFlash,
     triggerMissileHit,
     triggerShipFlash,
+    rebuildWorldVisuals,
     updateVisuals,
   } = createPlanetStrategyRenderVisuals({
     camera,
@@ -69,6 +70,7 @@ export function createPlanetStrategyRenderer({
       });
       group.clear();
     }
+    rebuildWorldVisuals();
   }
 
   return {

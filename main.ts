@@ -12,11 +12,21 @@ const ENABLE_GLOBAL_SHORTCUTS = process.env.ELECTRON_DISABLE_SHORTCUTS !== '1';
 const ENABLE_ALWAYS_ON_TOP = process.env.ELECTRON_ENABLE_ALWAYS_ON_TOP === '1' && !IS_DEBUG_MINIMAL;
 const ENABLE_ALL_WORKSPACES = process.env.ELECTRON_ENABLE_ALL_WORKSPACES === '1' && !IS_DEBUG_MINIMAL;
 const ENABLE_SERVER = process.env.ELECTRON_DISABLE_SERVER !== '1';
+const SERVER_PORT = Number.parseInt(process.env.GAME_TERRARIUM_PORT || process.env.PORT || '3000', 10) || 3000;
 
 let win: BrowserWindow | null = null;
-let currentPage: PageKey = 'city';
+const requestedPage = process.argv
+  .find((argument) => argument.startsWith('--page='))
+  ?.slice('--page='.length)
+  ?? process.env.GAME_TERRARIUM_PAGE
+  ?? '';
+const initialPage: PageKey = isPageKey(requestedPage) ? requestedPage : 'city';
+if (requestedPage && !isPageKey(requestedPage)) {
+  console.warn(`[page] unknown startup page "${requestedPage}", falling back to city`);
+}
+let currentPage: PageKey = initialPage;
 let lastLoadState: { page: PageKey; status: 'idle' | 'loading' | 'loaded' | 'failed'; error?: string } = {
-  page: 'city',
+  page: initialPage,
   status: 'idle',
 };
 let rendererErrors: Array<{ message: string; source: string; line: number }> = [];
@@ -42,10 +52,36 @@ function loadPage(pageKey: PageKey): void {
   currentPage = pageKey;
   rendererErrors = [];
   lastLoadState = { page: pageKey, status: 'loading' };
-  const target = page.target;
+  const targetUrl = new URL(page.target);
+  targetUrl.port = String(SERVER_PORT);
+  const target = targetUrl.toString();
   console.log(`[page] switching -> ${describePage(page)}: ${target}`);
   void win.loadURL(target);
   refreshMenu();
+}
+
+async function canReuseGameServer(): Promise<boolean> {
+  try {
+    const response = await fetch(`http://localhost:${SERVER_PORT}/api/game-terrarium/health`, {
+      signal: AbortSignal.timeout(800),
+    });
+    if (response.ok) {
+      const body = await response.json() as { service?: string };
+      if (body.service === 'game-terrarium') return true;
+    }
+  } catch {
+    // A previous build may not expose the health endpoint yet.
+  }
+  try {
+    const response = await fetch(`http://localhost:${SERVER_PORT}/electron/state`, {
+      signal: AbortSignal.timeout(800),
+    });
+    if (!response.ok) return false;
+    const body = await response.json() as { currentPage?: unknown };
+    return typeof body.currentPage === 'string';
+  } catch {
+    return false;
+  }
 }
 
 function refreshMenu(): void {
@@ -158,21 +194,30 @@ function createMainWindow(): void {
 
 app.whenReady().then(async () => {
   if (ENABLE_SERVER) {
-    try {
-      await startServer(
-        () => ({ currentPage, lastLoadState, rendererErrors }),
-        (type: string, payload: any) => {
-          if (type === 'switch_page') {
-            const page = String(payload?.page ?? '');
-            if (!isPageKey(page)) return { error: `unknown page: ${page}` };
-            loadPage(page);
-            return { currentPage };
-          }
-          return { error: `unknown action: ${type}` };
+    if (await canReuseGameServer()) {
+      console.log(`[server] reusing game server on port ${SERVER_PORT}`);
+    } else {
+      try {
+        await startServer(
+          () => ({ currentPage, lastLoadState, rendererErrors }),
+          (type: string, payload: any) => {
+            if (type === 'switch_page') {
+              const page = String(payload?.page ?? '');
+              if (!isPageKey(page)) return { error: `unknown page: ${page}` };
+              loadPage(page);
+              return { currentPage };
+            }
+            return { error: `unknown action: ${type}` };
+          },
+          app.getPath('userData')
+        );
+      } catch (error) {
+        if (isAddressInUse(error) && await canReuseGameServer()) {
+          console.log(`[server] another window claimed port ${SERVER_PORT}; reusing it`);
+        } else {
+          console.error('Failed to start server', error);
         }
-      );
-    } catch (error) {
-      console.error('Failed to start server', error);
+      }
     }
   }
 
@@ -188,6 +233,10 @@ app.whenReady().then(async () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
   });
 });
+
+function isAddressInUse(error: unknown): boolean {
+  return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'EADDRINUSE');
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

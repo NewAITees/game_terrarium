@@ -56,6 +56,8 @@ export default defineConfig({
           resolve(__dirname, 'apps/network-ecosystem/network_ecosystem.ts'),
         'apps/planet-strategy/planet_strategy':
           resolve(__dirname, 'apps/planet-strategy/planet_strategy.ts'),
+        'apps/arena-shooter/arena_shooter':
+          resolve(__dirname, 'apps/arena-shooter/arena_shooter.ts'),
       },
       output: {
         format: 'es',
@@ -65,7 +67,6 @@ export default defineConfig({
     },
   },
 });
-
 
 
 
