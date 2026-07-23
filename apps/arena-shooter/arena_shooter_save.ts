@@ -1,36 +1,66 @@
-import type { QLearningAgentSave } from './arena_shooter_agent.js';
-import {
-  DEFAULT_META,
-  createRunProgress,
-  type ArenaMetaProgress,
-  type ArenaRunProgress,
-} from './arena_shooter_progression.js';
+import type { ArenaMetaProgress } from './arena_shooter_progression.js';
 
 export type ArenaPersistentSave = {
-  schemaVersion: 1;
+  schemaVersion: 2;
   updatedAt: string;
-  meta: ArenaMetaProgress;
-  run: ArenaRunProgress;
-  agent: QLearningAgentSave;
-  episode: number;
-  wave: number;
-  waveTime: number;
-  score: number;
-  kills: number;
+  data: number;
+  damageResearch: number;
+  hullResearch: number;
 };
 
-const STORAGE_KEY = 'rl-arena-save-v1';
+type LegacyArenaSave = {
+  schemaVersion?: number;
+  updatedAt?: string;
+  meta?: Partial<ArenaMetaProgress>;
+};
 
-function loadLocalArenaSave(): ArenaPersistentSave | null {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<ArenaPersistentSave>;
-    if (parsed.schemaVersion !== 1 || !parsed.meta || !parsed.run || !parsed.agent) return null;
-    return parsed as ArenaPersistentSave;
-  } catch {
+const STORAGE_KEY = 'rl-arena-save-v2';
+const LEGACY_STORAGE_KEY = 'rl-arena-save-v1';
+let pendingSave: Promise<void> = Promise.resolve();
+
+function normalizeSave(value: unknown): ArenaPersistentSave | null {
+  if (!value || typeof value !== 'object') return null;
+  const candidate = value as Partial<ArenaPersistentSave> & LegacyArenaSave;
+  const source = candidate.schemaVersion === 2 ? candidate : candidate.meta;
+  if (!source) return null;
+  const data = Number(source.data);
+  const damageResearch = Number(source.damageResearch);
+  const hullResearch = Number(source.hullResearch);
+  if (![data, damageResearch, hullResearch].every((entry) => Number.isFinite(entry) && entry >= 0)) {
     return null;
   }
+  return {
+    schemaVersion: 2,
+    updatedAt: typeof candidate.updatedAt === 'string'
+      ? candidate.updatedAt
+      : new Date(0).toISOString(),
+    data: Math.floor(data),
+    damageResearch: Math.floor(damageResearch),
+    hullResearch: Math.floor(hullResearch),
+  };
+}
+
+function loadLocalArenaSave(): ArenaPersistentSave | null {
+  for (const key of [STORAGE_KEY, LEGACY_STORAGE_KEY]) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const save = normalizeSave(JSON.parse(raw));
+      if (save) return save;
+    } catch {
+      // Try the other storage generation.
+    }
+  }
+  return null;
+}
+
+function newestSave(
+  first: ArenaPersistentSave | null,
+  second: ArenaPersistentSave | null,
+): ArenaPersistentSave | null {
+  if (!first) return second;
+  if (!second) return first;
+  return Date.parse(first.updatedAt) >= Date.parse(second.updatedAt) ? first : second;
 }
 
 export async function loadArenaSave(): Promise<ArenaPersistentSave | null> {
@@ -38,42 +68,27 @@ export async function loadArenaSave(): Promise<ArenaPersistentSave | null> {
   try {
     const response = await fetch('/api/arena-shooter/save');
     if (!response.ok) return local;
-    const result = await response.json() as { ok?: boolean; save?: ArenaPersistentSave | null };
-    return result.save ?? local;
+    const result = await response.json() as { ok?: boolean; save?: unknown };
+    const selected = newestSave(local, normalizeSave(result.save));
+    if (selected) localStorage.setItem(STORAGE_KEY, JSON.stringify(selected));
+    return selected;
   } catch {
     return local;
   }
 }
 
-export async function saveArenaState(save: ArenaPersistentSave): Promise<void> {
+export function saveArenaState(save: ArenaPersistentSave): Promise<void> {
+  // localStorage is synchronous, so even Cmd+R retains the latest permanent state.
   localStorage.setItem(STORAGE_KEY, JSON.stringify(save));
-  try {
-    const response = await fetch('/api/arena-shooter/save', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(save),
+  pendingSave = pendingSave
+    .catch(() => undefined)
+    .then(async () => {
+      const response = await fetch('/api/arena-shooter/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(save),
+      });
+      if (!response.ok) throw new Error(`Arena save failed: ${response.status}`);
     });
-    if (response.ok) localStorage.removeItem(STORAGE_KEY);
-  } catch {
-    // Browser fallback remains available until the server accepts a later checkpoint.
-  }
-}
-
-export function sanitizeMeta(meta: Partial<ArenaMetaProgress> | undefined): ArenaMetaProgress {
-  return {
-    ...DEFAULT_META,
-    ...meta,
-  };
-}
-
-export function sanitizeRun(run: Partial<ArenaRunProgress> | undefined): ArenaRunProgress {
-  const fallback = createRunProgress();
-  return {
-    ...fallback,
-    ...run,
-    weapons: {
-      ...fallback.weapons,
-      ...run?.weapons,
-    },
-  };
+  return pendingSave;
 }

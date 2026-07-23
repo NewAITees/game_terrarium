@@ -11,40 +11,43 @@ import {
   canAscend,
 } from '../apps/arena-shooter/arena_shooter_progression';
 
-function fixture(wave: number, data: number): ArenaSaveBundle {
+function fixture(updatedAt: string, data: number): ArenaSaveBundle {
   return {
-    schemaVersion: 1,
-    updatedAt: '2026-07-23T00:00:00.000Z',
-    meta: { data },
-    run: { level: 4 },
-    agent: { version: 1, qTable: [] },
-    episode: 3,
-    wave,
-    waveTime: 2,
-    score: 1200,
-    kills: 8,
+    schemaVersion: 2,
+    updatedAt,
+    data,
+    damageResearch: 2,
+    hullResearch: 3,
   };
 }
 
-test('Arena save store round-trips split profile, run, and model files', async () => {
+test('Arena save store round-trips permanent currency and research only', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rl-arena-save-'));
   const store = new ArenaShooterSaveStore(root);
-  await store.save(fixture(12, 44));
+  await store.save(fixture('2026-07-23T00:00:00.000Z', 44));
   const loaded = await store.load();
-  assert.equal(loaded?.wave, 12);
-  assert.deepEqual(loaded?.meta, { data: 44 });
-  assert.deepEqual(loaded?.agent, { version: 1, qTable: [] });
+  assert.equal(loaded?.data, 44);
+  assert.equal(loaded?.damageResearch, 2);
+  assert.equal(loaded?.hullResearch, 3);
 });
 
 test('Arena save store falls back to the previous valid checkpoint', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rl-arena-backup-'));
   const store = new ArenaShooterSaveStore(root);
-  await store.save(fixture(10, 20));
-  await store.save(fixture(11, 30));
-  await fs.writeFile(path.join(root, 'rl-arena', 'run.json'), '{"broken":true}', 'utf8');
+  await store.save(fixture('2026-07-23T00:00:00.000Z', 20));
+  await store.save(fixture('2026-07-23T00:01:00.000Z', 30));
+  await fs.writeFile(path.join(root, 'rl-arena', 'profile.json'), '{"broken":true}', 'utf8');
   const loaded = await store.load();
-  assert.equal(loaded?.wave, 10);
-  assert.equal(loaded?.score, 1200);
+  assert.equal(loaded?.data, 20);
+});
+
+test('Arena save store rejects an older checkpoint', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'rl-arena-stale-'));
+  const store = new ArenaShooterSaveStore(root);
+  await store.save(fixture('2026-07-23T00:01:00.000Z', 44));
+  await store.save(fixture('2026-07-23T00:00:00.000Z', 12));
+  const loaded = await store.load();
+  assert.equal(loaded?.data, 44);
 });
 
 test('Ascension unlocks at wave 25 and compounds permanent combat power', () => {

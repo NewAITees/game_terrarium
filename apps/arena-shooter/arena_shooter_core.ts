@@ -79,6 +79,8 @@ export type ArenaObservation = {
 export type ArenaState = {
   width: number;
   height: number;
+  viewportWidth: number;
+  viewportHeight: number;
   craftPreference: CraftPreference;
   ship: Ship;
   enemies: Enemy[];
@@ -108,6 +110,7 @@ export type ArenaState = {
   fireRateLevel: number;
   projectileCountLevel: number;
   projectileSpeedLevel: number;
+  projectileInterceptLevel: number;
   turretTurnLevel: number;
   missileLevel: number;
   novaLevel: number;
@@ -205,6 +208,8 @@ export function createArenaState(width = 1280, height = 720): ArenaState {
   const state: ArenaState = {
     width,
     height,
+    viewportWidth: width,
+    viewportHeight: height,
     craftPreference: 'random',
     ship: createShip(width, height),
     enemies: [],
@@ -234,6 +239,7 @@ export function createArenaState(width = 1280, height = 720): ArenaState {
     fireRateLevel: 0,
     projectileCountLevel: 0,
     projectileSpeedLevel: 0,
+    projectileInterceptLevel: 1,
     turretTurnLevel: 0,
     missileLevel: 0,
     novaLevel: 0,
@@ -261,10 +267,20 @@ function createShip(width: number, height: number): Ship {
 }
 
 export function resizeArena(state: ArenaState, width: number, height: number): void {
-  state.width = width;
-  state.height = height;
-  state.ship.x = clamp(state.ship.x, 30, width - 30);
-  state.ship.y = clamp(state.ship.y, 30, height - 30);
+  state.viewportWidth = Math.max(1, width);
+  state.viewportHeight = Math.max(1, height);
+}
+
+export function getArenaCamera(state: ArenaState): { x: number; y: number; width: number; height: number } {
+  const width = state.viewportWidth;
+  const height = state.viewportHeight;
+  const x = state.width <= width
+    ? (state.width - width) / 2
+    : clamp(state.ship.x - width / 2, 0, state.width - width);
+  const y = state.height <= height
+    ? (state.height - height) / 2
+    : clamp(state.ship.y - height / 2, 0, state.height - height);
+  return { x, y, width, height };
 }
 
 export function prepareArenaWave(state: ArenaState): void {
@@ -537,7 +553,7 @@ export function stepArena(state: ArenaState, action: ArenaAction, dt: number): A
       killedValues.push(value);
       burst(state, enemy.x, enemy.y, enemy.kind === 'brute' ? '#ff8c42' : '#ff4d8d', 18, 170);
       if (ship.invulnerability <= 0) {
-        ship.hp -= enemy.kind === 'brute' ? 18 : 10;
+        ship.hp -= enemy.kind === 'brute' ? 30 : enemy.kind === 'gunner' ? 20 : 16;
         ship.invulnerability = 0.5;
         state.shake = 7;
         reward -= 2.2;
@@ -550,6 +566,29 @@ export function stepArena(state: ArenaState, action: ArenaAction, dt: number): A
     projectile.x += projectile.vx * dt;
     projectile.y += projectile.vy * dt;
     projectile.life -= dt;
+  }
+
+  if (state.projectileInterceptLevel > 0) {
+    const interceptBonus = (state.projectileInterceptLevel - 1) * 2.5;
+    const friendly = state.projectiles.filter((projectile) => !projectile.hostile && projectile.life > 0);
+    const hostile = state.projectiles.filter((projectile) => projectile.hostile && projectile.life > 0);
+    for (const shot of friendly) {
+      if (shot.life <= 0) continue;
+      for (const threat of hostile) {
+        if (threat.life <= 0) continue;
+        const collisionRadius = shot.radius + threat.radius + interceptBonus;
+        if (!movingProjectilesCollide(shot, threat, dt, collisionRadius)) continue;
+        shot.life = 0;
+        threat.life = 0;
+        reward += 0.12;
+        burst(state, (shot.x + threat.x) / 2, (shot.y + threat.y) / 2, '#9ffcff', 8, 105);
+        break;
+      }
+    }
+  }
+
+  for (const projectile of state.projectiles) {
+    if (projectile.life <= 0) continue;
     if (projectile.hostile) {
       if (distanceSq(projectile, ship) < (projectile.radius + ship.radius) ** 2 && ship.invulnerability <= 0) {
         projectile.life = 0;
@@ -606,6 +645,25 @@ export function stepArena(state: ArenaState, action: ArenaAction, dt: number): A
   state.lastReward = reward;
   state.episodeReward += reward;
   return { reward, killedValues, waveAdvanced };
+}
+
+function movingProjectilesCollide(
+  first: Projectile,
+  second: Projectile,
+  dt: number,
+  collisionRadius: number,
+): boolean {
+  const startX = (first.x - first.vx * dt) - (second.x - second.vx * dt);
+  const startY = (first.y - first.vy * dt) - (second.y - second.vy * dt);
+  const movementX = (first.vx - second.vx) * dt;
+  const movementY = (first.vy - second.vy) * dt;
+  const movementSq = movementX * movementX + movementY * movementY;
+  const closestTime = movementSq > 0
+    ? Math.max(0, Math.min(1, -(startX * movementX + startY * movementY) / movementSq))
+    : 0;
+  const closestX = startX + movementX * closestTime;
+  const closestY = startY + movementY * closestTime;
+  return closestX * closestX + closestY * closestY <= collisionRadius * collisionRadius;
 }
 
 export function resetEpisode(state: ArenaState): void {

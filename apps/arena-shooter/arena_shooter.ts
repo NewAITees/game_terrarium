@@ -2,6 +2,7 @@ import { QLearningAgent } from './arena_shooter_agent.js';
 import {
   createArenaState,
   craftLabel,
+  getArenaCamera,
   observeArena,
   prepareArenaWave,
   resetEpisode,
@@ -28,7 +29,7 @@ import {
   type ArenaRunProgress,
   type UpgradeChoice,
 } from './arena_shooter_progression.js';
-import { loadArenaSave, sanitizeMeta, sanitizeRun, saveArenaState } from './arena_shooter_save.js';
+import { loadArenaSave, saveArenaState } from './arena_shooter_save.js';
 import { renderArena } from './arena_shooter_render.js';
 
 const canvas = requireElement<HTMLCanvasElement>('arena');
@@ -36,22 +37,17 @@ const context = canvas.getContext('2d');
 if (!context) throw new Error('Canvas 2D context is unavailable');
 
 const loaded = await loadArenaSave();
-const state = createArenaState(window.innerWidth, window.innerHeight);
+const state = createArenaState(1600, 900);
 const craftPreference = loadCraftPreference();
 setCraftPreference(state, craftPreference);
 const agent = new QLearningAgent();
-let meta: ArenaMetaProgress = loaded ? sanitizeMeta(loaded.meta) : { ...DEFAULT_META };
-let run: ArenaRunProgress = loaded ? sanitizeRun(loaded.run) : createRunProgress();
-if (loaded) {
-  agent.restore(loaded.agent);
-}
-if (loaded) {
-  state.episode = Math.max(1, loaded.episode);
-  state.wave = Math.max(1, loaded.wave);
-  prepareArenaWave(state);
-  state.score = Math.max(0, loaded.score);
-  state.kills = Math.max(0, loaded.kills);
-}
+let meta: ArenaMetaProgress = {
+  ...DEFAULT_META,
+  data: loaded?.data ?? DEFAULT_META.data,
+  damageResearch: loaded?.damageResearch ?? DEFAULT_META.damageResearch,
+  hullResearch: loaded?.hullResearch ?? DEFAULT_META.hullResearch,
+};
+let run: ArenaRunProgress = createRunProgress();
 let previousTime = performance.now();
 let accumulatedReward = 0;
 let paused = false;
@@ -91,12 +87,14 @@ const ui = {
   weaponRate: requireElement<HTMLElement>('weapon-rate'),
   weaponProjectiles: requireElement<HTMLElement>('weapon-projectiles'),
   weaponVelocity: requireElement<HTMLElement>('weapon-velocity'),
+  weaponIntercept: requireElement<HTMLElement>('weapon-intercept'),
   weaponTurret: requireElement<HTMLElement>('weapon-turret'),
   weaponMissile: requireElement<HTMLElement>('weapon-missile'),
   weaponNova: requireElement<HTMLElement>('weapon-nova'),
   lastUpgrade: requireElement<HTMLElement>('last-upgrade'),
   upgradePanel: requireElement<HTMLElement>('upgrade-panel'),
   upgradeButtons: requireElement<HTMLElement>('upgrade-buttons'),
+  upgradeCountdown: requireElement<HTMLElement>('upgrade-countdown'),
   banner: requireElement<HTMLElement>('banner'),
   damageResearch: requireElement<HTMLButtonElement>('research-damage'),
   hullResearch: requireElement<HTMLButtonElement>('research-hull'),
@@ -153,6 +151,7 @@ function frame(now: number): void {
   ui.banner.dataset.open = String(bannerTimer > 0);
   renderArena(context, state, observation, decision);
   updateHud(decision.action.label, decision.exploratory, observation);
+  updatePanelOcclusion();
   requestAnimationFrame(frame);
 }
 
@@ -161,6 +160,7 @@ function configureShipFromProgress(): void {
   state.fireRateLevel = run.fireRateLevel;
   state.projectileCountLevel = run.projectileCountLevel;
   state.projectileSpeedLevel = run.projectileSpeedLevel;
+  state.projectileInterceptLevel = run.projectileInterceptLevel;
   state.turretTurnLevel = run.turretTurnLevel;
   state.missileLevel = run.weapons.missile;
   state.novaLevel = run.weapons.nova;
@@ -182,13 +182,17 @@ function processUpgrade(dt: number): void {
   }
   if (!upgradeChoices.length) {
     upgradeChoices = getUpgradeChoices(run, state.ship.craftType);
-    const selection = agent.chooseUpgrade(state.ship.craftType, upgradeChoices, state.wave);
-    upgradeSelection = selection.choice;
-    upgradeTimer = 0.8;
+    upgradeSelection = null;
+    upgradeTimer = 3;
     renderUpgradeChoices();
   }
   upgradeTimer -= dt;
-  if (upgradeTimer <= 0 && upgradeSelection) chooseUpgrade(upgradeSelection);
+  ui.upgradeCountdown.textContent = `HUMAN WINDOW ${Math.max(0, upgradeTimer).toFixed(1)}s`;
+  if (upgradeTimer <= 0 && !upgradeSelection) {
+    const selection = agent.chooseUpgrade(state.ship.craftType, upgradeChoices, state.wave);
+    upgradeSelection = selection.choice;
+    chooseUpgrade(upgradeSelection);
+  }
 }
 
 function renderUpgradeChoices(): void {
@@ -198,18 +202,20 @@ function renderUpgradeChoices(): void {
     const button = document.createElement('button');
     button.type = 'button';
     button.innerHTML = `<b>${choice.label}</b><span>${choice.description}</span>`;
-    button.disabled = true;
+    button.disabled = false;
     button.dataset.selected = String(choice === upgradeSelection);
+    button.addEventListener('click', () => chooseUpgrade(choice));
     ui.upgradeButtons.append(button);
   }
 }
 
 function chooseUpgrade(choice: UpgradeChoice): void {
+  if (!upgradeChoices.includes(choice)) return;
+  upgradeChoices = [];
+  upgradeSelection = null;
   applyUpgrade(run, choice, () => {
     state.ship.hp = Math.min(state.ship.maxHp, state.ship.hp + state.ship.maxHp * 0.3);
   });
-  upgradeChoices = [];
-  upgradeSelection = null;
   showBanner(choice.label);
   persist();
 }
@@ -228,16 +234,11 @@ function finishEpisode(): void {
 
 function persist(): void {
   void saveArenaState({
-    schemaVersion: 1,
+    schemaVersion: 2,
     updatedAt: new Date().toISOString(),
-    meta,
-    run,
-    agent: agent.serialize(),
-    episode: state.episode,
-    wave: state.wave,
-    waveTime: state.waveTime,
-    score: state.score,
-    kills: state.kills,
+    data: meta.data,
+    damageResearch: meta.damageResearch,
+    hullResearch: meta.hullResearch,
   });
 }
 
@@ -285,6 +286,7 @@ function updateHud(actionLabel: string, exploratory: boolean, observation: Arena
   const pulseCount = Math.min(5, 1 + Math.floor((run.projectileCountLevel + 1) / 2));
   ui.weaponProjectiles.textContent = `Lv.${run.projectileCountLevel} · ${pulseCount} ${pulseCount % 2 ? 'ODD' : 'EVEN'}`;
   ui.weaponVelocity.textContent = `Lv.${run.projectileSpeedLevel}`;
+  ui.weaponIntercept.textContent = 'STANDARD · ACTIVE';
   ui.weaponTurret.textContent = `Lv.${run.turretTurnLevel}`;
   ui.weaponMissile.textContent = run.weapons.missile ? `Mk.${run.weapons.missile}` : 'LOCKED';
   ui.weaponNova.textContent = run.weapons.nova ? `Mk.${run.weapons.nova}` : 'LOCKED';
@@ -304,6 +306,21 @@ function updateResearchButton(button: HTMLButtonElement, label: string, level: n
   const cost = researchCost(level);
   button.textContent = `${label} Lv.${level} — ${formatIncremental(cost)} DATA`;
   button.disabled = meta.data < cost;
+}
+
+function updatePanelOcclusion(): void {
+  const camera = getArenaCamera(state);
+  const shipX = state.ship.x - camera.x;
+  const shipY = state.ship.y - camera.y;
+  const margin = 28;
+  for (const panel of document.querySelectorAll<HTMLElement>('.panel')) {
+    const rect = panel.getBoundingClientRect();
+    const overlaps = shipX >= rect.left - margin
+      && shipX <= rect.right + margin
+      && shipY >= rect.top - margin
+      && shipY <= rect.bottom + margin;
+    panel.dataset.shipOverlap = String(overlaps);
+  }
 }
 
 function signed(value: number): string {
@@ -326,6 +343,17 @@ ui.pause.addEventListener('click', () => {
   ui.pause.textContent = paused ? '再開' : '一時停止';
   ui.pause.dataset.active = String(paused);
 });
+for (const button of document.querySelectorAll<HTMLButtonElement>('.drawer-toggle')) {
+  button.addEventListener('click', () => {
+    const panel = button.closest<HTMLElement>('.panel');
+    if (!panel) return;
+    const willOpen = panel.dataset.drawerOpen !== 'true';
+    for (const other of document.querySelectorAll<HTMLElement>('[data-drawer-open]')) {
+      other.dataset.drawerOpen = 'false';
+    }
+    panel.dataset.drawerOpen = String(willOpen);
+  });
+}
 ui.craftSelect.addEventListener('change', () => {
   const preference = ui.craftSelect.value as CraftPreference;
   localStorage.setItem('rl-arena-craft-preference', preference);
@@ -378,7 +406,7 @@ resize();
 configureShipFromProgress();
 showBanner(
   loaded
-    ? `SAVE RESTORED — WAVE ${state.wave}`
+    ? 'PERMANENT RESEARCH RESTORED'
     : 'LIVE RUN START',
 );
 requestAnimationFrame(frame);

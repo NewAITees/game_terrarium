@@ -3,9 +3,11 @@ import { QLearningAgent } from '../apps/arena-shooter/arena_shooter_agent';
 import {
   ACTIONS,
   createArenaState,
+  getArenaCamera,
   isActionAllowed,
   observeArena,
   resetEpisode,
+  resizeArena,
   setCraftPreference,
   stepArena,
 } from '../apps/arena-shooter/arena_shooter_core';
@@ -138,6 +140,17 @@ assert.ok(Math.hypot(physicsState.ship.vx, physicsState.ship.vy) <= 270.0001, 'c
 const motionObservation = observeArena(physicsState);
 assert.equal(motionObservation.velocitySector, 0, 'velocity direction should be observable relative to the hull');
 assert.equal(motionObservation.speedBand, 2, 'high speed should be observable');
+
+const cameraState = createArenaState(1600, 900);
+resizeArena(cameraState, 600, 400);
+assert.equal(cameraState.width, 1600, 'window resizing must not change world width');
+assert.equal(cameraState.height, 900, 'window resizing must not change world height');
+assert.deepEqual(getArenaCamera(cameraState), { x: 500, y: 250, width: 600, height: 400 }, 'small viewports should follow the ship');
+cameraState.ship.x = 100;
+cameraState.ship.y = 100;
+assert.deepEqual(getArenaCamera(cameraState), { x: 0, y: 0, width: 600, height: 400 }, 'camera should preserve fixed world edges');
+resizeArena(cameraState, 1800, 1000);
+assert.deepEqual(getArenaCamera(cameraState), { x: -100, y: -50, width: 1800, height: 1000 }, 'large viewports should center the fixed world');
 
 const edgeState = createArenaState(800, 600);
 edgeState.ship.x = 35;

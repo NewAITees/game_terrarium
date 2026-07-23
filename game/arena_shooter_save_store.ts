@@ -9,16 +9,20 @@ type StoredEnvelope = {
 };
 
 export type ArenaSaveBundle = {
-  schemaVersion: 1;
+  schemaVersion: 2;
   updatedAt: string;
-  meta: unknown;
-  run: unknown;
-  agent: unknown;
-  episode: number;
-  wave: number;
-  waveTime: number;
-  score: number;
-  kills: number;
+  data: number;
+  damageResearch: number;
+  hullResearch: number;
+};
+
+type LegacyProfile = {
+  updatedAt?: string;
+  meta?: {
+    data?: number;
+    damageResearch?: number;
+    hullResearch?: number;
+  };
 };
 
 export class ArenaShooterSaveStore {
@@ -29,39 +33,28 @@ export class ArenaShooterSaveStore {
   }
 
   async load(): Promise<ArenaSaveBundle | null> {
-    const profile = await this.readWithBackup('profile.json');
-    const run = await this.readWithBackup('run.json');
-    const model = await this.readWithBackup(path.join('models', 'training.json'));
-    if (!profile || !run || !model) return null;
-    const profileData = profile as Pick<ArenaSaveBundle, 'schemaVersion' | 'updatedAt' | 'meta'>;
-    const runData = run as Omit<ArenaSaveBundle, 'schemaVersion' | 'updatedAt' | 'meta' | 'agent'>;
-    return {
-      schemaVersion: 1,
-      updatedAt: profileData.updatedAt,
-      meta: profileData.meta,
-      ...runData,
-      agent: model,
+    const stored = await this.readWithBackup('profile.json');
+    if (!stored || typeof stored !== 'object') return null;
+    const value = stored as Partial<ArenaSaveBundle> & LegacyProfile;
+    if (value.schemaVersion === 2) {
+      return isValidSave(value) ? value as ArenaSaveBundle : null;
+    }
+    const migrated = {
+      schemaVersion: 2 as const,
+      updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : new Date(0).toISOString(),
+      data: Number(value.meta?.data),
+      damageResearch: Number(value.meta?.damageResearch),
+      hullResearch: Number(value.meta?.hullResearch),
     };
+    return isValidSave(migrated) ? migrated : null;
   }
 
   async save(bundle: ArenaSaveBundle): Promise<void> {
-    validateBundle(bundle);
-    await fs.mkdir(path.join(this.root, 'models'), { recursive: true });
+    if (!isValidSave(bundle)) throw new Error('invalid arena permanent save');
     await fs.mkdir(path.join(this.root, 'backups'), { recursive: true });
-    await this.atomicWrite('profile.json', {
-      schemaVersion: 1,
-      updatedAt: bundle.updatedAt,
-      meta: bundle.meta,
-    });
-    await this.atomicWrite('run.json', {
-      run: bundle.run,
-      episode: bundle.episode,
-      wave: bundle.wave,
-      waveTime: bundle.waveTime,
-      score: bundle.score,
-      kills: bundle.kills,
-    });
-    await this.atomicWrite(path.join('models', 'training.json'), bundle.agent);
+    const current = await this.load();
+    if (current && Date.parse(current.updatedAt) > Date.parse(bundle.updatedAt)) return;
+    await this.atomicWrite('profile.json', bundle);
   }
 
   private async atomicWrite(relativePath: string, payload: unknown): Promise<void> {
@@ -96,7 +89,7 @@ export class ArenaShooterSaveStore {
 
   private async readEnvelope(filePath: string): Promise<unknown> {
     const source = await fs.readFile(filePath, 'utf8');
-    if (source.length > 8 * 1024 * 1024) throw new Error('arena save exceeds 8 MiB');
+    if (source.length > 1024 * 1024) throw new Error('arena save exceeds 1 MiB');
     const envelope = JSON.parse(source) as Partial<StoredEnvelope>;
     if (envelope.schemaVersion !== 1 || typeof envelope.checksum !== 'string') {
       throw new Error('invalid arena save envelope');
@@ -104,6 +97,14 @@ export class ArenaShooterSaveStore {
     if (checksum(envelope.payload) !== envelope.checksum) throw new Error('arena save checksum mismatch');
     return envelope.payload;
   }
+}
+
+function isValidSave(value: Partial<ArenaSaveBundle>): boolean {
+  return value.schemaVersion === 2
+    && typeof value.updatedAt === 'string'
+    && Number.isFinite(Date.parse(value.updatedAt))
+    && [value.data, value.damageResearch, value.hullResearch]
+      .every((entry) => Number.isFinite(entry) && Number(entry) >= 0);
 }
 
 function createEnvelope(payload: unknown): StoredEnvelope {
@@ -116,14 +117,6 @@ function createEnvelope(payload: unknown): StoredEnvelope {
 
 function checksum(payload: unknown): string {
   return createHash('sha256').update(JSON.stringify(payload)).digest('hex');
-}
-
-function validateBundle(bundle: ArenaSaveBundle): void {
-  if (bundle.schemaVersion !== 1) throw new Error('unsupported arena save schema');
-  if (!bundle.meta || !bundle.run || !bundle.agent) throw new Error('arena save sections are required');
-  for (const value of [bundle.episode, bundle.wave, bundle.waveTime, bundle.score, bundle.kills]) {
-    if (!Number.isFinite(value) || value < 0) throw new Error('arena save contains invalid numeric state');
-  }
 }
 
 function isMissing(error: unknown): boolean {

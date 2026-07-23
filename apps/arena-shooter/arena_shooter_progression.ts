@@ -23,6 +23,7 @@ export type ArenaRunProgress = {
   fireRateLevel: number;
   projectileCountLevel: number;
   projectileSpeedLevel: number;
+  projectileInterceptLevel: number;
   turretTurnLevel: number;
   pendingUpgrades: number;
   lastUpgradeLabel: string;
@@ -56,6 +57,7 @@ export function createRunProgress(): ArenaRunProgress {
     fireRateLevel: 0,
     projectileCountLevel: 0,
     projectileSpeedLevel: 0,
+    projectileInterceptLevel: 1,
     turretTurnLevel: 0,
     pendingUpgrades: 0,
     lastUpgradeLabel: 'PULSE Mk.1',

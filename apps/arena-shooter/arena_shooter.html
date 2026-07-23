@@ -5,15 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>RL ARENA // 360° SHOOTER</title>
   <style>
-    :root { color-scheme: dark; --cyan: #5df4ff; --pink: #ff477e; --panel: rgba(5, 11, 22, .82); }
+    :root { color-scheme: dark; --cyan: #5df4ff; --pink: #ff477e; --panel: rgba(5, 11, 22, .66); }
     * { box-sizing: border-box; }
     html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #03050b; }
     body { color: #d9edf4; font-family: "SF Mono", Menlo, Consolas, monospace; }
     canvas { display: block; width: 100%; height: 100%; }
     .panel {
       position: fixed; border: 1px solid rgba(98, 191, 220, .25); border-radius: 12px;
-      background: var(--panel); backdrop-filter: blur(12px); box-shadow: 0 12px 40px rgba(0,0,0,.35);
+      background: var(--panel); backdrop-filter: blur(8px); box-shadow: 0 12px 40px rgba(0,0,0,.35);
+      transition: opacity .16s ease, background-color .16s ease, transform .2s ease;
     }
+    .panel[data-ship-overlap="true"] { opacity: .38; background: rgba(5, 11, 22, .14); backdrop-filter: none; }
     #header { top: 16px; left: 18px; right: 18px; display: flex; align-items: center; gap: 22px; padding: 11px 15px; }
     .brand { display: grid; gap: 2px; min-width: 210px; }
     .brand strong { color: var(--cyan); font-size: 14px; letter-spacing: .15em; text-shadow: 0 0 18px rgba(93,244,255,.55); }
@@ -80,16 +82,46 @@
       box-shadow: 0 0 35px rgba(93,244,255,.15);
     }
     #banner[data-open="true"] { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-    #legend { left: 250px; bottom: 18px; padding: 10px 13px; color: #66879a; font-size: 9px; line-height: 1.7; letter-spacing: .06em; }
+    #legend { left: 18px; bottom: 18px; padding: 10px 13px; color: #66879a; font-size: 9px; line-height: 1.7; letter-spacing: .06em; }
     #legend b { color: #a9c6d3; }
     .enemy-key { display: inline-block; width: 7px; height: 7px; margin: 0 4px 0 10px; transform: rotate(45deg); }
-    @media (max-width: 800px) {
-      #header { gap: 12px; }
-      .brand { min-width: 150px; }
-      #health { display: none; }
-      #agent-panel { top: 80px; width: 190px; }
-      #progress-panel, #weapon-panel { display: none; }
-      #upgrade-panel { width: calc(100vw - 32px); }
+    .drawer-toggle {
+      display: none; position: absolute; z-index: 3; width: 30px; height: 48px;
+      border: 1px solid rgba(93,244,255,.3); border-radius: 7px; padding: 0;
+      color: #9bdbe7; background: rgba(7,20,34,.92); font: inherit; cursor: pointer;
+    }
+    @media (max-width: 900px) {
+      #header { top: 8px; left: 8px; right: 8px; gap: 10px; padding: 8px 10px; }
+      .brand { min-width: 118px; }
+      .brand small { display: none; }
+      .optional-metric { display: none; }
+      #health { grid-template-columns: minmax(76px, 120px) auto; }
+      .drawer-toggle { display: block; }
+      #progress-panel {
+        top: 72px; left: 0; bottom: auto; max-height: calc(100vh - 84px); overflow-y: auto;
+        transform: translateX(calc(-100% + 32px));
+      }
+      #progress-panel[data-drawer-open="true"] { transform: translateX(8px); }
+      #progress-panel .drawer-toggle { right: 0; top: 42px; }
+      #agent-panel {
+        top: 72px; right: 0; max-height: calc(100vh - 84px); overflow-y: auto;
+        transform: translateX(calc(100% - 32px));
+      }
+      #agent-panel[data-drawer-open="true"] { transform: translateX(-8px); }
+      #agent-panel .drawer-toggle { left: 0; top: 42px; }
+      #weapon-panel {
+        left: 0; bottom: 8px; transform: translateX(calc(-100% + 32px));
+      }
+      #weapon-panel[data-drawer-open="true"] { transform: translateX(8px); }
+      #weapon-panel .drawer-toggle { right: 0; bottom: 18px; }
+      #legend { display: none; }
+      #upgrade-panel { width: calc(100vw - 48px); bottom: 12px; }
+    }
+    @media (max-width: 560px) {
+      #header { flex-wrap: wrap; }
+      #health { order: 5; flex-basis: 100%; }
+      .metric b { font-size: 12px; }
+      #upgrade-buttons { grid-template-columns: 1fr; max-height: 42vh; overflow-y: auto; }
     }
   </style>
 </head>
@@ -101,15 +133,16 @@
       <small><span id="runtime-mode">LIVE EVOLUTION</span> · AUTONOMOUS 360° COMBAT</small>
     </div>
     <div id="health"><div id="health-track"><div id="hp-fill"></div></div><span id="hp-text">100 / 100</span></div>
-    <div class="metric accent"><label>score</label><b id="score">0</b></div>
-    <div class="metric"><label>kills</label><b id="kills">0</b></div>
+    <div class="metric accent optional-metric"><label>score</label><b id="score">0</b></div>
+    <div class="metric optional-metric"><label>kills</label><b id="kills">0</b></div>
     <div class="metric"><label>wave</label><b id="wave">1</b></div>
-    <div class="metric"><label>cycle</label><b id="cycle">1/5</b></div>
-    <div class="metric"><label>episode</label><b id="episode">1</b></div>
+    <div class="metric optional-metric"><label>cycle</label><b id="cycle">1/5</b></div>
+    <div class="metric optional-metric"><label>episode</label><b id="episode">1</b></div>
     <div class="metric"><label>craft</label><b id="craft">INTERCEPTOR</b></div>
-    <div class="metric"><label>ascendium</label><b id="ascendium">0</b></div>
+    <div class="metric optional-metric"><label>ascendium</label><b id="ascendium">0</b></div>
   </div>
-  <aside id="progress-panel" class="panel">
+  <aside id="progress-panel" class="panel" data-drawer-open="false">
+    <button class="drawer-toggle" type="button" aria-label="進行パネルを開閉">›</button>
     <div class="agent-header"><span class="section-title">incremental run</span><span class="live">AUTO</span></div>
     <div id="wave-progress"><div id="wave-progress-fill"></div></div>
     <div class="data-row"><span>LEVEL</span><b id="level">1</b></div>
@@ -132,7 +165,8 @@
     <div class="data-row"><span>HULL MAX</span><b id="research-hull-effect">100</b></div>
     <button class="research" id="ascend" type="button">ASCEND AT WAVE 25</button>
   </aside>
-  <aside id="agent-panel" class="panel">
+  <aside id="agent-panel" class="panel" data-drawer-open="false">
+    <button class="drawer-toggle" type="button" aria-label="AIパネルを開閉">‹</button>
     <div class="agent-header"><span class="section-title">Q-learning agent</span><span class="live" id="agent-status">LEARNING</span></div>
     <div class="decision"><span id="policy-mode">活用</span><span class="section-title">current action</span><strong id="action">前進</strong></div>
     <div class="data-row"><span>直近の報酬</span><b id="reward">+0.00</b></div>
@@ -145,18 +179,20 @@
     <div class="data-row"><span>ベストスコア</span><b id="best">0</b></div>
     <button id="pause" type="button">一時停止</button>
   </aside>
-  <aside id="weapon-panel" class="panel">
+  <aside id="weapon-panel" class="panel" data-drawer-open="false">
+    <button class="drawer-toggle" type="button" aria-label="武器パネルを開閉">›</button>
     <span class="section-title">weapon build</span>
     <div class="weapon-row"><span>PULSE</span><b id="weapon-pulse">Mk.1</b></div>
     <div class="weapon-row"><span>FIRE RATE</span><b id="weapon-rate">Lv.0</b></div>
     <div class="weapon-row"><span>MULTI-SHOT</span><b id="weapon-projectiles">Lv.0</b></div>
     <div class="weapon-row"><span>VELOCITY</span><b id="weapon-velocity">Lv.0</b></div>
+    <div class="weapon-row"><span>INTERCEPT</span><b id="weapon-intercept">LOCKED</b></div>
     <div class="weapon-row"><span>TURRET DRIVE</span><b id="weapon-turret">Lv.0</b></div>
     <div class="weapon-row"><span>MISSILE</span><b id="weapon-missile">LOCKED</b></div>
     <div class="weapon-row"><span>NOVA</span><b id="weapon-nova">LOCKED</b></div>
   </aside>
   <div id="upgrade-panel" class="panel" data-open="false">
-    <div class="agent-header"><span class="section-title">level up — agent decision</span><span class="live">LEARNING</span></div>
+    <div class="agent-header"><span class="section-title">level up — choose or let agent decide</span><span class="live" id="upgrade-countdown">HUMAN WINDOW 3.0s</span></div>
     <div id="upgrade-buttons"></div>
   </div>
   <div id="banner" data-open="false"></div>

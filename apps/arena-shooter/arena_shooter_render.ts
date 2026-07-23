@@ -1,5 +1,7 @@
 import type { AgentDecision } from './arena_shooter_agent.js';
-import type { ArenaObservation, ArenaState, Enemy } from './arena_shooter_core.js';
+import { getArenaCamera, type ArenaObservation, type ArenaState, type Enemy } from './arena_shooter_core.js';
+
+let starfieldTile: HTMLCanvasElement | null = null;
 
 export function renderArena(
   context: CanvasRenderingContext2D,
@@ -7,24 +9,34 @@ export function renderArena(
   observation: ArenaObservation,
   decision: AgentDecision,
 ): void {
-  const { width, height } = state;
+  const camera = getArenaCamera(state);
+  const { width, height } = camera;
   context.save();
   context.clearRect(0, 0, width, height);
+  context.fillStyle = '#02040a';
+  context.fillRect(0, 0, width, height);
+  drawStarfield(context, width, height, camera.x, camera.y);
+
+  const shipScreenX = state.ship.x - camera.x;
+  const shipScreenY = state.ship.y - camera.y;
   const background = context.createRadialGradient(
-    state.ship.x, state.ship.y, 20,
-    state.ship.x, state.ship.y, Math.max(width, height) * 0.7,
+    shipScreenX, shipScreenY, 20,
+    shipScreenX, shipScreenY, Math.max(width, height) * 0.7,
   );
-  background.addColorStop(0, '#101c2c');
-  background.addColorStop(0.58, '#080d18');
-  background.addColorStop(1, '#03050b');
+  background.addColorStop(0, 'rgba(16,28,44,.7)');
+  background.addColorStop(0.58, 'rgba(8,13,24,.48)');
+  background.addColorStop(1, 'rgba(3,5,11,.2)');
   context.fillStyle = background;
   context.fillRect(0, 0, width, height);
 
   context.translate(
-    state.shake ? (Math.random() - 0.5) * state.shake : 0,
-    state.shake ? (Math.random() - 0.5) * state.shake : 0,
+    -camera.x + (state.shake ? (Math.random() - 0.5) * state.shake : 0),
+    -camera.y + (state.shake ? (Math.random() - 0.5) * state.shake : 0),
   );
-  drawGrid(context, width, height, state.elapsed);
+  drawGrid(context, state.width, state.height, state.elapsed);
+  context.strokeStyle = 'rgba(93,244,255,.24)';
+  context.lineWidth = 2;
+  context.strokeRect(1, 1, state.width - 2, state.height - 2);
   drawThreatRadar(context, state, observation);
   if (state.novaPulse > 0) {
     context.strokeStyle = `rgba(184,108,255,${state.novaPulse})`;
@@ -42,16 +54,7 @@ export function renderArena(
 
   context.globalCompositeOperation = 'lighter';
   for (const projectile of state.projectiles) {
-    context.fillStyle = projectile.hostile
-      ? '#ff496c'
-      : projectile.kind === 'missile'
-        ? '#ffd166'
-        : '#64f5ff';
-    context.shadowColor = context.fillStyle;
-    context.shadowBlur = 13;
-    context.beginPath();
-    context.arc(projectile.x, projectile.y, projectile.radius, 0, Math.PI * 2);
-    context.fill();
+    drawProjectile(context, projectile);
   }
   context.shadowBlur = 0;
   context.globalCompositeOperation = 'source-over';
@@ -67,6 +70,164 @@ export function renderArena(
   }
   context.globalAlpha = 1;
   context.restore();
+}
+
+function drawProjectile(
+  context: CanvasRenderingContext2D,
+  projectile: ArenaState['projectiles'][number],
+): void {
+  if (projectile.kind === 'missile' && !projectile.hostile) {
+    drawMissile(context, projectile);
+    return;
+  }
+  const color = projectile.hostile ? '#ff496c' : '#64f5ff';
+  context.fillStyle = color;
+  context.shadowColor = color;
+  context.shadowBlur = 13;
+  context.beginPath();
+  context.arc(projectile.x, projectile.y, projectile.radius, 0, Math.PI * 2);
+  context.fill();
+  if (projectile.hostile) {
+    context.strokeStyle = '#ffb1c0';
+    context.lineWidth = 1;
+    context.beginPath();
+    context.moveTo(projectile.x - projectile.vx * 0.035, projectile.y - projectile.vy * 0.035);
+    context.lineTo(projectile.x, projectile.y);
+    context.stroke();
+  }
+}
+
+function drawMissile(
+  context: CanvasRenderingContext2D,
+  missile: ArenaState['projectiles'][number],
+): void {
+  const angle = Math.atan2(missile.vy, missile.vx);
+  const length = Math.max(17, missile.radius * 3.4);
+  const halfWidth = Math.max(3.5, missile.radius * 0.72);
+  context.save();
+  context.translate(missile.x, missile.y);
+  context.rotate(angle);
+
+  const flameLength = length * (0.42 + Math.sin(performance.now() * 0.025) * 0.08);
+  const exhaust = context.createLinearGradient(-length, 0, -length * 0.2, 0);
+  exhaust.addColorStop(0, 'rgba(255,70,35,0)');
+  exhaust.addColorStop(0.35, '#ff6633');
+  exhaust.addColorStop(1, '#fff3a1');
+  context.fillStyle = exhaust;
+  context.shadowColor = '#ff7a32';
+  context.shadowBlur = 12;
+  context.beginPath();
+  context.moveTo(-length * 0.5, -halfWidth * 0.55);
+  context.lineTo(-length * 0.5 - flameLength, 0);
+  context.lineTo(-length * 0.5, halfWidth * 0.55);
+  context.closePath();
+  context.fill();
+
+  context.shadowColor = '#ffd166';
+  context.shadowBlur = 7;
+  context.fillStyle = '#dce9ef';
+  context.strokeStyle = '#ffd166';
+  context.lineWidth = 1.4;
+  context.beginPath();
+  context.moveTo(length * 0.58, 0);
+  context.quadraticCurveTo(length * 0.35, -halfWidth, -length * 0.34, -halfWidth);
+  context.lineTo(-length * 0.5, -halfWidth * 0.45);
+  context.lineTo(-length * 0.5, halfWidth * 0.45);
+  context.lineTo(-length * 0.34, halfWidth);
+  context.quadraticCurveTo(length * 0.35, halfWidth, length * 0.58, 0);
+  context.closePath();
+  context.fill();
+  context.stroke();
+
+  context.fillStyle = '#ff496c';
+  context.beginPath();
+  context.moveTo(length * 0.58, 0);
+  context.lineTo(length * 0.22, -halfWidth * 0.86);
+  context.lineTo(length * 0.22, halfWidth * 0.86);
+  context.closePath();
+  context.fill();
+  context.fillStyle = '#637b89';
+  context.beginPath();
+  context.moveTo(-length * 0.3, -halfWidth * 0.7);
+  context.lineTo(-length * 0.62, -halfWidth * 1.7);
+  context.lineTo(-length * 0.52, -halfWidth * 0.2);
+  context.closePath();
+  context.fill();
+  context.beginPath();
+  context.moveTo(-length * 0.3, halfWidth * 0.7);
+  context.lineTo(-length * 0.62, halfWidth * 1.7);
+  context.lineTo(-length * 0.52, halfWidth * 0.2);
+  context.closePath();
+  context.fill();
+  context.restore();
+}
+
+function drawStarfield(
+  context: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  cameraX: number,
+  cameraY: number,
+): void {
+  const tile = getStarfieldTile();
+  const tileSize = tile.width;
+  const parallaxX = cameraX * 0.18;
+  const parallaxY = cameraY * 0.18;
+  const offsetX = -positiveModulo(parallaxX, tileSize);
+  const offsetY = -positiveModulo(parallaxY, tileSize);
+  for (let y = offsetY - tileSize; y < height + tileSize; y += tileSize) {
+    for (let x = offsetX - tileSize; x < width + tileSize; x += tileSize) {
+      context.drawImage(tile, x, y);
+    }
+  }
+}
+
+function getStarfieldTile(): HTMLCanvasElement {
+  if (starfieldTile) return starfieldTile;
+  const size = 512;
+  const tile = document.createElement('canvas');
+  tile.width = size;
+  tile.height = size;
+  const tileContext = tile.getContext('2d');
+  if (!tileContext) return tile;
+  let randomState = 0x51f15e;
+  const random = (): number => {
+    randomState = Math.imul(randomState ^ randomState >>> 15, 1 | randomState);
+    randomState ^= randomState + Math.imul(randomState ^ randomState >>> 7, 61 | randomState);
+    return ((randomState ^ randomState >>> 14) >>> 0) / 4294967296;
+  };
+  for (let index = 0; index < 130; index += 1) {
+    const x = random() * size;
+    const y = random() * size;
+    const bright = random() > 0.92;
+    const radius = bright ? 1.8 : random() > 0.72 ? 1.15 : 0.72;
+    const colorRoll = random();
+    tileContext.globalAlpha = 0.55 + random() * 0.4;
+    tileContext.fillStyle = colorRoll > 0.9 ? '#8ed8ff' : colorRoll < 0.06 ? '#ffe3a3' : '#edf8ff';
+    tileContext.shadowColor = tileContext.fillStyle;
+    tileContext.shadowBlur = bright ? 7 : 1.5;
+    tileContext.beginPath();
+    tileContext.arc(x, y, radius, 0, Math.PI * 2);
+    tileContext.fill();
+    if (bright) {
+      tileContext.lineWidth = 0.7;
+      tileContext.strokeStyle = tileContext.fillStyle;
+      tileContext.beginPath();
+      tileContext.moveTo(x - 3.5, y);
+      tileContext.lineTo(x + 3.5, y);
+      tileContext.moveTo(x, y - 3.5);
+      tileContext.lineTo(x, y + 3.5);
+      tileContext.stroke();
+    }
+  }
+  tileContext.globalAlpha = 1;
+  tileContext.shadowBlur = 0;
+  starfieldTile = tile;
+  return tile;
+}
+
+function positiveModulo(value: number, divisor: number): number {
+  return (value % divisor + divisor) % divisor;
 }
 
 function drawGrid(context: CanvasRenderingContext2D, width: number, height: number, elapsed: number): void {
@@ -218,22 +379,99 @@ function drawEnemy(context: CanvasRenderingContext2D, enemy: Enemy): void {
   context.rotate(enemy.angle);
   const color = enemy.kind === 'brute' ? '#ff9c42' : enemy.kind === 'gunner' ? '#b86cff' : '#ff477e';
   context.shadowColor = color;
-  context.shadowBlur = 13;
+  context.shadowBlur = 10;
   context.strokeStyle = color;
-  context.fillStyle = `${color}30`;
-  context.lineWidth = enemy.kind === 'brute' ? 4 : 2;
-  const sides = enemy.kind === 'brute' ? 6 : enemy.kind === 'gunner' ? 4 : 3;
+  context.lineJoin = 'round';
+  if (enemy.kind === 'scout') drawScout(context, enemy.radius, color);
+  else if (enemy.kind === 'gunner') drawGunner(context, enemy.radius, color);
+  else drawBrute(context, enemy.radius, color);
+  context.restore();
+}
+
+function drawScout(context: CanvasRenderingContext2D, radius: number, color: string): void {
+  context.fillStyle = '#29101f';
+  context.lineWidth = 2;
   context.beginPath();
-  for (let index = 0; index < sides; index += 1) {
-    const angle = index / sides * Math.PI * 2;
-    const radius = enemy.radius;
-    const x = Math.cos(angle) * radius;
-    const y = Math.sin(angle) * radius;
+  context.moveTo(radius * 1.25, 0);
+  context.lineTo(-radius * 0.75, -radius * 0.72);
+  context.lineTo(-radius * 0.35, 0);
+  context.lineTo(-radius * 0.75, radius * 0.72);
+  context.closePath();
+  context.fill();
+  context.stroke();
+  context.fillStyle = color;
+  context.beginPath();
+  context.moveTo(radius * 0.5, 0);
+  context.lineTo(-radius * 0.1, -radius * 0.28);
+  context.lineTo(-radius * 0.1, radius * 0.28);
+  context.closePath();
+  context.fill();
+  context.strokeStyle = '#ffb2cb';
+  context.lineWidth = 1.5;
+  context.beginPath();
+  context.moveTo(-radius * 0.65, -radius * 0.38);
+  context.lineTo(-radius * 1.05, -radius * 0.56);
+  context.moveTo(-radius * 0.65, radius * 0.38);
+  context.lineTo(-radius * 1.05, radius * 0.56);
+  context.stroke();
+}
+
+function drawGunner(context: CanvasRenderingContext2D, radius: number, color: string): void {
+  context.fillStyle = '#1d1531';
+  context.lineWidth = 2.5;
+  context.beginPath();
+  context.moveTo(radius * 0.85, -radius * 0.62);
+  context.lineTo(radius * 0.85, radius * 0.62);
+  context.lineTo(-radius * 0.7, radius * 0.82);
+  context.lineTo(-radius, 0);
+  context.lineTo(-radius * 0.7, -radius * 0.82);
+  context.closePath();
+  context.fill();
+  context.stroke();
+  context.fillStyle = color;
+  context.beginPath();
+  context.arc(0, 0, radius * 0.44, 0, Math.PI * 2);
+  context.fill();
+  context.fillStyle = '#e3c9ff';
+  context.fillRect(radius * 0.12, -radius * 0.14, radius * 1.18, radius * 0.28);
+  context.strokeStyle = color;
+  context.lineWidth = 2;
+  context.strokeRect(radius * 0.12, -radius * 0.14, radius * 1.18, radius * 0.28);
+  context.fillStyle = '#0e0819';
+  context.beginPath();
+  context.arc(0, 0, radius * 0.2, 0, Math.PI * 2);
+  context.fill();
+}
+
+function drawBrute(context: CanvasRenderingContext2D, radius: number, color: string): void {
+  context.fillStyle = '#302016';
+  context.lineWidth = 3.5;
+  context.beginPath();
+  for (let index = 0; index < 8; index += 1) {
+    const angle = index / 8 * Math.PI * 2;
+    const scale = index % 2 === 0 ? 1.08 : 0.86;
+    const x = Math.cos(angle) * radius * scale;
+    const y = Math.sin(angle) * radius * scale;
     if (index === 0) context.moveTo(x, y);
     else context.lineTo(x, y);
   }
   context.closePath();
   context.fill();
   context.stroke();
-  context.restore();
+  context.strokeStyle = '#ffd09a';
+  context.lineWidth = 2;
+  context.beginPath();
+  context.moveTo(radius * 0.72, 0);
+  context.lineTo(radius * 0.2, -radius * 0.46);
+  context.lineTo(-radius * 0.48, -radius * 0.38);
+  context.lineTo(-radius * 0.48, radius * 0.38);
+  context.lineTo(radius * 0.2, radius * 0.46);
+  context.closePath();
+  context.stroke();
+  context.fillStyle = color;
+  context.beginPath();
+  context.arc(radius * 0.12, 0, radius * 0.3, 0, Math.PI * 2);
+  context.fill();
+  context.fillStyle = '#fff0c9';
+  context.fillRect(radius * 0.58, -radius * 0.12, radius * 0.58, radius * 0.24);
 }
