@@ -91,6 +91,9 @@ const ui = {
   weaponTurret: requireElement<HTMLElement>('weapon-turret'),
   weaponMissile: requireElement<HTMLElement>('weapon-missile'),
   weaponNova: requireElement<HTMLElement>('weapon-nova'),
+  weaponLaser: requireElement<HTMLElement>('weapon-laser'),
+  weaponRicochet: requireElement<HTMLElement>('weapon-ricochet'),
+  weaponTrail: requireElement<HTMLElement>('weapon-trail'),
   lastUpgrade: requireElement<HTMLElement>('last-upgrade'),
   upgradePanel: requireElement<HTMLElement>('upgrade-panel'),
   upgradeButtons: requireElement<HTMLElement>('upgrade-buttons'),
@@ -164,6 +167,9 @@ function configureShipFromProgress(): void {
   state.turretTurnLevel = run.turretTurnLevel;
   state.missileLevel = run.weapons.missile;
   state.novaLevel = run.weapons.nova;
+  state.laserLevel = run.weapons.laser;
+  state.ricochetLevel = run.weapons.ricochet;
+  state.trailLevel = run.weapons.trail;
   state.damageMultiplier = 1.18 ** meta.damageResearch * ascensionPower(meta);
   const maxHp = Math.round(100 * 1.2 ** meta.hullResearch);
   if (state.ship.maxHp !== maxHp) {
@@ -239,6 +245,8 @@ function persist(): void {
     data: meta.data,
     damageResearch: meta.damageResearch,
     hullResearch: meta.hullResearch,
+  }).catch((error) => {
+    console.warn('Permanent progress remains in local storage; server save failed.', error);
   });
 }
 
@@ -290,6 +298,9 @@ function updateHud(actionLabel: string, exploratory: boolean, observation: Arena
   ui.weaponTurret.textContent = `Lv.${run.turretTurnLevel}`;
   ui.weaponMissile.textContent = run.weapons.missile ? `Mk.${run.weapons.missile}` : 'LOCKED';
   ui.weaponNova.textContent = run.weapons.nova ? `Mk.${run.weapons.nova}` : 'LOCKED';
+  ui.weaponLaser.textContent = run.weapons.laser ? `Mk.${run.weapons.laser}` : 'LOCKED';
+  ui.weaponRicochet.textContent = run.weapons.ricochet ? `Mk.${run.weapons.ricochet}` : 'LOCKED';
+  ui.weaponTrail.textContent = run.weapons.trail ? `Mk.${run.weapons.trail}` : 'LOCKED';
   ui.lastUpgrade.textContent = run.lastUpgradeLabel;
   updateResearchButton(ui.damageResearch, 'DMG', meta.damageResearch);
   updateResearchButton(ui.hullResearch, 'HULL', meta.hullResearch);

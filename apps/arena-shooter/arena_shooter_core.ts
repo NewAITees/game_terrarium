@@ -33,7 +33,39 @@ export type Projectile = Vec2 & {
   life: number;
   hostile: boolean;
   damage: number;
-  kind: 'pulse' | 'missile' | 'enemy';
+  kind: 'pulse' | 'missile' | 'ricochet' | 'enemy';
+  bounces?: number;
+  lastHitEnemyId?: number;
+};
+
+export type BeamEffect = {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  points?: Vec2[];
+  style: 'beam' | 'pulse' | 'wave';
+  angle?: number;
+  range?: number;
+  arc?: number;
+  width: number;
+  life: number;
+  maxLife: number;
+};
+
+export type TrailField = Vec2 & {
+  radius: number;
+  life: number;
+  maxLife: number;
+  damagePerSecond: number;
+  tickCooldown: number;
+};
+
+export type DamageNumber = Vec2 & {
+  amount: number;
+  friendly: boolean;
+  life: number;
+  maxLife: number;
 };
 
 export type Particle = Vec2 & {
@@ -85,6 +117,9 @@ export type ArenaState = {
   ship: Ship;
   enemies: Enemy[];
   projectiles: Projectile[];
+  beams: BeamEffect[];
+  trails: TrailField[];
+  damageNumbers: DamageNumber[];
   particles: Particle[];
   elapsed: number;
   episode: number;
@@ -103,6 +138,9 @@ export type ArenaState = {
   episodeReward: number;
   bestScore: number;
   missileCooldown: number;
+  laserCooldown: number;
+  ricochetCooldown: number;
+  trailCooldown: number;
   novaCooldown: number;
   novaPulse: number;
   damageMultiplier: number;
@@ -114,6 +152,9 @@ export type ArenaState = {
   turretTurnLevel: number;
   missileLevel: number;
   novaLevel: number;
+  laserLevel: number;
+  ricochetLevel: number;
+  trailLevel: number;
   rngState: number;
 };
 
@@ -214,6 +255,9 @@ export function createArenaState(width = 1280, height = 720): ArenaState {
     ship: createShip(width, height),
     enemies: [],
     projectiles: [],
+    beams: [],
+    trails: [],
+    damageNumbers: [],
     particles: [],
     elapsed: 0,
     episode: 1,
@@ -232,6 +276,9 @@ export function createArenaState(width = 1280, height = 720): ArenaState {
     episodeReward: 0,
     bestScore: 0,
     missileCooldown: 0,
+    laserCooldown: 0,
+    ricochetCooldown: 0,
+    trailCooldown: 0,
     novaCooldown: 0,
     novaPulse: 0,
     damageMultiplier: 1,
@@ -243,6 +290,9 @@ export function createArenaState(width = 1280, height = 720): ArenaState {
     turretTurnLevel: 0,
     missileLevel: 0,
     novaLevel: 0,
+    laserLevel: 0,
+    ricochetLevel: 0,
+    trailLevel: 0,
     rngState: 0x6d2b79f5,
   };
   randomizeCraft(state);
@@ -414,6 +464,9 @@ export function stepArena(state: ArenaState, action: ArenaAction, dt: number): A
   ship.invulnerability -= dt;
   state.missileCooldown -= dt;
   state.novaCooldown -= dt;
+  state.laserCooldown -= dt;
+  state.ricochetCooldown -= dt;
+  state.trailCooldown -= dt;
 
   const craft = craftDefinition(ship.craftType);
   const edgeDistanceBeforeMove = nearestEdgeDistance(ship, state.width, state.height);
@@ -501,6 +554,7 @@ export function stepArena(state: ArenaState, action: ArenaAction, dt: number): A
     for (const enemy of state.enemies) {
       if (distanceSq(enemy, ship) > range * range) continue;
       enemy.hp -= damage;
+      addDamageNumber(state, enemy.x, enemy.y, damage, true);
       if (enemy.hp <= 0) {
         const value = enemyValue(enemy);
         state.score += value;
@@ -515,6 +569,109 @@ export function stepArena(state: ArenaState, action: ArenaAction, dt: number): A
     burst(state, ship.x, ship.y, '#b86cff', 22, range);
   }
 
+  if (state.laserLevel > 0 && state.laserCooldown <= 0) {
+    const laserAngles = ship.craftType === 'strafer'
+      ? [ship.angle + Math.PI / 2, ship.angle - Math.PI / 2]
+      : [attackAngle(ship)];
+    const length = 430 + state.laserLevel * 35;
+    const width = 5 + state.laserLevel * 1.6;
+    const damage = state.damageMultiplier * 0.72 * 1.3 ** (state.laserLevel - 1)
+      / laserAngles.length;
+    for (const angle of laserAngles) {
+      const beamWidth = ship.craftType === 'interceptor' ? width * 1.35 : width;
+      const points = ship.craftType === 'strafer'
+        ? createLateralWave(ship, angle, length, state.laserLevel)
+        : [
+          { x: ship.x, y: ship.y },
+          { x: ship.x + Math.cos(angle) * length, y: ship.y + Math.sin(angle) * length },
+        ];
+      const end = points[points.length - 1];
+      state.beams.push({
+        x1: ship.x,
+        y1: ship.y,
+        x2: end.x,
+        y2: end.y,
+        points,
+        style: ship.craftType === 'interceptor'
+          ? 'pulse'
+          : ship.craftType === 'strafer'
+            ? 'wave'
+            : 'beam',
+        angle,
+        range: length,
+        arc: ship.craftType === 'interceptor' ? Math.PI / 2 : undefined,
+        width: beamWidth,
+        life: ship.craftType === 'interceptor' ? 0.32 : 0.2,
+        maxLife: ship.craftType === 'interceptor' ? 0.32 : 0.2,
+      });
+      for (const enemy of state.enemies) {
+        const hit = ship.craftType === 'interceptor'
+          ? pointInSector(enemy, ship, angle, Math.PI / 2, length, enemy.radius)
+          : pointPathDistance(enemy, points) <= enemy.radius + beamWidth;
+        if (enemy.hp <= 0 || !hit) {
+          continue;
+        }
+        const appliedDamage = ship.craftType === 'interceptor' ? damage * 0.72 : damage;
+        enemy.hp -= appliedDamage;
+        addDamageNumber(state, enemy.x, enemy.y, appliedDamage, true);
+        reward += 0.12;
+        if (enemy.hp <= 0) {
+          const value = enemyValue(enemy);
+          state.score += value;
+          state.kills += 1;
+          killedValues.push(value);
+          reward += enemy.kind === 'brute' ? 4.5 : 3;
+          burst(state, enemy.x, enemy.y, '#67f4ff', 18, 180);
+        }
+      }
+      for (const projectile of state.projectiles) {
+        if (!projectile.hostile || projectile.life <= 0) continue;
+        const hit = ship.craftType === 'interceptor'
+          ? pointInSector(projectile, ship, angle, Math.PI / 2, length, projectile.radius)
+          : pointPathDistance(projectile, points) <= projectile.radius + beamWidth;
+        if (!hit) continue;
+        projectile.life = 0;
+        reward += 0.08;
+        burst(state, projectile.x, projectile.y, '#9ffcff', 6, 90);
+      }
+    }
+    state.laserCooldown = Math.max(0.48, 1.65 * 0.92 ** state.laserLevel);
+  }
+
+  if (state.ricochetLevel > 0 && state.ricochetCooldown <= 0) {
+    const spread = (random(state) - 0.5) * 1.35;
+    const angle = attackAngle(ship) + spread;
+    const speed = 440 + state.ricochetLevel * 18;
+    state.projectiles.push({
+      x: ship.x + Math.cos(angle) * 18,
+      y: ship.y + Math.sin(angle) * 18,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      radius: 5,
+      life: 5,
+      hostile: false,
+      damage: state.damageMultiplier * 0.82 * 1.27 ** (state.ricochetLevel - 1),
+      kind: 'ricochet',
+      bounces: 2 + Math.floor(state.ricochetLevel / 2),
+    });
+    state.ricochetCooldown = Math.max(0.55, 1.8 * 0.93 ** state.ricochetLevel);
+  }
+
+  if (state.trailLevel > 0 && state.trailCooldown <= 0 && Math.hypot(ship.vx, ship.vy) > 28) {
+    const radius = 27 + state.trailLevel * 4;
+    state.trails.push({
+      x: ship.x,
+      y: ship.y,
+      radius,
+      life: 2.4 + state.trailLevel * 0.18,
+      maxLife: 2.4 + state.trailLevel * 0.18,
+      damagePerSecond: state.damageMultiplier * 0.85 * 1.25 ** (state.trailLevel - 1),
+      tickCooldown: 0,
+    });
+    if (state.trails.length > 36) state.trails.splice(0, state.trails.length - 36);
+    state.trailCooldown = Math.max(0.16, 0.42 * 0.95 ** state.trailLevel);
+  }
+
   state.spawnTimer -= dt;
   if (state.spawnTimer <= 0 && state.waveSpawned < state.waveTotal && state.enemies.length < 42) {
     spawnEnemy(state);
@@ -523,6 +680,7 @@ export function stepArena(state: ArenaState, action: ArenaAction, dt: number): A
   }
 
   for (const enemy of state.enemies) {
+    if (enemy.hp <= 0) continue;
     const dx = ship.x - enemy.x;
     const dy = ship.y - enemy.y;
     const distance = Math.max(1, Math.hypot(dx, dy));
@@ -554,6 +712,13 @@ export function stepArena(state: ArenaState, action: ArenaAction, dt: number): A
       burst(state, enemy.x, enemy.y, enemy.kind === 'brute' ? '#ff8c42' : '#ff4d8d', 18, 170);
       if (ship.invulnerability <= 0) {
         ship.hp -= enemy.kind === 'brute' ? 30 : enemy.kind === 'gunner' ? 20 : 16;
+        addDamageNumber(
+          state,
+          ship.x,
+          ship.y,
+          enemy.kind === 'brute' ? 30 : enemy.kind === 'gunner' ? 20 : 16,
+          false,
+        );
         ship.invulnerability = 0.5;
         state.shake = 7;
         reward -= 2.2;
@@ -562,10 +727,51 @@ export function stepArena(state: ArenaState, action: ArenaAction, dt: number): A
     }
   }
 
+  for (const trail of state.trails) {
+    trail.life -= dt;
+    trail.tickCooldown -= dt;
+    if (trail.tickCooldown > 0) continue;
+    trail.tickCooldown = 0.25;
+    for (const enemy of state.enemies) {
+      if (enemy.hp <= 0 || distanceSq(trail, enemy) > (trail.radius + enemy.radius) ** 2) continue;
+      const damage = trail.damagePerSecond * 0.25;
+      enemy.hp -= damage;
+      addDamageNumber(state, enemy.x, enemy.y, damage, true);
+      reward += 0.01;
+      if (enemy.hp <= 0) {
+        const value = enemyValue(enemy);
+        state.score += value;
+        state.kills += 1;
+        killedValues.push(value);
+        reward += enemy.kind === 'brute' ? 4.5 : 3;
+        burst(state, enemy.x, enemy.y, '#54e3a6', 16, 150);
+      }
+    }
+  }
+  state.trails = state.trails.filter((trail) => trail.life > 0);
+
   for (const projectile of state.projectiles) {
     projectile.x += projectile.vx * dt;
     projectile.y += projectile.vy * dt;
     projectile.life -= dt;
+    if (projectile.kind === 'ricochet') {
+      let bounced = false;
+      if (projectile.x <= projectile.radius || projectile.x >= state.width - projectile.radius) {
+        projectile.vx *= -1;
+        projectile.x = clamp(projectile.x, projectile.radius, state.width - projectile.radius);
+        bounced = true;
+      }
+      if (projectile.y <= projectile.radius || projectile.y >= state.height - projectile.radius) {
+        projectile.vy *= -1;
+        projectile.y = clamp(projectile.y, projectile.radius, state.height - projectile.radius);
+        bounced = true;
+      }
+      if (bounced) {
+        projectile.bounces = (projectile.bounces ?? 0) - 1;
+        burst(state, projectile.x, projectile.y, '#ffe36e', 5, 70);
+        if ((projectile.bounces ?? 0) < 0) projectile.life = 0;
+      }
+    }
   }
 
   if (state.projectileInterceptLevel > 0) {
@@ -593,6 +799,7 @@ export function stepArena(state: ArenaState, action: ArenaAction, dt: number): A
       if (distanceSq(projectile, ship) < (projectile.radius + ship.radius) ** 2 && ship.invulnerability <= 0) {
         projectile.life = 0;
         ship.hp -= projectile.damage;
+        addDamageNumber(state, ship.x, ship.y, projectile.damage, false);
         ship.invulnerability = 0.28;
         state.shake = 5;
         reward -= 1.6;
@@ -601,11 +808,14 @@ export function stepArena(state: ArenaState, action: ArenaAction, dt: number): A
       continue;
     }
     for (const enemy of state.enemies) {
+      if (projectile.kind === 'ricochet' && projectile.lastHitEnemyId === enemy.id) continue;
       const projectileHit = distanceSq(projectile, enemy) < (projectile.radius + enemy.radius) ** 2;
       const overlappingShip = distanceSq(ship, enemy) < (ship.radius + enemy.radius) ** 2;
       if (enemy.hp <= 0 || (!projectileHit && !overlappingShip)) continue;
-      projectile.life = 0;
+      const ricochetContinues = projectile.kind === 'ricochet' && (projectile.bounces ?? 0) > 0;
+      projectile.life = ricochetContinues ? projectile.life : 0;
       enemy.hp -= projectile.damage;
+      addDamageNumber(state, enemy.x, enemy.y, projectile.damage, true);
       reward += 0.18;
       burst(state, projectile.x, projectile.y, '#ffd166', 5, 80);
       if (enemy.hp <= 0) {
@@ -615,6 +825,13 @@ export function stepArena(state: ArenaState, action: ArenaAction, dt: number): A
         killedValues.push(value);
         reward += enemy.kind === 'brute' ? 4.5 : 3;
         burst(state, enemy.x, enemy.y, enemy.kind === 'brute' ? '#ff8c42' : '#ff4d8d', 26, 210);
+      }
+      if (ricochetContinues) {
+        projectile.bounces = (projectile.bounces ?? 1) - 1;
+        projectile.lastHitEnemyId = enemy.id;
+        reflectProjectileFromEnemy(projectile, enemy);
+        projectile.x += projectile.vx * dt * 0.25;
+        projectile.y += projectile.vy * dt * 0.25;
       }
       break;
     }
@@ -642,6 +859,13 @@ export function stepArena(state: ArenaState, action: ArenaAction, dt: number): A
     particle.life -= dt;
   }
   state.particles = state.particles.filter((particle) => particle.life > 0);
+  for (const number of state.damageNumbers) {
+    number.y -= dt * 28;
+    number.life -= dt;
+  }
+  state.damageNumbers = state.damageNumbers.filter((number) => number.life > 0);
+  for (const beam of state.beams) beam.life -= dt;
+  state.beams = state.beams.filter((beam) => beam.life > 0);
   state.lastReward = reward;
   state.episodeReward += reward;
   return { reward, killedValues, waveAdvanced };
@@ -666,6 +890,105 @@ function movingProjectilesCollide(
   return closestX * closestX + closestY * closestY <= collisionRadius * collisionRadius;
 }
 
+function addDamageNumber(
+  state: ArenaState,
+  x: number,
+  y: number,
+  damage: number,
+  friendly: boolean,
+): void {
+  state.damageNumbers.push({
+    x,
+    y: y - 12,
+    amount: damage,
+    friendly,
+    life: 1,
+    maxLife: 1,
+  });
+  if (state.damageNumbers.length > 80) {
+    state.damageNumbers.splice(0, state.damageNumbers.length - 80);
+  }
+}
+
+function pointSegmentDistance(point: Vec2, x1: number, y1: number, x2: number, y2: number): number {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const lengthSq = dx * dx + dy * dy;
+  const t = lengthSq > 0
+    ? clamp(((point.x - x1) * dx + (point.y - y1) * dy) / lengthSq, 0, 1)
+    : 0;
+  return Math.hypot(point.x - (x1 + dx * t), point.y - (y1 + dy * t));
+}
+
+function pointPathDistance(point: Vec2, points: readonly Vec2[]): number {
+  let nearest = Infinity;
+  for (let index = 1; index < points.length; index += 1) {
+    nearest = Math.min(
+      nearest,
+      pointSegmentDistance(
+        point,
+        points[index - 1].x,
+        points[index - 1].y,
+        points[index].x,
+        points[index].y,
+      ),
+    );
+  }
+  return nearest;
+}
+
+function pointInSector(
+  point: Vec2,
+  origin: Vec2,
+  direction: number,
+  arc: number,
+  range: number,
+  radius = 0,
+): boolean {
+  const dx = point.x - origin.x;
+  const dy = point.y - origin.y;
+  if (Math.hypot(dx, dy) > range + radius) return false;
+  const delta = Math.atan2(
+    Math.sin(Math.atan2(dy, dx) - direction),
+    Math.cos(Math.atan2(dy, dx) - direction),
+  );
+  return Math.abs(delta) <= arc / 2;
+}
+
+function createLateralWave(
+  ship: Ship,
+  lateralAngle: number,
+  length: number,
+  level: number,
+): Vec2[] {
+  const points: Vec2[] = [];
+  const amplitude = 24 + level * 3;
+  const forwardX = Math.cos(ship.angle);
+  const forwardY = Math.sin(ship.angle);
+  const lateralX = Math.cos(lateralAngle);
+  const lateralY = Math.sin(lateralAngle);
+  for (let index = 0; index <= 14; index += 1) {
+    const progress = index / 14;
+    const wave = Math.sin(progress * Math.PI * (3 + Math.min(3, level) * 0.35)) * amplitude * progress;
+    points.push({
+      x: ship.x + lateralX * length * progress + forwardX * wave,
+      y: ship.y + lateralY * length * progress + forwardY * wave,
+    });
+  }
+  return points;
+}
+
+function reflectProjectileFromEnemy(projectile: Projectile, enemy: Enemy): void {
+  const normalLength = Math.max(1, Math.hypot(projectile.x - enemy.x, projectile.y - enemy.y));
+  const normalX = (projectile.x - enemy.x) / normalLength;
+  const normalY = (projectile.y - enemy.y) / normalLength;
+  const velocityAlongNormal = projectile.vx * normalX + projectile.vy * normalY;
+  projectile.vx -= 2 * velocityAlongNormal * normalX;
+  projectile.vy -= 2 * velocityAlongNormal * normalY;
+  projectile.x = enemy.x + normalX * (enemy.radius + projectile.radius + 1);
+  projectile.y = enemy.y + normalY * (enemy.radius + projectile.radius + 1);
+}
+
 export function resetEpisode(state: ArenaState): void {
   state.bestScore = Math.max(state.bestScore, state.score);
   state.episode += 1;
@@ -679,23 +1002,40 @@ export function resetEpisode(state: ArenaState): void {
   else setCraftType(state.ship, state.craftPreference);
   state.enemies = [];
   state.projectiles = [];
+  state.beams = [];
+  state.trails = [];
+  state.damageNumbers = [];
   state.particles = [];
   state.spawnTimer = 0.2;
   state.episodeReward = 0;
   state.missileCooldown = 0;
+  state.laserCooldown = 0;
+  state.ricochetCooldown = 0;
+  state.trailCooldown = 0;
   state.novaCooldown = 0;
 }
 
 function spawnEnemy(state: ArenaState): void {
-  const edge = Math.floor(random(state) * 4);
   const margin = 34;
-  const position = edge === 0
-    ? { x: random(state) * state.width, y: margin }
-    : edge === 1
-      ? { x: state.width - margin, y: random(state) * state.height }
-      : edge === 2
-        ? { x: random(state) * state.width, y: state.height - margin }
-        : { x: margin, y: random(state) * state.height };
+  const minimumSpawnDistance = 320;
+  let position: Vec2 | null = null;
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const candidate = randomEdgePosition(state, margin);
+    if (distanceSq(candidate, state.ship) < minimumSpawnDistance ** 2) continue;
+    position = candidate;
+    break;
+  }
+  if (!position) {
+    const corners = [
+      { x: margin, y: margin },
+      { x: state.width - margin, y: margin },
+      { x: state.width - margin, y: state.height - margin },
+      { x: margin, y: state.height - margin },
+    ];
+    position = corners.reduce((farthest, candidate) =>
+      distanceSq(candidate, state.ship) > distanceSq(farthest, state.ship) ? candidate : farthest
+    );
+  }
   const roll = random(state);
   const examBoost = state.wave % 5 === 0 ? 0.12 : 0;
   const kind: Enemy['kind'] = state.wave >= 5 && roll > 0.82 - examBoost
@@ -715,6 +1055,14 @@ function spawnEnemy(state: ArenaState): void {
     fireCooldown: 0.5 + random(state),
     kind,
   });
+}
+
+function randomEdgePosition(state: ArenaState, margin: number): Vec2 {
+  const edge = Math.floor(random(state) * 4);
+  if (edge === 0) return { x: random(state) * state.width, y: margin };
+  if (edge === 1) return { x: state.width - margin, y: random(state) * state.height };
+  if (edge === 2) return { x: random(state) * state.width, y: state.height - margin };
+  return { x: margin, y: random(state) * state.height };
 }
 
 function nearestEnemy(state: ArenaState): Enemy | null {

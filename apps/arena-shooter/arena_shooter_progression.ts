@@ -1,6 +1,6 @@
 import type { CraftType } from './arena_shooter_core.js';
 
-export type WeaponId = 'pulse' | 'missile' | 'nova';
+export type WeaponId = 'pulse' | 'missile' | 'nova' | 'laser' | 'ricochet' | 'trail';
 export type WeaponLevels = Record<WeaponId, number>;
 
 export type ArenaMetaProgress = {
@@ -53,7 +53,7 @@ export function createRunProgress(): ArenaRunProgress {
     level: 1,
     nextLevelXp: 8,
     scrap: 0,
-    weapons: { pulse: 1, missile: 0, nova: 0 },
+    weapons: { pulse: 1, missile: 0, nova: 0, laser: 0, ricochet: 0, trail: 0 },
     fireRateLevel: 0,
     projectileCountLevel: 0,
     projectileSpeedLevel: 0,
@@ -99,6 +99,24 @@ export function getUpgradeChoices(run: ArenaRunProgress, craftType?: CraftType):
       label: run.weapons.nova ? `NOVA Mk.${run.weapons.nova + 1}` : 'UNLOCK NOVA',
       description: 'periodic 360° shockwave',
       weight: run.weapons.nova ? 1.8 : 2.8,
+    },
+    {
+      id: 'laser',
+      label: run.weapons.laser ? `LASER Mk.${run.weapons.laser + 1}` : 'UNLOCK LASER',
+      description: 'Craft-specific sustained line attack',
+      weight: run.weapons.laser ? 2.1 : 3,
+    },
+    {
+      id: 'ricochet',
+      label: run.weapons.ricochet ? `RICOCHET Mk.${run.weapons.ricochet + 1}` : 'UNLOCK RICOCHET',
+      description: 'Spread shots physically rebound from enemies and arena edges',
+      weight: run.weapons.ricochet ? 2.2 : 3.1,
+    },
+    {
+      id: 'trail',
+      label: run.weapons.trail ? `TRAIL Mk.${run.weapons.trail + 1}` : 'UNLOCK TRAIL',
+      description: 'Leave a damaging field along your flight path',
+      weight: run.weapons.trail ? 2 : 2.9,
     },
     { id: 'hull', label: 'FIELD REPAIR', description: 'restore 30% hull', weight: 1.4 },
     {

@@ -12,7 +12,11 @@ const ENABLE_GLOBAL_SHORTCUTS = process.env.ELECTRON_DISABLE_SHORTCUTS !== '1';
 const ENABLE_ALWAYS_ON_TOP = process.env.ELECTRON_ENABLE_ALWAYS_ON_TOP === '1' && !IS_DEBUG_MINIMAL;
 const ENABLE_ALL_WORKSPACES = process.env.ELECTRON_ENABLE_ALL_WORKSPACES === '1' && !IS_DEBUG_MINIMAL;
 const ENABLE_SERVER = process.env.ELECTRON_DISABLE_SERVER !== '1';
-const SERVER_PORT = Number.parseInt(process.env.GAME_TERRARIUM_PORT || process.env.PORT || '3000', 10) || 3000;
+const REQUESTED_SERVER_PORT = Number.parseInt(
+  process.env.GAME_TERRARIUM_PORT || process.env.PORT || '3000',
+  10,
+) || 3000;
+let activeServerPort = REQUESTED_SERVER_PORT;
 
 let win: BrowserWindow | null = null;
 const requestedPage = process.argv
@@ -53,35 +57,47 @@ function loadPage(pageKey: PageKey): void {
   rendererErrors = [];
   lastLoadState = { page: pageKey, status: 'loading' };
   const targetUrl = new URL(page.target);
-  targetUrl.port = String(SERVER_PORT);
+  targetUrl.port = String(activeServerPort);
   const target = targetUrl.toString();
   console.log(`[page] switching -> ${describePage(page)}: ${target}`);
   void win.loadURL(target);
   refreshMenu();
 }
 
-async function canReuseGameServer(): Promise<boolean> {
-  try {
-    const response = await fetch(`http://localhost:${SERVER_PORT}/api/game-terrarium/health`, {
-      signal: AbortSignal.timeout(800),
-    });
-    if (response.ok) {
-      const body = await response.json() as { service?: string };
-      if (body.service === 'game-terrarium') return true;
+async function canReuseGameServer(port: number): Promise<boolean> {
+  const hosts = ['127.0.0.1', 'localhost', '[::1]'];
+  let foundGameServer = false;
+  for (const host of hosts) {
+    try {
+      const response = await fetch(`http://${host}:${port}/api/game-terrarium/health`, {
+        signal: AbortSignal.timeout(600),
+      });
+      if (response.ok) {
+        const body = await response.json() as { service?: string; arenaSaveSchema?: number };
+        if (body.service === 'game-terrarium') {
+          foundGameServer = true;
+          if (body.arenaSaveSchema === 2) return true;
+        }
+      }
+    } catch {
+      // Try the next loopback address.
     }
-  } catch {
-    // A previous build may not expose the health endpoint yet.
   }
-  try {
-    const response = await fetch(`http://localhost:${SERVER_PORT}/electron/state`, {
-      signal: AbortSignal.timeout(800),
-    });
-    if (!response.ok) return false;
-    const body = await response.json() as { currentPage?: unknown };
-    return typeof body.currentPage === 'string';
-  } catch {
-    return false;
+  // A server from an older build must not serve a newer renderer/save schema.
+  if (foundGameServer) return false;
+  for (const host of hosts) {
+    try {
+      const response = await fetch(`http://${host}:${port}/electron/state`, {
+        signal: AbortSignal.timeout(600),
+      });
+      if (!response.ok) continue;
+      const body = await response.json() as { currentPage?: unknown };
+      if (typeof body.currentPage === 'string') return true;
+    } catch {
+      // Try the next loopback address.
+    }
   }
+  return false;
 }
 
 function refreshMenu(): void {
@@ -194,28 +210,38 @@ function createMainWindow(): void {
 
 app.whenReady().then(async () => {
   if (ENABLE_SERVER) {
-    if (await canReuseGameServer()) {
-      console.log(`[server] reusing game server on port ${SERVER_PORT}`);
+    if (await canReuseGameServer(activeServerPort)) {
+      console.log(`[server] reusing game server on port ${activeServerPort}`);
     } else {
-      try {
-        await startServer(
-          () => ({ currentPage, lastLoadState, rendererErrors }),
-          (type: string, payload: any) => {
-            if (type === 'switch_page') {
-              const page = String(payload?.page ?? '');
-              if (!isPageKey(page)) return { error: `unknown page: ${page}` };
-              loadPage(page);
-              return { currentPage };
-            }
-            return { error: `unknown action: ${type}` };
-          },
-          app.getPath('userData')
-        );
-      } catch (error) {
-        if (isAddressInUse(error) && await canReuseGameServer()) {
-          console.log(`[server] another window claimed port ${SERVER_PORT}; reusing it`);
-        } else {
-          console.error('Failed to start server', error);
+      const dispatch = (type: string, payload: any) => {
+        if (type === 'switch_page') {
+          const page = String(payload?.page ?? '');
+          if (!isPageKey(page)) return { error: `unknown page: ${page}` };
+          loadPage(page);
+          return { currentPage };
+        }
+        return { error: `unknown action: ${type}` };
+      };
+      for (let offset = 0; offset < 20; offset += 1) {
+        activeServerPort = REQUESTED_SERVER_PORT + offset;
+        try {
+          await startServer(
+            () => ({ currentPage, lastLoadState, rendererErrors }),
+            dispatch,
+            app.getPath('userData'),
+            activeServerPort,
+          );
+          break;
+        } catch (error) {
+          if (!isAddressInUse(error)) {
+            console.error('Failed to start server', error);
+            break;
+          }
+          if (await canReuseGameServer(activeServerPort)) {
+            console.log(`[server] another window claimed port ${activeServerPort}; reusing it`);
+            break;
+          }
+          console.warn(`[server] port ${activeServerPort} is occupied; trying the next port`);
         }
       }
     }

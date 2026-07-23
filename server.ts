@@ -14,7 +14,7 @@ import { SubmarineNetwork3DRuntime } from './game/submarine_network_3d_runtime';
 import { EscortTdRuntime } from './game/escort_td_runtime';
 import { ArenaShooterSaveStore, type ArenaSaveBundle } from './game/arena_shooter_save_store';
 
-const PORT = Number.parseInt(process.env.GAME_TERRARIUM_PORT || process.env.PORT || '3000', 10) || 3000;
+const DEFAULT_PORT = Number.parseInt(process.env.GAME_TERRARIUM_PORT || process.env.PORT || '3000', 10) || 3000;
 const telemetry = new Map<string, any>();
 const colonyQueue: Array<{ type: string; queuedAt: string }> = [];
 const progressPages = ['network_defense', 'network_defense_observer', 'colony', 'planet_strategy', 'network_smallworld', 'city_traffic', 'moss', 'escort_td'];
@@ -297,6 +297,7 @@ export async function startServer(
   getElectronState: () => any,
   electronDispatch: ElectronDispatch,
   userDataRoot = path.resolve(__dirname, '..', '.runtime-data'),
+  port = DEFAULT_PORT,
 ): Promise<void> {
   const projectRoot = path.resolve(__dirname, '..');
   const shipJumpLogPath = path.join(projectRoot, 'logs', 'planet_strategy_ship_jumps.log');
@@ -324,7 +325,12 @@ export async function startServer(
   await mountBrowserAssetRoutes(app, projectRoot);
 
   app.get('/api/game-terrarium/health', (_req, res) => {
-    res.json({ ok: true, service: 'game-terrarium', port: PORT });
+    res.json({
+      ok: true,
+      service: 'game-terrarium',
+      port,
+      arenaSaveSchema: 2,
+    });
   });
 
   app.get('/api/arena-shooter/save', async (_req, res) => {
@@ -535,15 +541,13 @@ export async function startServer(
 
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
-    server.listen(PORT, () => {
+    server.listen(port, () => {
       server.off('error', reject);
-      console.log(`Game server:  http://localhost:${PORT}`);
-      console.log(`Dungeon view: http://localhost:${PORT}/index.html`);
+      console.log(`Game server:  http://localhost:${port}`);
+      console.log(`Dungeon view: http://localhost:${port}/index.html`);
       resolve();
     });
   });
 }
-
-
 
 

@@ -53,6 +53,28 @@ export function renderArena(
   }
 
   context.globalCompositeOperation = 'lighter';
+  for (const trail of state.trails) {
+    const alpha = Math.max(0, trail.life / trail.maxLife);
+    const gradient = context.createRadialGradient(
+      trail.x, trail.y, 0,
+      trail.x, trail.y, trail.radius,
+    );
+    gradient.addColorStop(0, `rgba(255,240,125,${alpha * 0.7})`);
+    gradient.addColorStop(0.42, `rgba(255,128,42,${alpha * 0.52})`);
+    gradient.addColorStop(0.78, `rgba(255,67,91,${alpha * 0.28})`);
+    gradient.addColorStop(1, 'rgba(150,24,70,0)');
+    context.fillStyle = gradient;
+    context.beginPath();
+    context.arc(trail.x, trail.y, trail.radius, 0, Math.PI * 2);
+    context.fill();
+    context.strokeStyle = `rgba(255,173,64,${alpha * 0.72})`;
+    context.lineWidth = 2;
+    context.beginPath();
+    context.arc(trail.x, trail.y, trail.radius * 0.78, 0, Math.PI * 2);
+    context.stroke();
+  }
+
+  context.globalCompositeOperation = 'lighter';
   for (const projectile of state.projectiles) {
     drawProjectile(context, projectile);
   }
@@ -60,6 +82,69 @@ export function renderArena(
   context.globalCompositeOperation = 'source-over';
 
   for (const enemy of state.enemies) drawEnemy(context, enemy);
+  context.globalCompositeOperation = 'lighter';
+  for (const beam of state.beams) {
+    const alpha = Math.max(0, beam.life / beam.maxLife);
+    const points = beam.points ?? [
+      { x: beam.x1, y: beam.y1 },
+      { x: beam.x2, y: beam.y2 },
+    ];
+    if (beam.style === 'pulse') {
+      const angle = beam.angle ?? 0;
+      const arc = beam.arc ?? Math.PI / 2;
+      const range = beam.range ?? Math.hypot(beam.x2 - beam.x1, beam.y2 - beam.y1);
+      const expansion = 1 - alpha;
+      const radius = range * (0.08 + expansion * 0.92);
+      context.save();
+      context.globalAlpha = Math.min(1, alpha * 1.8);
+      context.strokeStyle = '#74f8ff';
+      context.shadowColor = '#4defff';
+      context.shadowBlur = 24;
+      context.lineWidth = beam.width * 2.8;
+      context.beginPath();
+      context.arc(beam.x1, beam.y1, radius, angle - arc / 2, angle + arc / 2);
+      context.stroke();
+      context.strokeStyle = '#f4ffff';
+      context.shadowBlur = 7;
+      context.lineWidth = Math.max(2, beam.width * 0.55);
+      context.beginPath();
+      context.arc(beam.x1, beam.y1, radius, angle - arc / 2, angle + arc / 2);
+      context.stroke();
+      for (const trailScale of [0.78, 0.56]) {
+        context.globalAlpha = alpha * trailScale * 0.45;
+        context.strokeStyle = '#42cfe8';
+        context.lineWidth = beam.width * trailScale;
+        context.beginPath();
+        context.arc(
+          beam.x1,
+          beam.y1,
+          Math.max(1, radius - range * (1 - trailScale) * 0.12),
+          angle - arc / 2,
+          angle + arc / 2,
+        );
+        context.stroke();
+      }
+      context.restore();
+      continue;
+    }
+    context.strokeStyle = `rgba(105,246,255,${alpha * 0.65})`;
+    context.shadowColor = '#66efff';
+    context.shadowBlur = 18;
+    context.lineWidth = beam.width * 2.3;
+    context.beginPath();
+    context.moveTo(points[0].x, points[0].y);
+    for (const point of points.slice(1)) context.lineTo(point.x, point.y);
+    context.stroke();
+    context.strokeStyle = `rgba(240,255,255,${alpha})`;
+    context.shadowBlur = 5;
+    context.lineWidth = Math.max(2, beam.width * 0.45);
+    context.beginPath();
+    context.moveTo(points[0].x, points[0].y);
+    for (const point of points.slice(1)) context.lineTo(point.x, point.y);
+    context.stroke();
+  }
+  context.shadowBlur = 0;
+  context.globalCompositeOperation = 'source-over';
   drawShip(context, state, decision);
 
   context.globalCompositeOperation = 'lighter';
@@ -69,7 +154,35 @@ export function renderArena(
     context.fillRect(particle.x - 1.5, particle.y - 1.5, 3, 3);
   }
   context.globalAlpha = 1;
+  context.globalCompositeOperation = 'source-over';
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.font = '700 16px ui-monospace, SFMono-Regular, Menlo, monospace';
+  for (const number of state.damageNumbers) {
+    const progress = number.life / number.maxLife;
+    const scale = 0.85 + Math.min(0.25, (1 - progress) * 1.8);
+    context.save();
+    context.translate(number.x, number.y);
+    context.scale(scale, scale);
+    context.globalAlpha = Math.min(1, progress * 2.5);
+    context.lineWidth = 4;
+    context.strokeStyle = 'rgba(4,7,14,.9)';
+    const label = formatDamage(number.amount);
+    context.strokeText(label, 0, 0);
+    context.fillStyle = number.friendly ? '#ffe36e' : '#ff5577';
+    context.shadowColor = context.fillStyle;
+    context.shadowBlur = 7;
+    context.fillText(label, 0, 0);
+    context.restore();
+  }
+  context.globalAlpha = 1;
   context.restore();
+}
+
+function formatDamage(amount: number): string {
+  if (amount >= 100) return Math.round(amount).toLocaleString();
+  if (amount >= 10) return Math.round(amount).toString();
+  return amount.toFixed(1).replace(/\.0$/, '');
 }
 
 function drawProjectile(
@@ -80,13 +193,25 @@ function drawProjectile(
     drawMissile(context, projectile);
     return;
   }
-  const color = projectile.hostile ? '#ff496c' : '#64f5ff';
+  const color = projectile.hostile
+    ? '#ff496c'
+    : projectile.kind === 'ricochet'
+      ? '#ffe36e'
+      : '#64f5ff';
   context.fillStyle = color;
   context.shadowColor = color;
   context.shadowBlur = 13;
   context.beginPath();
   context.arc(projectile.x, projectile.y, projectile.radius, 0, Math.PI * 2);
   context.fill();
+  if (projectile.kind === 'ricochet') {
+    context.strokeStyle = '#fff8bd';
+    context.lineWidth = 2;
+    context.beginPath();
+    context.moveTo(projectile.x - projectile.vx * 0.025, projectile.y - projectile.vy * 0.025);
+    context.lineTo(projectile.x, projectile.y);
+    context.stroke();
+  }
   if (projectile.hostile) {
     context.strokeStyle = '#ffb1c0';
     context.lineWidth = 1;

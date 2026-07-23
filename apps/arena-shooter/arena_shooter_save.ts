@@ -83,11 +83,33 @@ export function saveArenaState(save: ArenaPersistentSave): Promise<void> {
   pendingSave = pendingSave
     .catch(() => undefined)
     .then(async () => {
-      const response = await fetch('/api/arena-shooter/save', {
+      let response = await fetch('/api/arena-shooter/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(save),
       });
+      if (response.status === 400) {
+        response = await fetch('/api/arena-shooter/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            schemaVersion: 1,
+            updatedAt: save.updatedAt,
+            meta: {
+              data: save.data,
+              damageResearch: save.damageResearch,
+              hullResearch: save.hullResearch,
+            },
+            run: {},
+            agent: {},
+            episode: 1,
+            wave: 1,
+            waveTime: 0,
+            score: 0,
+            kills: 0,
+          }),
+        });
+      }
       if (!response.ok) throw new Error(`Arena save failed: ${response.status}`);
     });
   return pendingSave;
