@@ -58,6 +58,7 @@ export async function mountBrowserAssetRoutes(app: express.Express, projectRoot:
     '/drone_bastion.js': 'build/apps/drone-bastion/drone_bastion.js',
     '/submarine_cables.js': 'build/apps/submarine-cables/submarine_cables.js',
     '/submarine_network_3d.js': 'build/apps/submarine-network-3d/submarine_network_3d.js',
+    '/zombie_survivor.js': 'build/apps/zombie-survivor/zombie_survivor.js',
     '/network-core.js': 'build/shared/network-core.js',
   });
   app.use(express.static(path.join(projectRoot, 'public')));
@@ -88,6 +89,7 @@ export async function mountBrowserAssetRoutes(app: express.Express, projectRoot:
     '/ai_restoration.html': 'apps/ai-restoration/ai_restoration.html',
     '/submarine_cables.html': 'pages/submarine_cables.html',
     '/submarine_network_3d.html': 'pages/submarine_network_3d.html',
+    '/zombie_survivor.html': 'apps/zombie-survivor/zombie_survivor.html',
     '/network-defense/network-core.js': 'build/shared/network-core.js',
     '/network-ecosystem/network-core.js': 'build/shared/network-core.js',
     '/telemetry-client.js': 'shared/telemetry-client.js',

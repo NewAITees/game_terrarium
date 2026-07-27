@@ -1,0 +1,26 @@
+Reactorcore Art (RC Art)
+==
+PACK: Muzzle Effects
+
+--
+
+Pixel-art sprites pack depicting many different muzzle flashes of firearms. There are fire yellow and ion blue versions, for modern and futuristic weapons respectively. There are also many melee or blade attack slash flashes, including plasma green and bloody red versions in various sizes.
+
+The package offers both sheets and individual images. Both are PNGs with transparent background. In total there are 232 sprites, 96 of them for melee, the rest are firearm flashes. Smallest ones are around 16x16px size class, while the large ones are in the realm of 64, 96, 128 pixel sizes - so fairly big!
+
+--
+
+The main idea is to quickly show the muzzle flash sprite for a single frame when a weapon fires, followed by a particle system that spews yellow/orange pixels and maybe animated smoke/fire particles too.
+
+Most muzzle flashes are grouped by similar size and style, so use them as sets to randomly show one of them for each firing. This creates variation and a more natural looking effect.
+
+--
+
+By default in image import settings, all sprites/textures have been set to 32 pixels per unit and using a point filter so they appear crisp.
+
+--
+
+Contact:
+mailto:reactorcoregames@gmail.com
+
+Enjoy!
