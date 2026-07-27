@@ -40,6 +40,7 @@
     "start:colony": "npm start -- --page=colony",
     "start:arena-shooter": "npm start -- --page=arena_shooter",
     "start:drone-bastion": "npm start -- --page=drone_bastion"
+    ,"start:zombie-survivor": "npm start -- --page=zombie_survivor"
   },
   "devDependencies": {
     "@types/three": "^0.184.1",

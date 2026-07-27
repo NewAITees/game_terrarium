@@ -58,6 +58,8 @@ export default defineConfig({
           resolve(__dirname, 'apps/planet-strategy/planet_strategy.ts'),
         'apps/arena-shooter/arena_shooter':
           resolve(__dirname, 'apps/arena-shooter/arena_shooter.ts'),
+        'apps/zombie-survivor/zombie_survivor':
+          resolve(__dirname, 'apps/zombie-survivor/zombie_survivor.ts'),
         'apps/drone-bastion/drone_bastion':
           resolve(__dirname, 'apps/drone-bastion/drone_bastion.ts'),
         'apps/ai-restoration/ai_restoration':
@@ -71,4 +73,3 @@ export default defineConfig({
     },
   },
 });
-

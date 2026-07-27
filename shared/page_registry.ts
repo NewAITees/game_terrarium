@@ -1,7 +1,7 @@
 export type PageLoadMode = 'file' | 'http';
 
 export type PageDefinition = {
-  number: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
+  number: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13;
   key: string;
   label: string;
   accelerator: string;
@@ -127,6 +127,15 @@ export const PAGE_REGISTRY = [
     loadMode: 'http',
     htmlPath: 'apps/ai-restoration/ai_restoration.html',
     target: 'http://localhost:3000/ai_restoration.html',
+  },
+  {
+    number: 13,
+    key: 'zombie_survivor',
+    label: 'Zombie Survivor',
+    accelerator: 'CmdOrCtrl+Shift+3',
+    loadMode: 'http',
+    htmlPath: 'apps/zombie-survivor/zombie_survivor.html',
+    target: 'http://localhost:3000/zombie_survivor.html',
   },
 ] as const satisfies readonly PageDefinition[];
 
