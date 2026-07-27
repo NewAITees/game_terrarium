@@ -219,6 +219,8 @@ export function createNetworkDefenseRuleRuntime(context: any) {
   return {
     agentRules,
     assignAgent,
+    buildSnapshot,
+    execAction,
     loadAgentRules,
     triggerRuleUpdate,
   };

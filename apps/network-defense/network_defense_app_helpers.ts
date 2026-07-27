@@ -19,6 +19,8 @@ import {
 } from './network_defense_routing.js';
 
 export function createNetworkDefenseAppHelpers(context: any) {
+  const now = context.now ?? (() => performance.now() / 1000);
+
   function perimeterNode() {
     return context.rng.pick(context.terms.filter((node: any) => !node.isServer));
   }
@@ -33,7 +35,7 @@ export function createNetworkDefenseAppHelpers(context: any) {
       topo: context.topo,
       perimeterNode,
       exposedServer,
-      now: () => performance.now() / 1000,
+      now,
     });
   }
 
@@ -105,7 +107,7 @@ export function createNetworkDefenseAppHelpers(context: any) {
       game: context.game,
       adj: context.adj,
       rng: context.rng,
-      isFriendlyPassable: (node: any, routeTarget: any) => canFriendlyPass(node, routeTarget, performance.now() / 1000),
+      isFriendlyPassable: (node: any, routeTarget: any) => canFriendlyPass(node, routeTarget, now()),
     }, agent, target, blockedTarget);
   }
 
@@ -114,7 +116,7 @@ export function createNetworkDefenseAppHelpers(context: any) {
       topo: context.topo,
       rng: context.rng,
       adj: context.adj,
-      isFriendlyPassable: (node: any, routeTarget: any) => canFriendlyPass(node, routeTarget, performance.now() / 1000),
+      isFriendlyPassable: (node: any, routeTarget: any) => canFriendlyPass(node, routeTarget, now()),
     });
   }
 

@@ -26,8 +26,11 @@
     "apps/network-ecosystem/**/*.ts",
     "apps/planet-strategy/**/*.ts",
     "apps/arena-shooter/**/*.ts",
+    "apps/drone-bastion/**/*.ts",
+    "apps/ai-restoration/**/*.ts",
     "game/**/*.ts",
     "shared/*.ts",
+    "shared/rl/**/*.ts",
     "shared/types/**/*.ts",
     "shared/types/**/*.d.ts"
   ],

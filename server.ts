@@ -330,6 +330,7 @@ export async function startServer(
       service: 'game-terrarium',
       port,
       arenaSaveSchema: 2,
+      browserAssetsVersion: 2,
     });
   });
 
@@ -549,5 +550,4 @@ export async function startServer(
     });
   });
 }
-
 

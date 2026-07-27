@@ -91,6 +91,13 @@ const appBuildTargets: readonly AppBuildTarget[] = [
     bundle: 'build/apps/arena-shooter/arena_shooter.js',
     htmlModuleSrc: './arena_shooter.js',
   },
+  {
+    name: 'Drone Bastion TD',
+    source: 'apps/drone-bastion/drone_bastion.ts',
+    html: 'apps/drone-bastion/drone_bastion.html',
+    bundle: 'build/apps/drone-bastion/drone_bastion.js',
+    htmlModuleSrc: './drone_bastion.js',
+  },
 ];
 
 for (const app of appBuildTargets) {

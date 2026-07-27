@@ -14,7 +14,9 @@
     "sim:colony": "tsc -p tsconfig.node.json && node build-node/scripts/colony_headless_sim.js",
     "sim:planet-strategy": "tsc -p tsconfig.node.json && node build-node/scripts/planet_strategy_headless_sim.js",
     "sim:network-defense": "tsc -p tsconfig.node.json && node build-node/scripts/network_defense_headless_sim.js",
+    "eval:network-defense-rl": "tsc -p tsconfig.node.json && node build-node/scripts/network_defense_rl_learning_eval.js",
     "sim:arena-shooter": "tsc -p tsconfig.node.json && node build-node/scripts/arena_shooter_headless_sim.js",
+    "sim:drone-bastion": "tsc -p tsconfig.node.json && node build-node/scripts/drone_bastion_headless_sim.js",
     "sim:all": "npm run sim:escort-td && npm run sim:roguelike && npm run sim:colony && npm run sim:planet-strategy && npm run sim:network-defense",
     "test:escort-td": "npm run build && node --test build-node/scripts/escort_td_rules.test.js",
     "test:apps": "npm run build && node --test build-node/scripts/apps_build.test.js",
@@ -36,7 +38,8 @@
     "start:submarine-cables": "npm start -- --page=submarine",
     "start:submarine-3d": "npm start -- --page=submarine_3d",
     "start:colony": "npm start -- --page=colony",
-    "start:arena-shooter": "npm start -- --page=arena_shooter"
+    "start:arena-shooter": "npm start -- --page=arena_shooter",
+    "start:drone-bastion": "npm start -- --page=drone_bastion"
   },
   "devDependencies": {
     "@types/three": "^0.184.1",

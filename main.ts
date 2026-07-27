@@ -73,10 +73,14 @@ async function canReuseGameServer(port: number): Promise<boolean> {
         signal: AbortSignal.timeout(600),
       });
       if (response.ok) {
-        const body = await response.json() as { service?: string; arenaSaveSchema?: number };
+        const body = await response.json() as {
+          service?: string;
+          arenaSaveSchema?: number;
+          browserAssetsVersion?: number;
+        };
         if (body.service === 'game-terrarium') {
           foundGameServer = true;
-          if (body.arenaSaveSchema === 2) return true;
+          if (body.arenaSaveSchema === 2 && body.browserAssetsVersion === 2) return true;
         }
       }
     } catch {

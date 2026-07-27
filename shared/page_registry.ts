@@ -1,7 +1,7 @@
 export type PageLoadMode = 'file' | 'http';
 
 export type PageDefinition = {
-  number: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+  number: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
   key: string;
   label: string;
   accelerator: string;
@@ -110,6 +110,24 @@ export const PAGE_REGISTRY = [
     htmlPath: 'apps/arena-shooter/arena_shooter.html',
     target: 'http://localhost:3000/arena_shooter.html',
   },
+  {
+    number: 11,
+    key: 'drone_bastion',
+    label: 'Drone Bastion TD',
+    accelerator: 'CmdOrCtrl+Shift+1',
+    loadMode: 'http',
+    htmlPath: 'apps/drone-bastion/drone_bastion.html',
+    target: 'http://localhost:3000/drone_bastion.html',
+  },
+  {
+    number: 12,
+    key: 'ai_restoration',
+    label: 'AI Restoration Alpha',
+    accelerator: 'CmdOrCtrl+Shift+2',
+    loadMode: 'http',
+    htmlPath: 'apps/ai-restoration/ai_restoration.html',
+    target: 'http://localhost:3000/ai_restoration.html',
+  },
 ] as const satisfies readonly PageDefinition[];
 
 export type PageKey = (typeof PAGE_REGISTRY)[number]['key'];
@@ -127,6 +145,12 @@ export function isPageKey(value: string): value is PageKey {
 }
 
 export function describePage(page: { number: number; key: string; label: string }): string {
-  return `${page.number === 10 ? 'Ctrl+Shift+0' : `Ctrl+${page.number}`} / ${page.label} (${page.key})`;
+  const shortcut = page.number === 10
+    ? 'Ctrl+Shift+0'
+    : page.number === 11
+      ? 'Ctrl+Shift+1'
+    : page.number === 12
+      ? 'Ctrl+Shift+2'
+      : `Ctrl+${page.number}`;
+  return `${shortcut} / ${page.label} (${page.key})`;
 }
-

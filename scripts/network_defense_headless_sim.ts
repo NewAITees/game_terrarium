@@ -6,6 +6,10 @@ import { EDGE_SPEED, WIN_WAVE } from '../apps/network-defense/network_defense_co
 import { createNetworkDefenseAppHelpers } from '../apps/network-defense/network_defense_app_helpers';
 import { createNetworkDefenseRuleRuntime } from '../apps/network-defense/network_defense_rule_runtime';
 import { createNetworkDefenseRuntime } from '../apps/network-defense/network_defense_runtime';
+import {
+  NetworkDefenseRlController,
+  type NetworkDefenseRlSave,
+} from '../apps/network-defense/network_defense_rl';
 import { scanNetworkForWave } from '../apps/network-defense/network_defense_wave';
 import type { NetworkDefenseGameState } from '../shared/types/network_defense';
 
@@ -158,7 +162,31 @@ function buildSetup(seed: number) {
   return { adj, agents, attackPool, defensePackets, enemyPackets, firewalls, game, normalPackets, normalPool, rng, scanPackets, scene, terms, topo, edgeMap, allEdges, triggerFlash };
 }
 
-async function runOne(run: number, seed: number, maxSeconds: number): Promise<{ run: number; outcome: string; wave: number; score: number; kills: number; elapsed: number; serverHp: number; agents: number; firewalls: number }> {
+type RunResult = {
+  run: number;
+  outcome: string;
+  wave: number;
+  score: number;
+  kills: number;
+  elapsed: number;
+  serverHp: number;
+  agents: number;
+  firewalls: number;
+  trainingSteps: number;
+  knownStates: number;
+  model?: NetworkDefenseRlSave;
+};
+
+export async function runNetworkDefenseEpisode(
+  run: number,
+  seed: number,
+  maxSeconds: number,
+  aiMode: 'rules' | 'rl',
+  model?: NetworkDefenseRlSave,
+  evaluation = false,
+): Promise<RunResult> {
+  const originalRandom = Math.random;
+  Math.random = seededRandom(seed ^ 0x9e3779b9);
   const setup = buildSetup(seed);
   const { adj, agents, attackPool, defensePackets, enemyPackets, firewalls, game, normalPackets, normalPool, rng, scanPackets, scene, terms, topo, edgeMap, allEdges, triggerFlash } = setup;
 
@@ -180,6 +208,7 @@ async function runOne(run: number, seed: number, maxSeconds: number): Promise<{ 
   } = createNetworkDefenseAppHelpers({
     adj, agents, applyPersonalityToAgent: (agent: any) => agent, edgeKey, firewalls, game,
     observerMode: false, rankPersonalities: null, rng, scene, terms, topo,
+    now: () => game.elapsed,
   });
 
   seedAgents();
@@ -194,8 +223,32 @@ async function runOne(run: number, seed: number, maxSeconds: number): Promise<{ 
     buyAgent: (rank: string) => requestBuyAgent(rank),
     game, topo, adj, agents, enemyPackets, firewalls, rng,
   });
-  const { assignAgent, loadAgentRules, triggerRuleUpdate } = ruleRuntime;
-  await loadAgentRules();
+  const {
+    assignAgent: assignRuleAgent,
+    buildSnapshot,
+    execAction,
+    loadAgentRules,
+    triggerRuleUpdate,
+  } = ruleRuntime;
+  if (aiMode === 'rules') await loadAgentRules();
+
+  const rlController = aiMode === 'rl'
+    ? new NetworkDefenseRlController({
+        game,
+        topo,
+        agents,
+        enemyPackets,
+        firewalls,
+        buildSnapshot,
+        executeAction: (agent, action, snapshot) => execAction(agent, action, snapshot),
+        now: () => game.elapsed,
+      })
+    : null;
+  if (rlController && model) rlController.restore(model);
+  if (rlController) rlController.setEvaluationMode(evaluation);
+  const assignAgent = rlController
+    ? (agent: any) => rlController.assignAgent(agent)
+    : assignRuleAgent;
 
   const runtime = createNetworkDefenseRuntime({
     adj, agents, applyPersonalityToAgent: (agent: any) => agent, attackPool,
@@ -205,7 +258,8 @@ async function runOne(run: number, seed: number, maxSeconds: number): Promise<{ 
     observationEvents: { update: () => {}, getHudState: () => ({}) },
     observationUi: { update: () => {} }, observerMode: false, perimeterNode, rankPersonalities: null, rng, route,
     safeRoute, scanPackets, scene, setMessage: () => {}, topo, triggerFlash, winWave: WIN_WAVE,
-    assignAgent, triggerRuleUpdate,
+    assignAgent,
+    triggerRuleUpdate: aiMode === 'rl' ? async () => {} : triggerRuleUpdate,
   });
   requestBuyAgent = runtime.buyAgent;
 
@@ -223,7 +277,7 @@ async function runOne(run: number, seed: number, maxSeconds: number): Promise<{ 
       game.credits = Math.min(999, game.credits + dt * 3);
       game.nextAttack -= dt;
       runtime.updateWave(dt);
-      runtime.updateSeniorStrategy(dt);
+      if (aiMode === 'rules') runtime.updateSeniorStrategy(dt);
       if (game.nextAttack <= 0 && game.waveRemaining > 0) {
         runtime.spawnEnemy();
         game.nextAttack = Math.max(0.32, 1.35 - game.wave * 0.035) + rng.next() * 0.65;
@@ -250,14 +304,25 @@ async function runOne(run: number, seed: number, maxSeconds: number): Promise<{ 
   }
 
   const outcome = game.gameOver ? (game.victory ? 'victory' : 'defeat') : 'timeout';
-  return {
+  if (rlController) rlController.finishEpisode(Boolean(game.victory));
+  const result = {
     run, outcome, wave: game.wave, score: game.score, kills: game.kills,
     elapsed: Math.round(game.elapsed), serverHp: Math.max(0, Math.round(topo.server.hp)),
     agents: agents.length, firewalls: firewalls.size,
+    trainingSteps: rlController?.trainingSteps ?? 0,
+    knownStates: rlController?.knownStates ?? 0,
+    model: rlController?.serialize(),
   };
+  Math.random = originalRandom;
+  return result;
 }
 
-function parseArgs(argv: string[]): { runs: number; maxSeconds: number; seedStart: number } {
+function parseArgs(argv: string[]): {
+  runs: number;
+  maxSeconds: number;
+  seedStart: number;
+  aiMode: 'rules' | 'rl';
+} {
   const args = Object.fromEntries(argv.map((entry) => {
     const [key, value] = entry.replace(/^--/, '').split('=');
     return [key, value];
@@ -266,23 +331,27 @@ function parseArgs(argv: string[]): { runs: number; maxSeconds: number; seedStar
     runs: Number(args.runs ?? 10),
     maxSeconds: Number(args.maxSeconds ?? 300),
     seedStart: Number(args.seed ?? 1),
+    aiMode: args.ai === 'rl' ? 'rl' : 'rules',
   };
 }
 
 async function main(): Promise<void> {
   installAgentRulesFetchShim();
-  const { runs, maxSeconds, seedStart } = parseArgs(process.argv.slice(2));
+  const { runs, maxSeconds, seedStart, aiMode } = parseArgs(process.argv.slice(2));
   const results = [];
+  let model: NetworkDefenseRlSave | undefined;
   for (let i = 0; i < runs; i++) {
     const seed = seedStart + i;
     const startedAt = Date.now();
-    const result = await runOne(i + 1, seed, maxSeconds);
+    const result = await runNetworkDefenseEpisode(i + 1, seed, maxSeconds, aiMode, model);
+    model = result.model;
     const wallMs = Date.now() - startedAt;
     results.push(result);
     console.log(
       `run ${String(result.run).padStart(3)} seed=${seed} outcome=${result.outcome.padEnd(8)} wave=${String(result.wave).padStart(2)} ` +
       `score=${String(result.score).padStart(5)} kills=${String(result.kills).padStart(3)} serverHp=${String(result.serverHp).padStart(3)} ` +
-      `agents=${result.agents} firewalls=${result.firewalls} simSec=${String(result.elapsed).padStart(4)} wallMs=${wallMs}`,
+      `agents=${result.agents} firewalls=${result.firewalls} states=${result.knownStates} steps=${result.trainingSteps} ` +
+      `simSec=${String(result.elapsed).padStart(4)} wallMs=${wallMs}`,
     );
   }
   console.log('---');
@@ -296,7 +365,20 @@ async function main(): Promise<void> {
   console.log(`avg kills=${avg(results.map((r) => r.kills)).toFixed(1)}`);
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.stack ?? error.message : String(error));
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.stack ?? error.message : String(error));
+    process.exit(1);
+  });
+}
+
+function seededRandom(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state += 0x6D2B79F5;
+    let value = state;
+    value = Math.imul(value ^ value >>> 15, value | 1);
+    value ^= value + Math.imul(value ^ value >>> 7, value | 61);
+    return ((value ^ value >>> 14) >>> 0) / 4294967296;
+  };
+}

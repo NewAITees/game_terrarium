@@ -212,7 +212,11 @@ const turretUpgrade = turretChoices.find((choice) => choice.id === 'turret-turn'
 assert.ok(turretUpgrade, 'turret craft should always receive a turret rotation upgrade choice');
 applyUpgrade(turretRun, turretUpgrade, () => {});
 assert.equal(turretRun.turretTurnLevel, 1, 'turret rotation upgrade should have its own level');
-assert.deepEqual(turretRun.weapons, { pulse: 1, missile: 0, nova: 0 }, 'turret upgrade must preserve existing weapons');
+assert.deepEqual(
+  turretRun.weapons,
+  { pulse: 1, missile: 0, nova: 0, laser: 0, ricochet: 0, trail: 0 },
+  'turret upgrade must preserve existing weapons',
+);
 
 const baseTurretState = createArenaState(800, 600);
 setCraftPreference(baseTurretState, 'turret');

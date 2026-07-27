@@ -26,6 +26,7 @@ export function startNetworkDefenseLoop(context: {
   onUpdateAgents: (dt: number, now: number) => void;
   onUpdateFirewalls: (now: number, dt: number) => void;
   onUpdateNodes: (dt: number, now: number) => void;
+  onUpdateLearning?: (dt: number) => void;
   onUpdateHud: () => void;
   onReportTelemetry: () => void;
 }): void {
@@ -101,6 +102,7 @@ export function startNetworkDefenseLoop(context: {
     context.onUpdateAgents(dt, now);
     context.onUpdateFirewalls(now, dt);
     context.onUpdateNodes(dt, now);
+    context.onUpdateLearning?.(dt);
     context.onUpdateHud();
 
     if (context.observerMode) {

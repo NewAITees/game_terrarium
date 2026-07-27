@@ -55,6 +55,7 @@ export async function mountBrowserAssetRoutes(app: express.Express, projectRoot:
     '/network_smallworld.js': 'build/apps/network-smallworld/network_smallworld.js',
     '/planet_strategy.js': 'build/apps/planet-strategy/planet_strategy.js',
     '/arena_shooter.js': 'build/apps/arena-shooter/arena_shooter.js',
+    '/drone_bastion.js': 'build/apps/drone-bastion/drone_bastion.js',
     '/submarine_cables.js': 'build/apps/submarine-cables/submarine_cables.js',
     '/submarine_network_3d.js': 'build/apps/submarine-network-3d/submarine_network_3d.js',
     '/network-core.js': 'build/shared/network-core.js',
@@ -64,6 +65,7 @@ export async function mountBrowserAssetRoutes(app: express.Express, projectRoot:
   app.use('/faction_rules', express.static(path.join(projectRoot, 'faction_rules')));
   app.use('/assets',       express.static(path.join(projectRoot, 'assets')));
   app.use('/assets',       express.static(path.join(projectRoot, 'build', 'assets')));
+  app.use('/ai-restoration-assets', express.static(path.join(projectRoot, 'apps', 'ai-restoration', 'assets')));
   app.use('/_vendor',      express.static(path.join(projectRoot, 'build', '_vendor')));
   // network-core's split modules use relative imports from these app paths.
   app.use('/network-defense', express.static(path.join(projectRoot, 'build', 'shared')));
@@ -82,6 +84,8 @@ export async function mountBrowserAssetRoutes(app: express.Express, projectRoot:
     '/planet_strategy.html': 'apps/planet-strategy/planet_strategy.html',
     '/arena_shooter.html': 'apps/arena-shooter/arena_shooter.html',
     '/arena_shooter_training.html': 'apps/arena-shooter/arena_shooter.html',
+    '/drone_bastion.html': 'apps/drone-bastion/drone_bastion.html',
+    '/ai_restoration.html': 'apps/ai-restoration/ai_restoration.html',
     '/submarine_cables.html': 'pages/submarine_cables.html',
     '/submarine_network_3d.html': 'pages/submarine_network_3d.html',
     '/network-defense/network-core.js': 'build/shared/network-core.js',

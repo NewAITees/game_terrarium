@@ -100,6 +100,7 @@ Final evaluation of "fun" belongs to the human, not the AI.
 - `Ctrl+8` - Network Ecosystem
 - `Ctrl+9` - AI Colony Sandbox
 - `Ctrl+Shift+0` - RL Arena Shooter
+- `Ctrl+Shift+1` - Drone Bastion TD
 
 ## Direct Game Launch
 
@@ -118,6 +119,7 @@ npm run start:submarine-cables
 npm run start:submarine-3d
 npm run start:colony
 npm run start:arena-shooter
+npm run start:drone-bastion
 ```
 
 Packaged or custom launchers can use the same interface with
