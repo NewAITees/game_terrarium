@@ -2,7 +2,7 @@ import { Clock, } from 'three';
 import {
   edgeKey,
   tickEdges,
-} from './network-core.js';
+} from '../../shared/network-core.js';
 import {
   applyPersonalitiesToRules,
   applyPersonalityToAgent,
@@ -24,8 +24,12 @@ import { createNetworkDefenseRuntime } from './network_defense_runtime.js';
 import { createNetworkDefenseUiRuntime } from './network_defense_ui_runtime.js';
 import { initializeNetworkDefenseSetup } from './network_defense_setup.js';
 import { createNetworkDefenseAppHelpers } from './network_defense_app_helpers.js';
+import { NetworkDefenseRlController } from './network_defense_rl.js';
+
+const NETWORK_DEFENSE_RL_STORAGE_KEY = 'network-defense-rl-v1';
 
 export function startNetworkDefenseApp({ observerMode = false }: { observerMode?: boolean } = {}): void {
+const rlMode = !observerMode && new URLSearchParams(location.search).get('ai') !== 'rules';
 const {
   adj,
   agents,
@@ -140,7 +144,36 @@ const ruleRuntime = createNetworkDefenseRuleRuntime({
   rng,
 });
 
-const { assignAgent, loadAgentRules, triggerRuleUpdate } = ruleRuntime;
+const {
+  assignAgent: assignRuleAgent,
+  buildSnapshot,
+  execAction,
+  loadAgentRules,
+  triggerRuleUpdate,
+} = ruleRuntime;
+
+const rlController = rlMode
+  ? new NetworkDefenseRlController({
+      game,
+      topo,
+      agents,
+      enemyPackets,
+      firewalls,
+      buildSnapshot,
+      executeAction: (agent, action, snapshot) => execAction(agent, action, snapshot),
+    })
+  : null;
+if (rlController) {
+  try {
+    const raw = localStorage.getItem(NETWORK_DEFENSE_RL_STORAGE_KEY);
+    if (raw) rlController.restore(JSON.parse(raw));
+  } catch {
+    // A corrupt learning checkpoint starts a fresh model.
+  }
+}
+const assignAgent = rlController
+  ? (agent: any) => rlController.assignAgent(agent)
+  : assignRuleAgent;
 
 function scanNetwork() {
   return scanNetworkForWave(topo, firewalls, enemyPackets);
@@ -181,7 +214,7 @@ const runtime = createNetworkDefenseRuntime({
   triggerFlash,
   winWave: WIN_WAVE,
   assignAgent,
-  triggerRuleUpdate,
+  triggerRuleUpdate: rlMode ? async () => {} : triggerRuleUpdate,
 });
 
 const {
@@ -217,7 +250,11 @@ toggleLowLoadMode = uiRuntime.toggleLowLoadMode;
 requestBuyAgent = runtimeBuyAgent;
 uiRuntime.bindInputs();
 
-loadAgentRules();
+if (!rlMode) loadAgentRules();
+else {
+  const status = document.getElementById('rules-status');
+  if (status) status.textContent = 'RL ACTIVE';
+}
 if (observerMode && rankPersonalities) {
   for (const [rank, personality] of Object.entries(rankPersonalities)) {
     logEvent(`${rank} personality: ${personality.label} — ${personality.summary}`, 'summary');
@@ -237,9 +274,9 @@ startNetworkDefenseLoop({
   controls,
   composer,
   edgeTick: tickEdges,
-  onReloadRules: loadAgentRules,
+  onReloadRules: rlMode ? () => {} : loadAgentRules,
   onUpdateWave: updateWave,
-  onUpdateSeniorStrategy: updateSeniorStrategy,
+  onUpdateSeniorStrategy: rlMode ? () => {} : updateSeniorStrategy,
   onObservationUpdate: (dt, now) => observationEvents.update(dt, now),
   onSpawnEnemy: spawnEnemy,
   onSpawnNormalTraffic: spawnNormalTraffic,
@@ -251,6 +288,39 @@ startNetworkDefenseLoop({
   onUpdateAgents: updateAgents,
   onUpdateFirewalls: updateFirewalls,
   onUpdateNodes: updateNodes,
+  onUpdateLearning: (() => {
+    let saveCooldown = 5;
+    let hudCooldown = 0;
+    let restartScheduled = false;
+    return (dt: number) => {
+      if (!rlController) return;
+      saveCooldown -= dt;
+      hudCooldown -= dt;
+      if (hudCooldown <= 0) {
+        const status = document.getElementById('rules-status');
+        const decision = rlController.decision;
+        if (status) {
+          status.textContent = [
+            'RL',
+            decision?.action ?? 'WAIT',
+            decision?.exploratory ? 'EXPLORE' : 'POLICY',
+            `ε ${(rlController.epsilon * 100).toFixed(1)}%`,
+            `${rlController.knownStates} states`,
+          ].join(' · ');
+        }
+        hudCooldown = 0.25;
+      }
+      if (saveCooldown <= 0 || game.gameOver) {
+        if (game.gameOver) rlController.finishEpisode(Boolean(game.victory));
+        localStorage.setItem(NETWORK_DEFENSE_RL_STORAGE_KEY, JSON.stringify(rlController.serialize()));
+        saveCooldown = 5;
+      }
+      if (game.gameOver && !restartScheduled) {
+        restartScheduled = true;
+        window.setTimeout(() => location.reload(), 1800);
+      }
+    };
+  })(),
   onUpdateHud: updateHud,
   onReportTelemetry: reportTelemetry,
 });

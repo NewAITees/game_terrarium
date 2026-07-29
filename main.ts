@@ -1,6 +1,8 @@
 import { app, BrowserWindow, globalShortcut, Menu, type MenuItemConstructorOptions } from 'electron';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { startServer } from './server';
-import { describePage, isPageKey, PAGE_REGISTRY, type PageKey } from './shared/page_registry';
+import { describePage, isPageKey, PAGE_BY_NUMBER, PAGE_REGISTRY, type PageKey } from './shared/page_registry';
 
 app.commandLine.appendSwitch('disable-features', 'HardwareMediaKeyHandling,MediaSessionService');
 
@@ -10,24 +12,96 @@ const ENABLE_GLOBAL_SHORTCUTS = process.env.ELECTRON_DISABLE_SHORTCUTS !== '1';
 const ENABLE_ALWAYS_ON_TOP = process.env.ELECTRON_ENABLE_ALWAYS_ON_TOP === '1' && !IS_DEBUG_MINIMAL;
 const ENABLE_ALL_WORKSPACES = process.env.ELECTRON_ENABLE_ALL_WORKSPACES === '1' && !IS_DEBUG_MINIMAL;
 const ENABLE_SERVER = process.env.ELECTRON_DISABLE_SERVER !== '1';
+const REQUESTED_SERVER_PORT = Number.parseInt(
+  process.env.GAME_TERRARIUM_PORT || process.env.PORT || '3000',
+  10,
+) || 3000;
+let activeServerPort = REQUESTED_SERVER_PORT;
 
 let win: BrowserWindow | null = null;
-let currentPage: PageKey = 'city';
+const requestedPage = process.argv
+  .find((argument) => argument.startsWith('--page='))
+  ?.slice('--page='.length)
+  ?? process.env.GAME_TERRARIUM_PAGE
+  ?? '';
+const initialPage: PageKey = isPageKey(requestedPage) ? requestedPage : 'city';
+if (requestedPage && !isPageKey(requestedPage)) {
+  console.warn(`[page] unknown startup page "${requestedPage}", falling back to city`);
+}
+let currentPage: PageKey = initialPage;
 let lastLoadState: { page: PageKey; status: 'idle' | 'loading' | 'loaded' | 'failed'; error?: string } = {
-  page: 'city',
+  page: initialPage,
   status: 'idle',
 };
+let rendererErrors: Array<{ message: string; source: string; line: number }> = [];
+
+type WindowState = { x?: number; y?: number; width: number; height: number };
+function windowStatePath(): string { return join(app.getPath('userData'), 'window-state.json'); }
+function loadWindowState(): WindowState {
+  try { return JSON.parse(readFileSync(windowStatePath(), 'utf8')) as WindowState; }
+  catch { return { width: 1440, height: 900 }; }
+}
+function saveWindowState(): void {
+  if (!win) return;
+  try {
+    mkdirSync(app.getPath('userData'), { recursive: true });
+    writeFileSync(windowStatePath(), JSON.stringify(win.getBounds()), 'utf8');
+  } catch { /* Window placement is a convenience, never a startup blocker. */ }
+}
 
 function loadPage(pageKey: PageKey): void {
   if (!win) return;
   const page = PAGE_REGISTRY.find((entry) => entry.key === pageKey);
   if (!page) return;
   currentPage = pageKey;
+  rendererErrors = [];
   lastLoadState = { page: pageKey, status: 'loading' };
-  const target = page.target;
+  const targetUrl = new URL(page.target);
+  targetUrl.port = String(activeServerPort);
+  const target = targetUrl.toString();
   console.log(`[page] switching -> ${describePage(page)}: ${target}`);
   void win.loadURL(target);
   refreshMenu();
+}
+
+async function canReuseGameServer(port: number): Promise<boolean> {
+  const hosts = ['127.0.0.1', 'localhost', '[::1]'];
+  let foundGameServer = false;
+  for (const host of hosts) {
+    try {
+      const response = await fetch(`http://${host}:${port}/api/game-terrarium/health`, {
+        signal: AbortSignal.timeout(600),
+      });
+      if (response.ok) {
+        const body = await response.json() as {
+          service?: string;
+          arenaSaveSchema?: number;
+          browserAssetsVersion?: number;
+        };
+        if (body.service === 'game-terrarium') {
+          foundGameServer = true;
+          if (body.arenaSaveSchema === 2 && body.browserAssetsVersion === 2) return true;
+        }
+      }
+    } catch {
+      // Try the next loopback address.
+    }
+  }
+  // A server from an older build must not serve a newer renderer/save schema.
+  if (foundGameServer) return false;
+  for (const host of hosts) {
+    try {
+      const response = await fetch(`http://${host}:${port}/electron/state`, {
+        signal: AbortSignal.timeout(600),
+      });
+      if (!response.ok) continue;
+      const body = await response.json() as { currentPage?: unknown };
+      if (typeof body.currentPage === 'string') return true;
+    } catch {
+      // Try the next loopback address.
+    }
+  }
+  return false;
 }
 
 function refreshMenu(): void {
@@ -72,9 +146,9 @@ function refreshMenu(): void {
 }
 
 function createMainWindow(): void {
+  const savedState = loadWindowState();
   win = new BrowserWindow({
-    width: 1440,
-    height: 900,
+    ...savedState,
     autoHideMenuBar: false,
     backgroundColor: '#000000',
     alwaysOnTop: ENABLE_ALWAYS_ON_TOP,
@@ -82,6 +156,21 @@ function createMainWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
     },
+  });
+
+  // Global shortcuts can be claimed by the OS; keep focused-window page switching reliable.
+  win.webContents.on('before-input-event', (event, input) => {
+    const modifierPressed = process.platform === 'darwin' ? input.meta : input.control;
+    if (!modifierPressed || input.alt || input.shift || !/^[0-9]$/.test(input.key)) return;
+    const page = PAGE_BY_NUMBER.get(Number(input.key));
+    if (!page) return;
+    event.preventDefault();
+    loadPage(page.key);
+  });
+  win.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    if (level < 2) return;
+    rendererErrors.push({ message, source: sourceId, line });
+    rendererErrors = rendererErrors.slice(-12);
   });
 
   if (ENABLE_ALWAYS_ON_TOP) {
@@ -116,28 +205,49 @@ function createMainWindow(): void {
 
   loadPage(currentPage);
   win.on('closed', () => {
+    saveWindowState();
     win = null;
   });
+  win.on('close', saveWindowState);
   refreshMenu();
 }
 
 app.whenReady().then(async () => {
   if (ENABLE_SERVER) {
-    try {
-      await startServer(
-        () => ({ currentPage, lastLoadState }),
-        (type: string, payload: any) => {
-          if (type === 'switch_page') {
-            const page = String(payload?.page ?? '');
-            if (!isPageKey(page)) return { error: `unknown page: ${page}` };
-            loadPage(page);
-            return { currentPage };
-          }
-          return { error: `unknown action: ${type}` };
+    if (await canReuseGameServer(activeServerPort)) {
+      console.log(`[server] reusing game server on port ${activeServerPort}`);
+    } else {
+      const dispatch = (type: string, payload: any) => {
+        if (type === 'switch_page') {
+          const page = String(payload?.page ?? '');
+          if (!isPageKey(page)) return { error: `unknown page: ${page}` };
+          loadPage(page);
+          return { currentPage };
         }
-      );
-    } catch (error) {
-      console.error('Failed to start server', error);
+        return { error: `unknown action: ${type}` };
+      };
+      for (let offset = 0; offset < 20; offset += 1) {
+        activeServerPort = REQUESTED_SERVER_PORT + offset;
+        try {
+          await startServer(
+            () => ({ currentPage, lastLoadState, rendererErrors }),
+            dispatch,
+            app.getPath('userData'),
+            activeServerPort,
+          );
+          break;
+        } catch (error) {
+          if (!isAddressInUse(error)) {
+            console.error('Failed to start server', error);
+            break;
+          }
+          if (await canReuseGameServer(activeServerPort)) {
+            console.log(`[server] another window claimed port ${activeServerPort}; reusing it`);
+            break;
+          }
+          console.warn(`[server] port ${activeServerPort} is occupied; trying the next port`);
+        }
+      }
     }
   }
 
@@ -153,6 +263,10 @@ app.whenReady().then(async () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
   });
 });
+
+function isAddressInUse(error: unknown): boolean {
+  return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'EADDRINUSE');
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

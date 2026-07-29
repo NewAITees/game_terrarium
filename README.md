@@ -99,6 +99,44 @@ Final evaluation of "fun" belongs to the human, not the AI.
 - `Ctrl+7` - Network Tower Defense
 - `Ctrl+8` - Network Ecosystem
 - `Ctrl+9` - AI Colony Sandbox
+- `Ctrl+Shift+0` - RL Arena Shooter
+- `Ctrl+Shift+1` - Drone Bastion TD
+
+## Direct Game Launch
+
+`npm start` keeps the normal shared launcher behavior and opens City Traffic first.
+Each experience can also be used as a direct Electron entry point:
+
+```text
+npm run start:city
+npm run start:moss
+npm run start:escort-td
+npm run start:network-smallworld
+npm run start:planet-strategy
+npm run start:network-defense
+npm run start:network-ecosystem
+npm run start:submarine-cables
+npm run start:submarine-3d
+npm run start:colony
+npm run start:arena-shooter
+npm run start:drone-bastion
+```
+
+Packaged or custom launchers can use the same interface with
+`game-terrarium --page=arena_shooter`. The `GAME_TERRARIUM_PAGE` environment
+variable is also supported. An unknown page key safely falls back to City Traffic.
+Directly launched games still share the normal server, saves, menu, and keyboard
+switching controls.
+
+On macOS, the [`launchers`](./launchers) directory contains a separate executable
+`.command` button for every game. Double-click the desired file in Finder, for
+example `Arena Shooter.command` or `Colony.command`. These launchers are
+location-independent and may be copied to Finder Favorites or referenced by an
+alias on the desktop.
+
+Multiple game windows reuse the first game-terrarium server on the configured
+port. Starting another launcher while one game is already open therefore does
+not attempt to bind port 3000 a second time.
 
 ## TypeScript
 

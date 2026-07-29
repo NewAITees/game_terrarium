@@ -12,8 +12,9 @@ import { MossRuntime } from './game/moss_runtime';
 import { SubmarineCablesRuntime } from './game/submarine_cables_runtime';
 import { SubmarineNetwork3DRuntime } from './game/submarine_network_3d_runtime';
 import { EscortTdRuntime } from './game/escort_td_runtime';
+import { ArenaShooterSaveStore, type ArenaSaveBundle } from './game/arena_shooter_save_store';
 
-const PORT = Number.parseInt(process.env.GAME_TERRARIUM_PORT || process.env.PORT || '3000', 10) || 3000;
+const DEFAULT_PORT = Number.parseInt(process.env.GAME_TERRARIUM_PORT || process.env.PORT || '3000', 10) || 3000;
 const telemetry = new Map<string, any>();
 const colonyQueue: Array<{ type: string; queuedAt: string }> = [];
 const progressPages = ['network_defense', 'network_defense_observer', 'colony', 'planet_strategy', 'network_smallworld', 'city_traffic', 'moss', 'escort_td'];
@@ -292,7 +293,12 @@ function buildEscortAnalysis(snapshot: any): any {
     },
   };
 }
-export async function startServer(getElectronState: () => any, electronDispatch: ElectronDispatch): Promise<void> {
+export async function startServer(
+  getElectronState: () => any,
+  electronDispatch: ElectronDispatch,
+  userDataRoot = path.resolve(__dirname, '..', '.runtime-data'),
+  port = DEFAULT_PORT,
+): Promise<void> {
   const projectRoot = path.resolve(__dirname, '..');
   const shipJumpLogPath = path.join(projectRoot, 'logs', 'planet_strategy_ship_jumps.log');
   const engineModuleUrl = pathToFileURL(path.join(projectRoot, 'build-node', 'game', 'engine.js')).href;
@@ -304,7 +310,8 @@ export async function startServer(getElectronState: () => any, electronDispatch:
   const moss = new MossRuntime();
   const submarineCables = new SubmarineCablesRuntime();
   const submarineNetwork3D = new SubmarineNetwork3DRuntime();
-  const escortTd = new EscortTdRuntime();
+  let escortTd = new EscortTdRuntime();
+  const arenaSaveStore = new ArenaShooterSaveStore(userDataRoot);
   const app = express();
 
   app.use((req, res, next) => {
@@ -316,6 +323,33 @@ export async function startServer(getElectronState: () => any, electronDispatch:
   });
   app.use(express.json());
   await mountBrowserAssetRoutes(app, projectRoot);
+
+  app.get('/api/game-terrarium/health', (_req, res) => {
+    res.json({
+      ok: true,
+      service: 'game-terrarium',
+      port,
+      arenaSaveSchema: 2,
+      browserAssetsVersion: 2,
+    });
+  });
+
+  app.get('/api/arena-shooter/save', async (_req, res) => {
+    try {
+      res.json({ ok: true, save: await arenaSaveStore.load() });
+    } catch (error) {
+      res.status(500).json({ ok: false, error: String(error) });
+    }
+  });
+
+  app.post('/api/arena-shooter/save', async (req, res) => {
+    try {
+      await arenaSaveStore.save(req.body as ArenaSaveBundle);
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(400).json({ ok: false, error: String(error) });
+    }
+  });
 
   app.get('/colony/state', (_req, res) => {
     res.json(telemetry.get('colony') || null);
@@ -372,6 +406,10 @@ export async function startServer(getElectronState: () => any, electronDispatch:
   });
 
   app.post('/api/escort-td/action', (req, res) => {
+    if (req.body?.action === 'restart') {
+      escortTd = new EscortTdRuntime(undefined, req.body.meta);
+      return res.json({ ok: true, state: escortTd.getSnapshot() });
+    }
     const result = escortTd.processAction(req.body || {});
     if (!result.ok) return res.status(400).json(result);
     res.json({ ok: true, state: escortTd.getSnapshot() });
@@ -502,18 +540,14 @@ export async function startServer(getElectronState: () => any, electronDispatch:
     ws.send(JSON.stringify({ type: 'state', state: game.getFullState() }));
   });
 
-  await new Promise<void>((resolve) => {
-    server.listen(PORT, () => {
-      console.log(`Game server:  http://localhost:${PORT}`);
-      console.log(`Dungeon view: http://localhost:${PORT}/index.html`);
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(port, () => {
+      server.off('error', reject);
+      console.log(`Game server:  http://localhost:${port}`);
+      console.log(`Dungeon view: http://localhost:${port}/index.html`);
       resolve();
     });
   });
 }
-
-
-
-
-
-
 

@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RL ARENA // 360° SHOOTER</title>
+  <style>
+    :root { color-scheme: dark; --cyan: #5df4ff; --pink: #ff477e; --panel: rgba(5, 11, 22, .66); }
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #03050b; }
+    body { color: #d9edf4; font-family: "SF Mono", Menlo, Consolas, monospace; }
+    canvas { display: block; width: 100%; height: 100%; }
+    .panel {
+      position: fixed; border: 1px solid rgba(98, 191, 220, .25); border-radius: 12px;
+      background: var(--panel); backdrop-filter: blur(8px); box-shadow: 0 12px 40px rgba(0,0,0,.35);
+      transition: opacity .16s ease, background-color .16s ease, transform .2s ease;
+    }
+    .panel[data-ship-overlap="true"] { opacity: .38; background: rgba(5, 11, 22, .14); backdrop-filter: none; }
+    #header { top: 16px; left: 18px; right: 18px; display: flex; align-items: center; gap: 22px; padding: 11px 15px; }
+    .brand { display: grid; gap: 2px; min-width: 210px; }
+    .brand strong { color: var(--cyan); font-size: 14px; letter-spacing: .15em; text-shadow: 0 0 18px rgba(93,244,255,.55); }
+    .brand small { color: #537287; font-size: 9px; letter-spacing: .17em; }
+    #runtime-mode { color: #60ffa8; }
+    #runtime-mode[data-training="true"] { color: #ffd166; }
+    .metric { display: grid; gap: 3px; }
+    .metric label, .section-title { color: #587386; font-size: 9px; letter-spacing: .13em; text-transform: uppercase; }
+    .metric b { font-size: 15px; font-weight: 650; color: #f3fbff; }
+    .metric.accent b { color: #ffd166; }
+    #health { display: grid; grid-template-columns: 150px auto; align-items: center; gap: 8px; }
+    #health-track { height: 7px; border-radius: 8px; overflow: hidden; background: #172435; }
+    #hp-fill { height: 100%; background: var(--cyan); box-shadow: 0 0 12px currentColor; transition: width .15s; }
+    #hp-fill[data-level="warn"] { background: #ffd166; }
+    #hp-fill[data-level="danger"] { background: var(--pink); }
+    #hp-text { color: #8ea9b9; font-size: 10px; }
+    #agent-panel { top: 88px; right: 18px; width: 224px; padding: 14px; display: grid; gap: 10px; }
+    #progress-panel { top: 88px; left: 18px; width: 218px; padding: 14px; display: grid; gap: 9px; }
+    #weapon-panel { left: 18px; bottom: 72px; width: 218px; padding: 12px; display: grid; gap: 7px; }
+    .weapon-row { display: flex; justify-content: space-between; color: #7794a5; font-size: 10px; }
+    .weapon-row b { color: #e1f6fb; }
+    #wave-progress { height: 5px; overflow: hidden; border-radius: 5px; background: #152536; }
+    #wave-progress-fill { height: 100%; width: 0; background: linear-gradient(90deg, #5df4ff, #b86cff); }
+    .agent-header { display: flex; align-items: center; justify-content: space-between; }
+    .live { color: #60ffa8; font-size: 9px; letter-spacing: .14em; }
+    .live::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 10px currentColor; }
+    .decision { padding: 12px; border: 1px solid rgba(93,244,255,.2); border-radius: 9px; background: rgba(93,244,255,.055); }
+    #action { display: block; margin-top: 6px; color: var(--cyan); font-size: 18px; }
+    #policy-mode { float: right; padding: 3px 7px; border-radius: 10px; color: #76ffb3; background: rgba(72,255,155,.1); font-size: 9px; }
+    #policy-mode[data-explore="true"] { color: #ffd166; background: rgba(255,209,102,.1); }
+    .data-row { display: flex; justify-content: space-between; color: #7893a4; font-size: 10px; }
+    .data-row b { color: #d7e8ee; }
+    #pause { border: 1px solid #294c62; border-radius: 7px; padding: 7px; color: #9bdbe7; background: #0c1b2a; font: inherit; font-size: 10px; cursor: pointer; }
+    #pause[data-active="true"] { border-color: #ffd166; color: #ffd166; }
+    .research { border: 1px solid #294c62; border-radius: 7px; padding: 7px; color: #9bdbe7; background: #0c1b2a; font: inherit; font-size: 9px; cursor: pointer; }
+    .research:disabled { opacity: .38; cursor: default; }
+    #craft-select {
+      width: 100%; border: 1px solid #294c62; border-radius: 7px; padding: 7px;
+      color: #dffaff; background: #0c1b2a; font: inherit; font-size: 9px;
+    }
+    #upgrade-panel {
+      left: 50%; bottom: 24px; transform: translateX(-50%);
+      width: min(680px, calc(100vw - 500px)); padding: 12px;
+      display: none; gap: 9px; pointer-events: auto;
+    }
+    #upgrade-panel[data-open="true"] { display: grid; }
+    #upgrade-buttons { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    #upgrade-buttons button {
+      display: grid; gap: 5px; min-height: 62px; padding: 10px;
+      border: 1px solid rgba(93,244,255,.25); border-radius: 8px;
+      background: rgba(93,244,255,.055); color: #dffaff; font: inherit; cursor: pointer;
+    }
+    #upgrade-buttons button:hover { border-color: #5df4ff; background: rgba(93,244,255,.12); }
+    #upgrade-buttons button[data-selected="true"] {
+      border-color: #ffd166; background: rgba(255,209,102,.13); box-shadow: 0 0 18px rgba(255,209,102,.16);
+    }
+    #upgrade-buttons b { color: #5df4ff; font-size: 10px; }
+    #upgrade-buttons span { color: #7893a4; font-size: 8px; }
+    #banner {
+      position: fixed; left: 50%; top: 26%; transform: translate(-50%, -50%) scale(.96);
+      padding: 10px 18px; border: 1px solid rgba(93,244,255,.45); border-radius: 999px;
+      background: rgba(4,12,23,.88); color: #dffcff; font-size: 13px; letter-spacing: .12em;
+      opacity: 0; transition: .22s ease; pointer-events: none;
+      box-shadow: 0 0 35px rgba(93,244,255,.15);
+    }
+    #banner[data-open="true"] { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    #legend { left: 18px; bottom: 18px; padding: 10px 13px; color: #66879a; font-size: 9px; line-height: 1.7; letter-spacing: .06em; }
+    #legend b { color: #a9c6d3; }
+    .enemy-key { display: inline-block; width: 7px; height: 7px; margin: 0 4px 0 10px; transform: rotate(45deg); }
+    .drawer-toggle {
+      display: none; position: absolute; z-index: 3; width: 30px; height: 48px;
+      border: 1px solid rgba(93,244,255,.3); border-radius: 7px; padding: 0;
+      color: #9bdbe7; background: rgba(7,20,34,.92); font: inherit; cursor: pointer;
+    }
+    @media (max-width: 900px) {
+      #header { top: 8px; left: 8px; right: 8px; gap: 10px; padding: 8px 10px; }
+      .brand { min-width: 118px; }
+      .brand small { display: none; }
+      .optional-metric { display: none; }
+      #health { grid-template-columns: minmax(76px, 120px) auto; }
+      .drawer-toggle { display: block; }
+      #progress-panel {
+        top: 72px; left: 0; bottom: auto; max-height: calc(100vh - 84px); overflow-y: auto;
+        transform: translateX(calc(-100% + 32px));
+      }
+      #progress-panel[data-drawer-open="true"] { transform: translateX(8px); }
+      #progress-panel .drawer-toggle { right: 0; top: 42px; }
+      #agent-panel {
+        top: 72px; right: 0; max-height: calc(100vh - 84px); overflow-y: auto;
+        transform: translateX(calc(100% - 32px));
+      }
+      #agent-panel[data-drawer-open="true"] { transform: translateX(-8px); }
+      #agent-panel .drawer-toggle { left: 0; top: 42px; }
+      #weapon-panel {
+        left: 0; bottom: 8px; transform: translateX(calc(-100% + 32px));
+      }
+      #weapon-panel[data-drawer-open="true"] { transform: translateX(8px); }
+      #weapon-panel .drawer-toggle { right: 0; bottom: 18px; }
+      #legend { display: none; }
+      #upgrade-panel { width: calc(100vw - 48px); bottom: 12px; }
+    }
+    @media (max-width: 560px) {
+      #header { flex-wrap: wrap; }
+      #health { order: 5; flex-basis: 100%; }
+      .metric b { font-size: 12px; }
+      #upgrade-buttons { grid-template-columns: 1fr; max-height: 42vh; overflow-y: auto; }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="arena"></canvas>
+  <div id="header" class="panel">
+    <div class="brand">
+      <strong>RL ARENA</strong>
+      <small><span id="runtime-mode">LIVE EVOLUTION</span> · AUTONOMOUS 360° COMBAT</small>
+    </div>
+    <div id="health"><div id="health-track"><div id="hp-fill"></div></div><span id="hp-text">100 / 100</span></div>
+    <div class="metric accent optional-metric"><label>score</label><b id="score">0</b></div>
+    <div class="metric optional-metric"><label>kills</label><b id="kills">0</b></div>
+    <div class="metric"><label>wave</label><b id="wave">1</b></div>
+    <div class="metric optional-metric"><label>cycle</label><b id="cycle">1/5</b></div>
+    <div class="metric optional-metric"><label>episode</label><b id="episode">1</b></div>
+    <div class="metric"><label>craft</label><b id="craft">INTERCEPTOR</b></div>
+    <div class="metric optional-metric"><label>ascendium</label><b id="ascendium">0</b></div>
+  </div>
+  <aside id="progress-panel" class="panel" data-drawer-open="false">
+    <button class="drawer-toggle" type="button" aria-label="進行パネルを開閉">›</button>
+    <div class="agent-header"><span class="section-title">incremental run</span><span class="live">AUTO</span></div>
+    <div id="wave-progress"><div id="wave-progress-fill"></div></div>
+    <div class="data-row"><span>LEVEL</span><b id="level">1</b></div>
+    <div class="data-row"><span>XP</span><b id="xp">0 / 8</b></div>
+    <div class="data-row"><span>SCRAP (RUN)</span><b id="scrap">0</b></div>
+    <div class="data-row"><span>SCRAP → DATA</span><b id="scrap-conversion">+0 DATA</b></div>
+    <div class="data-row"><span>LAST UPGRADE</span><b id="last-upgrade">PULSE Mk.1</b></div>
+    <label class="section-title" for="craft-select">craft selection</label>
+    <select id="craft-select">
+      <option value="random">AUTO / RANDOM</option>
+      <option value="interceptor">INTERCEPTOR</option>
+      <option value="strafer">STRAFER</option>
+      <option value="turret">TURRET</option>
+    </select>
+    <span class="section-title">permanent research</span>
+    <div class="data-row"><span>AVAILABLE DATA</span><b id="data">0</b></div>
+    <button class="research" id="research-damage" type="button"></button>
+    <button class="research" id="research-hull" type="button"></button>
+    <div class="data-row"><span>DMG EFFECT</span><b id="research-damage-effect">×1.00</b></div>
+    <div class="data-row"><span>HULL MAX</span><b id="research-hull-effect">100</b></div>
+    <button class="research" id="ascend" type="button">ASCEND AT WAVE 25</button>
+  </aside>
+  <aside id="agent-panel" class="panel" data-drawer-open="false">
+    <button class="drawer-toggle" type="button" aria-label="AIパネルを開閉">‹</button>
+    <div class="agent-header"><span class="section-title">Q-learning agent</span><span class="live" id="agent-status">LEARNING</span></div>
+    <div class="decision"><span id="policy-mode">活用</span><span class="section-title">current action</span><strong id="action">前進</strong></div>
+    <div class="data-row"><span>直近の報酬</span><b id="reward">+0.00</b></div>
+    <div class="data-row"><span>エピソード報酬</span><b id="episode-reward">+0.00</b></div>
+    <div class="data-row"><span>探索率 ε</span><b id="epsilon">20.0%</b></div>
+    <div class="data-row"><span>学習済み状態</span><b id="states">0</b></div>
+    <div class="data-row"><span>学習ステップ</span><b id="steps">0</b></div>
+    <div class="data-row"><span>画面端観測</span><b id="edge-observation">FAR</b></div>
+    <div class="data-row"><span>移動観測</span><b id="motion-observation">STOP</b></div>
+    <div class="data-row"><span>ベストスコア</span><b id="best">0</b></div>
+    <button id="pause" type="button">一時停止</button>
+  </aside>
+  <aside id="weapon-panel" class="panel" data-drawer-open="false">
+    <button class="drawer-toggle" type="button" aria-label="武器パネルを開閉">›</button>
+    <span class="section-title">weapon build</span>
+    <div class="weapon-row"><span>PULSE</span><b id="weapon-pulse">Mk.1</b></div>
+    <div class="weapon-row"><span>FIRE RATE</span><b id="weapon-rate">Lv.0</b></div>
+    <div class="weapon-row"><span>MULTI-SHOT</span><b id="weapon-projectiles">Lv.0</b></div>
+    <div class="weapon-row"><span>VELOCITY</span><b id="weapon-velocity">Lv.0</b></div>
+    <div class="weapon-row"><span>INTERCEPT</span><b id="weapon-intercept">LOCKED</b></div>
+    <div class="weapon-row"><span>TURRET DRIVE</span><b id="weapon-turret">Lv.0</b></div>
+    <div class="weapon-row"><span>MISSILE</span><b id="weapon-missile">LOCKED</b></div>
+    <div class="weapon-row"><span>NOVA</span><b id="weapon-nova">LOCKED</b></div>
+    <div class="weapon-row"><span>LASER</span><b id="weapon-laser">LOCKED</b></div>
+    <div class="weapon-row"><span>RICOCHET</span><b id="weapon-ricochet">LOCKED</b></div>
+    <div class="weapon-row"><span>TRAIL</span><b id="weapon-trail">LOCKED</b></div>
+  </aside>
+  <div id="upgrade-panel" class="panel" data-open="false">
+    <div class="agent-header"><span class="section-title">level up — choose or let agent decide</span><span class="live" id="upgrade-countdown">HUMAN WINDOW 3.0s</span></div>
+    <div id="upgrade-buttons"></div>
+  </div>
+  <div id="banner" data-open="false"></div>
+  <div id="legend" class="panel">
+    <b>脅威リング</b> 自機基準の8方向センサー
+    <span class="enemy-key" style="background:#ff477e"></span>SCOUT
+    <span class="enemy-key" style="background:#b86cff"></span>GUNNER
+    <span class="enemy-key" style="background:#ff9c42"></span>BRUTE<br>
+    SPACE: 一時停止 / エージェントが移動・旋回・射撃を自律選択
+  </div>
+  <script type="module" src="./arena_shooter.js"></script>
+</body>
+</html>

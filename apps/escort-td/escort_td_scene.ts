@@ -1,8 +1,9 @@
-import { AmbientLight,BoxGeometry,CatmullRomCurve3,Color,CylinderGeometry,DirectionalLight,FogExp2,Group,Mesh,MeshBasicMaterial,MeshLambertMaterial,Object3D,PerspectiveCamera,PlaneGeometry,Scene,Vector3,WebGLRenderer, } from 'three';
+import { AmbientLight,BoxGeometry,CatmullRomCurve3,Color,CylinderGeometry,DirectionalLight,FogExp2,Group,Mesh,MeshBasicMaterial,MeshLambertMaterial,Object3D,PerspectiveCamera,Plane,PlaneGeometry,Raycaster,Scene,Vector2,Vector3,WebGLRenderer, } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { bindComposerResize } from '../../shared/browser-runtime.js';
 import { COMMAND_MODE_LABEL, COMMAND_MODES, CS, GH, GW, VISION, g2w, w2gi, type CommandMode, type Enemy, type PieceType, type Unit } from './escort_td_core.js';
+import type { EscortTdRallyRole } from '../../shared/types/escort_td.js';
 
 export function createEscortTdScene(city: any, seed: number) {
   const renderer = new WebGLRenderer({ antialias: true });
@@ -51,23 +52,45 @@ export function createEscortTdScene(city: any, seed: number) {
 
 export function bindEscortTdInputs(context: {
   camera: any;
+  city: any;
   renderer: any;
+  scene: any;
   onPlaceUnit: (gx: number, gy: number, type: PieceType) => void;
+  onPlaceBarricade: (gx: number, gy: number) => void;
+  onReclaimAt: (gx: number, gy: number) => void;
   onDeployFromKing: () => void;
   onToggleKingPause: () => void;
+  onToggleForceAdvance: () => void;
   getCommandMode: () => CommandMode;
   isKingPaused: () => boolean;
+  isForceAdvance: () => boolean;
+  getTimeScale: () => 0 | 1 | 2 | 4;
+  onTimeScaleChange: (speed: 0 | 1 | 2 | 4) => void;
+  getKingBasis: () => { x: number; z: number; nextX: number; nextZ: number };
+  onSetRally: (role: EscortTdRallyRole, forward: number, side: number) => void;
   onCommandModeChange: (mode: CommandMode) => void;
   onRestart: () => void;
 }): { getSelectedPiece: () => PieceType } {
-  void context.camera;
-  void context.renderer;
-  void context.onPlaceUnit;
+  const raycaster = new Raycaster();
+  const pointer = new Vector2();
+  const groundPlane = new Plane(new Vector3(0, 1, 0), 0);
+  const previewMaterial = new MeshBasicMaterial({ color: 0x5dffcc, transparent: true, opacity: 0.42, depthWrite: false });
+  const previewMesh = new Mesh(new PlaneGeometry(CS * 0.82, CS * 0.82), previewMaterial);
+  previewMesh.rotation.x = -Math.PI / 2;
+  previewMesh.position.y = 0.08;
+  previewMesh.visible = false;
+  context.scene.add(previewMesh);
+  let selectedBuild: PieceType | 'barricade' = 'pawn';
   const commandButtons = COMMAND_MODES.map((mode) => document.getElementById(`cmd-${mode}`) as HTMLButtonElement | null);
   const commandModeLabel = document.getElementById('command-mode') as HTMLElement | null;
   const kingStateLabel = document.getElementById('king-state') as HTMLElement | null;
   const deployButton = document.getElementById('cmd-deploy') as HTMLButtonElement | null;
   const stopButton = document.getElementById('cmd-stop') as HTMLButtonElement | null;
+  const forceButton = document.getElementById('cmd-force') as HTMLButtonElement | null;
+  const buildButtons = Array.from(document.querySelectorAll('[data-build]')) as HTMLButtonElement[];
+  const speedButtons = Array.from(document.querySelectorAll('[data-speed]')) as HTMLButtonElement[];
+  const rallyButtons = Array.from(document.querySelectorAll('[data-rally]')) as HTMLButtonElement[];
+  let selectedRally: EscortTdRallyRole = 'left';
 
   const syncCommandMode = (): void => {
     const mode = context.getCommandMode();
@@ -76,8 +99,9 @@ export function bindEscortTdInputs(context: {
       if (!button) continue;
       button.dataset.active = button.dataset.mode === mode ? 'true' : 'false';
     }
-    if (kingStateLabel) kingStateLabel.textContent = context.isKingPaused() ? 'HOLD' : 'ADVANCE';
+    if (kingStateLabel) kingStateLabel.textContent = context.isKingPaused() ? 'HOLD' : context.isForceAdvance() ? 'FORCE' : 'ADVANCE';
     if (stopButton) stopButton.dataset.active = context.isKingPaused() ? 'true' : 'false';
+    if (forceButton) forceButton.dataset.active = context.isForceAdvance() ? 'true' : 'false';
   };
 
   for (const button of commandButtons) {
@@ -90,12 +114,87 @@ export function bindEscortTdInputs(context: {
     });
   }
 
+  for (const button of buildButtons) {
+    button.addEventListener('click', () => {
+      const selected = button.dataset.build as PieceType | 'barricade' | undefined;
+      if (!selected) return;
+      selectedBuild = selected;
+      for (const other of buildButtons) other.dataset.active = String(other === button);
+    });
+  }
+
+  for (const button of speedButtons) {
+    button.addEventListener('click', () => {
+      const speed = Number(button.dataset.speed);
+      if (speed !== 0 && speed !== 1 && speed !== 2 && speed !== 4) return;
+      context.onTimeScaleChange(speed);
+      for (const other of speedButtons) other.dataset.active = String(other === button);
+    });
+  }
+
+  for (const button of rallyButtons) {
+    button.addEventListener('click', () => {
+      const role = button.dataset.rally as EscortTdRallyRole | undefined;
+      if (!role) return;
+      selectedRally = role;
+      for (const other of rallyButtons) other.dataset.active = String(other === button);
+    });
+  }
+
+  const getGridPoint = (event: PointerEvent): { gx: number; gy: number } | null => {
+    const bounds = context.renderer.domElement.getBoundingClientRect();
+    pointer.x = ((event.clientX - bounds.left) / bounds.width) * 2 - 1;
+    pointer.y = -((event.clientY - bounds.top) / bounds.height) * 2 + 1;
+    raycaster.setFromCamera(pointer, context.camera);
+    const point = raycaster.ray.intersectPlane(groundPlane, new Vector3());
+    return point ? w2gi(point.x, point.z) : null;
+  };
+
+  context.renderer.domElement.addEventListener('pointermove', (event: PointerEvent) => {
+    const grid = getGridPoint(event);
+    if (!grid || grid.gx < 0 || grid.gx >= GW || grid.gy < 0 || grid.gy >= GH) {
+      previewMesh.visible = false;
+      return;
+    }
+    const point = g2w(grid.gx, grid.gy);
+    previewMesh.position.set(point.x, 0.08, point.z);
+    previewMesh.visible = true;
+    const requiresRoad = selectedBuild !== 'pawn' && selectedBuild !== 'queen';
+    const valid = (!requiresRoad || context.city.g[grid.gy][grid.gx] === 0) && !isMainRouteCell(context.city.route, grid.gx, grid.gy);
+    previewMaterial.color.set(valid ? 0x5dffcc : 0xff5d43);
+  });
+
+  context.renderer.domElement.addEventListener('pointerdown', (event: PointerEvent) => {
+    if (event.button !== 0 && event.button !== 2) return;
+    const grid = getGridPoint(event);
+    if (!grid) return;
+    const { gx, gy } = grid;
+    if (event.altKey && event.button === 0) {
+      const point = g2w(gx, gy);
+      const king = context.getKingBasis();
+      const dx = king.nextX - king.x;
+      const dz = king.nextZ - king.z;
+      const length = Math.hypot(dx, dz) || 1;
+      const forward = { x: dx / length, z: dz / length };
+      const side = { x: -forward.z, z: forward.x };
+      const relative = { x: (point.x - king.x) / CS, z: (point.z - king.z) / CS };
+      context.onSetRally(selectedRally, relative.x * forward.x + relative.z * forward.z, relative.x * side.x + relative.z * side.z);
+    } else if (event.button === 2) context.onReclaimAt(gx, gy);
+    else if (selectedBuild === 'barricade') context.onPlaceBarricade(gx, gy);
+    else context.onPlaceUnit(gx, gy, selectedBuild);
+  });
+  context.renderer.domElement.addEventListener('contextmenu', (event: MouseEvent) => event.preventDefault());
+
   deployButton?.addEventListener('click', () => {
     context.onDeployFromKing();
     syncCommandMode();
   });
   stopButton?.addEventListener('click', () => {
     context.onToggleKingPause();
+    syncCommandMode();
+  });
+  forceButton?.addEventListener('click', () => {
+    context.onToggleForceAdvance();
     syncCommandMode();
   });
 
@@ -106,22 +205,33 @@ export function bindEscortTdInputs(context: {
       event.preventDefault();
       context.onToggleKingPause();
     }
+    if (event.key === 'f' || event.key === 'F') context.onToggleForceAdvance();
     if (event.key === '1') context.onCommandModeChange('balanced');
     if (event.key === '2') context.onCommandModeChange('ground');
     if (event.key === '3') context.onCommandModeChange('air');
     if (event.key === '4') context.onCommandModeChange('siege');
-    if (event.key === '1' || event.key === '2' || event.key === '3' || event.key === '4' || event.key === 'd' || event.key === 'D' || event.key === ' ' || event.code === 'Space') syncCommandMode();
+    if (event.key === '1' || event.key === '2' || event.key === '3' || event.key === '4' || event.key === 'd' || event.key === 'D' || event.key === 'f' || event.key === 'F' || event.key === ' ' || event.code === 'Space') syncCommandMode();
   });
 
   syncCommandMode();
 
-  return { getSelectedPiece: () => 'pawn' };
+  return { getSelectedPiece: () => selectedBuild === 'barricade' ? 'pawn' : selectedBuild };
+}
+
+function isMainRouteCell(route: Array<{ x: number; y: number }>, gx: number, gy: number): boolean {
+  for (let index = 0; index < route.length - 1; index++) {
+    const from = route[index];
+    const to = route[index + 1];
+    if (from.x === to.x && gx === from.x && gy >= Math.min(from.y, to.y) && gy <= Math.max(from.y, to.y)) return true;
+    if (from.y === to.y && gy === from.y && gx >= Math.min(from.x, to.x) && gx <= Math.max(from.x, to.x)) return true;
+  }
+  return false;
 }
 
 export function updateEscortTdVisibility(vipMesh: any, units: Unit[], enemies: Enemy[], fogCells: any[]): void {
   const sources = [
     { x: vipMesh.position.x, z: vipMesh.position.z, r: VISION.vip },
-    ...units.map((unit) => ({ x: unit.wx, z: unit.wz, r: VISION[unit.type] })),
+    ...units.filter((unit) => unit.type === 'pawn').map((unit) => ({ x: unit.wx, z: unit.wz, r: VISION.pawn })),
   ];
   const vis = new Uint8Array(GW * GH);
 

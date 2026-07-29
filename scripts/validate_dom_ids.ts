@@ -125,6 +125,22 @@ function resolveLocalRef(refPath: string, ref: string, page: RuntimeContext | nu
     if (path.basename(sourcePath) === 'telemetry-client.js' && statExists(sharedTelemetry)) return sharedTelemetry;
   }
 
+  // These root-relative module URLs are registered by server_assets.ts and
+  // intentionally do not exist at the repository root.
+  const serverAssetTargets: Record<string, string> = {
+    '/submarine_cables.js': 'build/apps/submarine-cables/submarine_cables.js',
+    '/submarine_network_3d.js': 'build/apps/submarine-network-3d/submarine_network_3d.js',
+  };
+  const serverAsset = serverAssetTargets[ref];
+  if (serverAsset && statExists(path.join(projectRoot, serverAsset))) {
+    return path.join(projectRoot, serverAsset);
+  }
+
+  if (ref.startsWith('/assets/')) {
+    const assetPath = path.join(projectRoot, 'assets', decodeURIComponent(ref.slice('/assets/'.length)));
+    if (statExists(assetPath)) return assetPath;
+  }
+
   return null;
 }
 

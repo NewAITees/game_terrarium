@@ -1,5 +1,5 @@
 import { Mesh,MeshBasicMaterial,OctahedronGeometry,SphereGeometry,Vector3, } from 'three';
-import { edgeKey } from './network-core.js';
+import { edgeKey } from '../../shared/network-core.js';
 import { AGENT_COSTS, AGENT_RANKS, RANK_PROFILE, actionStats } from './network_defense_config.js';
 
 export function safeRoute(context: any, from: any, to: any) {

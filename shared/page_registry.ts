@@ -1,7 +1,7 @@
 export type PageLoadMode = 'file' | 'http';
 
 export type PageDefinition = {
-  number: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
+  number: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15;
   key: string;
   label: string;
   accelerator: string;
@@ -101,6 +101,60 @@ export const PAGE_REGISTRY = [
     htmlPath: 'apps/colony/colony.html',
     target: 'http://localhost:3000/colony.html',
   },
+  {
+    number: 10,
+    key: 'arena_shooter',
+    label: 'RL Arena Shooter',
+    accelerator: 'CmdOrCtrl+Shift+0',
+    loadMode: 'http',
+    htmlPath: 'apps/arena-shooter/arena_shooter.html',
+    target: 'http://localhost:3000/arena_shooter.html',
+  },
+  {
+    number: 11,
+    key: 'drone_bastion',
+    label: 'Drone Bastion TD',
+    accelerator: 'CmdOrCtrl+Shift+1',
+    loadMode: 'http',
+    htmlPath: 'apps/drone-bastion/drone_bastion.html',
+    target: 'http://localhost:3000/drone_bastion.html',
+  },
+  {
+    number: 12,
+    key: 'ai_restoration',
+    label: 'AI Restoration Alpha',
+    accelerator: 'CmdOrCtrl+Shift+2',
+    loadMode: 'http',
+    htmlPath: 'apps/ai-restoration/ai_restoration.html',
+    target: 'http://localhost:3000/ai_restoration.html',
+  },
+  {
+    number: 13,
+    key: 'zombie_survivor',
+    label: 'Zombie Survivor',
+    accelerator: 'CmdOrCtrl+Shift+3',
+    loadMode: 'http',
+    htmlPath: 'apps/zombie-survivor/zombie_survivor.html',
+    target: 'http://localhost:3000/zombie_survivor.html',
+  },
+  {
+    number: 14,
+    key: 'one_line_rpg',
+    label: 'One-Line RPG',
+    accelerator: 'CmdOrCtrl+Shift+4',
+    loadMode: 'http',
+    htmlPath: 'apps/one-line-rpg/one_line_rpg.html',
+    target: 'http://localhost:3000/one_line_rpg.html',
+  },
+  {
+    number: 15,
+    key: 'gunship',
+    label: 'Gravity Gunship',
+    accelerator: 'CmdOrCtrl+Shift+5',
+    loadMode: 'http',
+    htmlPath: 'apps/gunship/gunship.html',
+    target: 'http://localhost:3000/gunship.html',
+  },
 ] as const satisfies readonly PageDefinition[];
 
 export type PageKey = (typeof PAGE_REGISTRY)[number]['key'];
@@ -118,7 +172,6 @@ export function isPageKey(value: string): value is PageKey {
 }
 
 export function describePage(page: { number: number; key: string; label: string }): string {
-  return `Ctrl+${page.number} / ${page.label} (${page.key})`;
+  const shortcut = page.number >= 10 ? `Ctrl+Shift+${page.number - 10}` : `Ctrl+${page.number}`;
+  return `${shortcut} / ${page.label} (${page.key})`;
 }
-
-

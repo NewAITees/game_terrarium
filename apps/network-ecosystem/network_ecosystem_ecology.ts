@@ -1,5 +1,5 @@
 import { Mesh,MeshBasicMaterial,SphereGeometry, } from 'three';
-import { edgeKey } from './network-core.js';
+import { edgeKey } from '../../shared/network-core.js';
 import type { EcosystemRuntimeContext } from '../../shared/types/network_ecosystem.js';
 
 export function clamp(value: number): number {

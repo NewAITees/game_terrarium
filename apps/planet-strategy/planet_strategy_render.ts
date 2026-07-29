@@ -31,6 +31,7 @@ export function createPlanetStrategyRenderer({
     triggerPlanetFlash,
     triggerMissileHit,
     triggerShipFlash,
+    rebuildWorldVisuals,
     updateVisuals,
   } = createPlanetStrategyRenderVisuals({
     camera,
@@ -60,6 +61,18 @@ export function createPlanetStrategyRenderer({
     composer.setSize(innerWidth, innerHeight);
   }
 
+  function resetVisuals(): void {
+    for (const group of [planetGroup, routeGroup, shipGroup]) {
+      group.traverse((node: any) => {
+        node.geometry?.dispose?.();
+        const materials = Array.isArray(node.material) ? node.material : [node.material];
+        for (const material of materials) material?.dispose?.();
+      });
+      group.clear();
+    }
+    rebuildWorldVisuals();
+  }
+
   return {
     attachMissileMesh,
     attachShipMesh,
@@ -72,5 +85,6 @@ export function createPlanetStrategyRenderer({
     renderFrame,
     updateVisuals,
     onResize,
+    resetVisuals,
   };
 }

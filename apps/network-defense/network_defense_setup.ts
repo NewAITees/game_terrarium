@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { RNG, STYLE, buildAdj } from './network-core.js';
+import { RNG, STYLE, buildAdj } from '../../shared/network-core.js';
 import {
   createNetworkDefenseFlashPools,
   initializeNetworkDefenseRender,

@@ -8,11 +8,21 @@ export type PlanetStrategyShipStatus =
   | 'approaching'
   | 'engaging';
 export type PlanetStrategyLogType = 'info' | 'warning' | 'resource' | 'empire' | string;
-export type PlanetStrategyInterventionType = 'resource_burst' | 'panic_repair';
+export type PlanetStrategyInterventionType = 'resource_burst' | 'panic_repair' | 'route_jam';
 export type PlanetStrategyConstructionType = 'mine' | 'factory';
 export type PlanetStrategyPersonality = 'industrialist' | 'raider' | 'expansionist' | 'fortifier';
 export type PlanetStrategyAiGoal = 'expand' | 'pressure' | 'stabilize';
 export type PlanetStrategyVictoryMode = 'score' | 'conquest';
+
+export interface EmpireDoctrine {
+  expansionBias: number;
+  logisticsBias: number;
+  stockpileBias: number;
+  riskTolerance: number;
+  factoryPriority: number;
+  repairPriority: number;
+  routeDiversity: number;
+}
 
 export interface PlanetStrategyPosition {
   x: number;
@@ -41,6 +51,7 @@ export interface PlanetStrategyPlanet extends PlanetStrategyPosition {
   productionQueue: number;
   trafficIn: number;
   stalled: boolean;
+  collapseTimer?: number;
   mesh?: any | null;
   ring?: any | null;
   labelGlow?: any | null;
@@ -79,6 +90,10 @@ export interface PlanetStrategyEmpire {
   goal: PlanetStrategyAiGoal;
   aiOpportunity?: string | null;
   aiOpportunityUntil?: number;
+  attackTargetLabel?: string | null;
+  attackUntil?: number;
+  doctrine: EmpireDoctrine;
+  doctrineGeneration: number;
 }
 
 export interface PlanetStrategyShip {
@@ -137,6 +152,7 @@ export interface PlanetStrategyRoute {
   fromPlanetId: string;
   toPlanetId: string;
   traffic: number;
+  hostileTimer?: number;
   line?: any | null;
   glow?: any | null;
   curve?: any | null;
@@ -182,6 +198,11 @@ export interface PlanetStrategyWorld {
   finalScores: PlanetStrategyScoreEntry[];
   oreFalloffStart: number | null;
   victoryMode: PlanetStrategyVictoryMode;
+  cycleNumber: number;
+  worldModifier: { id: string; name: string; description: string } | null;
+  telemetrySamples: Array<{ second: number; scores: Record<number, number>; deliveries: Record<number, number>; planets: Record<number, number> }>;
+  turningPoints: Array<{ second: number; type: string; empireId: number | null; detail: string }>;
+  interventionCharges: number;
 }
 
 export interface PlanetStrategyAiContext {
@@ -195,6 +216,32 @@ export interface PlanetStrategyAiContext {
     type: PlanetStrategyConstructionType
   ) => void;
   maybeLog: (key: string, text: string, type: PlanetStrategyLogType, cooldownSec?: number) => void;
+}
+
+export interface PlanetStrategyEmpireMatchResult {
+  empireId: number;
+  empireName: string;
+  victoryScore: number;
+  delivered: number;
+  shipsProduced: number;
+  planetsControlled: number;
+  factoryStalledSeconds: number;
+  collapsed: boolean;
+  collapseReason: string | null;
+}
+
+export interface PlanetStrategyMatchResult {
+  matchId: string;
+  cycleNumber: number;
+  endedAt: number;
+  durationSeconds: number;
+  winnerEmpireId: number | null;
+  winnerName: string | null;
+  empireResults: PlanetStrategyEmpireMatchResult[];
+  firstCollapsedEmpireId: number | null;
+  depletedPlanetCount: number;
+  summary: string;
+  detail: string;
 }
 
 export type PlanetStrategyAiStrategy = (
@@ -222,6 +269,7 @@ export interface PlanetStrategyRenderer {
   renderFrame: () => void;
   updateVisuals: (dt?: number) => void;
   onResize: () => void;
+  resetVisuals: () => void;
 }
 
 export interface PlanetStrategyHudScoreRow {
@@ -261,6 +309,13 @@ export interface PlanetStrategyHudView {
   nextWatch?: { headline: string; detail: string };
   causal?: Array<{ cause: string; impact: string; risk: string }>;
   victoryMode?: PlanetStrategyVictoryMode;
+  cycleNumber?: number;
+  autoRun?: boolean;
+  doctrineRows?: Array<{ name: string; generation: number; summary: string }>;
+  historyRows?: Array<{ cycleNumber: number; winnerName: string | null; detail: string }>;
+  analysis?: { victory: string; defeat: string; mutation: string };
+  observatory?: { points: number; world: string; turningPoints: string[]; charges: number; setup: string; lineage: string[] };
+  scoreTrend?: Array<{ name: string; color: string; values: number[] }>;
 }
 
 export interface PlanetStrategyUi {

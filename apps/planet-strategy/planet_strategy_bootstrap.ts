@@ -12,6 +12,9 @@ import type {
 export function createPlanetStrategyBootstrap({
   colors,
   distance3d,
+  getDoctrine = () => ({ expansionBias: 0.5, logisticsBias: 0.5, stockpileBias: 0.5, riskTolerance: 0.5, factoryPriority: 0.5, repairPriority: 0.5, routeDiversity: 0.5 }),
+  getGeneration = () => 1,
+  getWorldModifier = () => null,
   personalities,
   rng,
   victoryMode = 'score',
@@ -19,6 +22,7 @@ export function createPlanetStrategyBootstrap({
   const world = createWorld();
 
   function createWorld() {
+    const worldModifier = getWorldModifier();
     const planets: PlanetStrategyPlanet[] = [];
     const empires: PlanetStrategyEmpire[] = [];
     const ships: PlanetStrategyShip[] = [];
@@ -41,7 +45,7 @@ export function createPlanetStrategyBootstrap({
       verticalRange: 120,
     });
     for (let i = 0; i < count; i++) {
-      const initialResources = 500 + Math.floor(rng() * 1000);
+      const initialResources = Math.round((500 + Math.floor(rng() * 1000)) * (worldModifier?.resourceMultiplier ?? 1));
       planets.push({
         id: `p${i}`,
         label: `P-${i + 1}`,
@@ -50,7 +54,7 @@ export function createPlanetStrategyBootstrap({
         z: positions[i].z,
         resources: initialResources,
         maxResources: initialResources,
-        mineRate: 4 + rng() * 6,
+        mineRate: (4 + rng() * 6) * (worldModifier?.mineRateMultiplier ?? 1),
         owner: -1,
         stock: 0,
         type: 'neutral',
@@ -102,6 +106,8 @@ export function createPlanetStrategyBootstrap({
         goal: 'stabilize',
         aiOpportunity: null,
         aiOpportunityUntil: 0,
+        doctrine: getDoctrine(config.name),
+        doctrineGeneration: getGeneration(config.name),
       };
       empires.push(empire);
 
@@ -132,6 +138,11 @@ export function createPlanetStrategyBootstrap({
       finalScores: [],
       oreFalloffStart: null,
       victoryMode,
+      cycleNumber: 1,
+      worldModifier: worldModifier ? { id: worldModifier.id, name: worldModifier.name, description: worldModifier.description } : null,
+      telemetrySamples: [],
+      turningPoints: [],
+      interventionCharges: 2,
     };
   }
 
@@ -353,15 +364,18 @@ export function createPlanetStrategyBootstrap({
     return base + (kind === 'transport' ? 2.8 : kind === 'gunship' ? 2.4 : 2.0);
   }
 
-  function touchRoute(rendererView: any, fromPlanetId: string, toPlanetId: string, weight = 1): void {
+  function touchRoute(rendererView: any, fromPlanetId: string, toPlanetId: string, weight = 1, hostileSeconds = 0): void {
     const key = routeKey(fromPlanetId, toPlanetId);
     if (!world.routes.has(key)) {
-      const route: PlanetStrategyRoute = { fromPlanetId, toPlanetId, traffic: 0, line: null, curve: null };
+      const route: PlanetStrategyRoute = { fromPlanetId, toPlanetId, traffic: 0, hostileTimer: 0, line: null, curve: null };
       world.routes.set(key, route);
       rendererView.ensureRouteVisual(route);
     }
     const route = world.routes.get(key);
-    if (route) route.traffic += weight;
+    if (route) {
+      route.traffic += weight;
+      if (hostileSeconds > 0) route.hostileTimer = Math.max(route.hostileTimer ?? 0, hostileSeconds);
+    }
   }
 
   function seedInitialRoutes(rendererView: any) {
@@ -370,12 +384,19 @@ export function createPlanetStrategyBootstrap({
     }
   }
 
+  function resetWorld(cycleNumber = 1) {
+    const next = createWorld();
+    Object.keys(world).forEach((key) => delete (world as any)[key]);
+    Object.assign(world, next, { cycleNumber });
+  }
+
   return {
     createCombatShip,
     createTransportShip,
     getEmpire,
     getPlanet,
     routeKey,
+    resetWorld,
     seedInitialRoutes,
     touchRoute,
     world,

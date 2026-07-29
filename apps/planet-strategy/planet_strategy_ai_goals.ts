@@ -1,4 +1,4 @@
-import type { PlanetStrategyPersonality } from '../../shared/types/planet_strategy.js';
+import type { EmpireDoctrine, PlanetStrategyPersonality } from '../../shared/types/planet_strategy.js';
 
 export type PlanetStrategyAiGoal = 'expand' | 'pressure' | 'stabilize';
 
@@ -21,8 +21,15 @@ const PERSONALITY_GOALS: Record<PlanetStrategyPersonality, PlanetStrategyGoalWei
   fortifier: { expand: 0.18, pressure: 0.12, stabilize: 0.7 },
 };
 
-export function baseGoalWeights(personality: PlanetStrategyPersonality): PlanetStrategyGoalWeights {
-  return { ...PERSONALITY_GOALS[personality] };
+export function baseGoalWeights(personality: PlanetStrategyPersonality, doctrine?: EmpireDoctrine): PlanetStrategyGoalWeights {
+  const base = PERSONALITY_GOALS[personality];
+  if (!doctrine) return { ...base };
+  // Doctrine biases goals rather than issuing orders, keeping personality readable.
+  return {
+    expand: base.expand * (0.65 + doctrine.expansionBias * 0.7 + doctrine.riskTolerance * 0.25),
+    pressure: base.pressure * (0.75 + doctrine.riskTolerance * 0.55),
+    stabilize: base.stabilize * (0.65 + doctrine.logisticsBias * 0.5 + doctrine.stockpileBias * 0.45 + doctrine.repairPriority * 0.25),
+  };
 }
 
 export function goalLabel(goal: PlanetStrategyAiGoal): string {

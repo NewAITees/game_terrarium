@@ -129,6 +129,9 @@ export function createPlanetStrategyCombatRuntime(context: any) {
       const fleet = myAttackers.slice(0, fleetSize);
       const second = scored.filter((entry: any) => entry.planet.id !== target.id).sort((a: any, b: any) => a.score - b.score)[0]?.planet;
       const canSplit = fleet.length >= 6 && second && context.distance3d(base ?? second, second) <= 240;
+      empire.attackTargetLabel = target.label;
+      empire.attackUntil = context.world.time + 25;
+      if (base) context.touchRoute(base.id, target.id, 0, 16);
       if (canSplit) {
         const cut = Math.floor(fleet.length / 2);
         const first = fleet.slice(0, cut); const secondFleet = fleet.slice(cut);

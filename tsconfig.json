@@ -25,11 +25,16 @@
     "apps/network-defense/**/*.ts",
     "apps/network-ecosystem/**/*.ts",
     "apps/planet-strategy/**/*.ts",
+    "apps/arena-shooter/**/*.ts",
+    "apps/drone-bastion/**/*.ts",
+    "apps/ai-restoration/**/*.ts",
+    "apps/one-line-rpg/**/*.ts",
+    "apps/gunship/**/*.ts",
     "game/**/*.ts",
     "shared/*.ts",
+    "shared/rl/**/*.ts",
     "shared/types/**/*.ts",
     "shared/types/**/*.d.ts"
-  ]
+  ],
+  "exclude": ["game/arena_shooter_save_store.ts"]
 }
-
-

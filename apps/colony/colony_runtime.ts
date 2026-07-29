@@ -77,9 +77,65 @@ export function createColonyRuntime(context: any) {
         context.logEvent('EVENT: Resource drought — all factions lost 35% food', 'event');
       },
     },
+    {
+      label: 'Golden Age',
+      run() {
+        const alive = context.factions.filter((faction: any) => faction.alive);
+        if (alive.length < 2) return;
+        const weakest = alive.reduce((worst: any, faction: any) => {
+          const count = context.map.nodes.filter((node: any) => node.owner === faction.id).length;
+          const worstCount = context.map.nodes.filter((node: any) => node.owner === worst.id).length;
+          return count < worstCount ? faction : worst;
+        });
+        weakest.food = Math.min(80, weakest.food + 30);
+        for (const node of context.map.nodes) {
+          if (node.owner === weakest.id) node.strength = Math.min(1, node.strength + 0.18);
+        }
+        context.logEvent(`EVENT: Golden age! ${weakest.name} rallies — territory reinforced`, 'event');
+      },
+    },
+    {
+      label: 'Border Flashpoint',
+      run() {
+        const hotBorders = context.map.nodes.filter((node: any) =>
+          node.owner >= 0 && !node.isBase &&
+          node.neighbors.some((neighbor: any) => neighbor.owner >= 0 && neighbor.owner !== node.owner)
+        );
+        if (hotBorders.length < 2) return;
+        const center = context.rng.pick(hotBorders);
+        const zone = [center, ...center.neighbors.filter((node: any) => node.owner >= 0 && !node.isBase)];
+        for (const node of zone) node.strength = Math.max(0, node.strength - context.rng.range(0.2, 0.34));
+        context.logEvent(`EVENT: Flashpoint! Fighting flares around node ${center.id} — ${zone.length} nodes destabilized`, 'event');
+      },
+    },
   ];
 
   let nextRuleReload = 6;
+  let situationReportTimer = 60;
+  let lastDominantId: number | null = null;
+
+  function logSituationReport() {
+    const total = context.map.nodes.length;
+    const parts = context.factions.map((faction: any) => {
+      const count = context.map.nodes.filter((node: any) => node.owner === faction.id).length;
+      return `${faction.name} ${Math.round((count / total) * 100)}%`;
+    });
+    const wild = context.map.nodes.filter((node: any) => node.owner === -1).length;
+    parts.push(`wild ${Math.round((wild / total) * 100)}%`);
+    context.logEvent(`REPORT: ${parts.join(' | ')}`, 'info');
+  }
+
+  function checkDominanceMilestone() {
+    const total = context.map.nodes.length;
+    const dominant = context.factions.find((faction: any) =>
+      faction.alive &&
+      context.map.nodes.filter((node: any) => node.owner === faction.id).length / total >= 0.5
+    ) ?? null;
+    if (dominant && dominant.id !== lastDominantId) {
+      context.logEvent(`★ ${dominant.name} now controls half the map!`, 'event');
+    }
+    lastDominantId = dominant?.id ?? null;
+  }
 
   function tick(dt: number, now: number) {
     context.world.elapsed += dt;
@@ -90,12 +146,19 @@ export function createColonyRuntime(context: any) {
       context.world.tick++;
       context.tickFactions();
       context.decayStrength(context.tickSec);
+      checkDominanceMilestone();
     }
 
     context.world.eventTimer -= dt;
     if (context.world.eventTimer <= 0) {
       context.rng.pick(randomEvents).run();
       context.world.eventTimer = context.rng.range(20, 42);
+    }
+
+    situationReportTimer -= dt;
+    if (situationReportTimer <= 0) {
+      logSituationReport();
+      situationReportTimer = 60;
     }
 
     nextRuleReload -= dt;

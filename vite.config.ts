@@ -56,9 +56,19 @@ export default defineConfig({
           resolve(__dirname, 'apps/network-ecosystem/network_ecosystem.ts'),
         'apps/planet-strategy/planet_strategy':
           resolve(__dirname, 'apps/planet-strategy/planet_strategy.ts'),
+        'apps/arena-shooter/arena_shooter':
+          resolve(__dirname, 'apps/arena-shooter/arena_shooter.ts'),
+        'apps/zombie-survivor/zombie_survivor':
+          resolve(__dirname, 'apps/zombie-survivor/zombie_survivor.ts'),
+        'apps/one-line-rpg/one_line_rpg':
+          resolve(__dirname, 'apps/one-line-rpg/one_line_rpg.ts'),
+        'apps/drone-bastion/drone_bastion':
+          resolve(__dirname, 'apps/drone-bastion/drone_bastion.ts'),
+        'apps/ai-restoration/ai_restoration':
+          resolve(__dirname, 'apps/ai-restoration/ai_restoration.ts'),
+        'apps/gunship/gunship':
+          resolve(__dirname, 'apps/gunship/gunship.ts'),
       },
-      // network-core.js is plain JS served by Express at runtime — keep external
-      external: ['./network-core.js'],
       output: {
         format: 'es',
         entryFileNames: '[name].js',
@@ -67,8 +77,3 @@ export default defineConfig({
     },
   },
 });
-
-
-
-
-

@@ -18,12 +18,22 @@ async function bootstrap(): Promise<void> {
 
   bindEscortTdInputs({
     camera: sceneState.camera,
+    city,
     renderer: sceneState.renderer,
+    scene: sceneState.scene,
     onPlaceUnit: runtime.placeUnit,
+    onPlaceBarricade: runtime.placeBarricade,
+    onReclaimAt: runtime.reclaimAt,
     onDeployFromKing: runtime.deployFromKing,
     onToggleKingPause: runtime.toggleKingPause,
+    onToggleForceAdvance: runtime.toggleForceAdvance,
     getCommandMode: runtime.getCommandMode,
     isKingPaused: runtime.isKingPaused,
+    isForceAdvance: runtime.isForceAdvance,
+    getTimeScale: runtime.getTimeScale,
+    onTimeScaleChange: runtime.setTimeScale,
+    getKingBasis: runtime.getKingBasis,
+    onSetRally: runtime.setRally,
     onCommandModeChange: runtime.setCommandMode,
     onRestart: runtime.restartIfFinished,
   });
