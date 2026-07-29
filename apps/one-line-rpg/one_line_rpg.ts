@@ -1,4 +1,6 @@
 import { TabularQAgent } from '../../shared/rl/tabular_q_agent.js';
+import { Sheet } from './sprite_sheet.js';
+import { Parallax } from './background.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // One-Line RPG — RL観戦バトル
@@ -57,14 +59,30 @@ const ENEMY_ANIM: Record<Kind, Record<string, Anim>> = {
   },
 };
 
+// Sprite sheets + parallax background. If a PNG is missing the sheet stays !ready and
+// draw() falls back to the vector silhouettes, so the game still runs without assets.
+const SPR = '/assets/one-line-rpg/sprites/';
+const heroSheet = new Sheet(SPR + 'hero.png', 100, 55, 10);      // 10x9 = 90
+const sheets: Record<Kind, Sheet> = {
+  walker: new Sheet(SPR + 'enemy_rat.png', 64, 64, 6),           // 6x6 = 36
+  lancer: new Sheet(SPR + 'enemy_crab.png', 64, 64, 7),          // 7x7 = 49
+  spitter: new Sheet(SPR + 'enemy_skull.png', 64, 64, 6),        // 6x5 = 30
+};
+const bg = new Parallax(SPR + 'biome.png');
+// Enemy Galore sprites face LEFT natively (toward the hero) → no flip.
+const ENEMY_FLIP = false;
+// Empty px below the creature's feet inside its 64px cell (measured from the sheets);
+// used to seat the sprite on the ground instead of floating.
+const FOOT_PAD: Record<Kind, number> = { walker: 17, lancer: 17, spitter: 0 };
+
 // ── Combat tuning: the "flow" lives here. Attacks commit and leave 隙. ──
 type AtkSpec = { anim: string; startup: number; active: number; recovery: number; range: number; dmg: number; sp: number; stam: number };
 // Ranges are deliberately SHORTER than the enemies' reach, so the hero must step
 // into the threat zone to attack. Safety comes only from timing (hitting an enemy's
 // windup/recover), never from poking from outside. Recovery is long → mashing is punished.
 const ATK: Record<'light' | 'heavy' | 'special', AtkSpec> = {
-  light: { anim: 'attackA', startup: 0.12, active: 0.06, recovery: 0.28, range: 66, dmg: 1.0, sp: 0, stam: 0 },
-  heavy: { anim: 'attackB', startup: 0.28, active: 0.10, recovery: 0.50, range: 96, dmg: 1.8, sp: 0, stam: 18 },
+  light: { anim: 'attackA', startup: 0.12, active: 0.06, recovery: 0.34, range: 66, dmg: 1.0, sp: 0, stam: 0 },
+  heavy: { anim: 'attackB', startup: 0.28, active: 0.10, recovery: 0.60, range: 96, dmg: 1.8, sp: 0, stam: 18 },
   special: { anim: 'special', startup: 0.34, active: 0.12, recovery: 0.62, range: 200, dmg: 2.6, sp: 40, stam: 0 },
 };
 // non-attack action commitments (startup=0)
@@ -95,13 +113,13 @@ type EnemyDef = {
 const ENEMY_DEF: Record<Kind, EnemyDef> = {
   // Rat: skittish — hops around, feints, then bursts in fast for a bite.
   walker: {
-    atkRange: 70, hurtRange: 74, speed: 82, hp: 26, dmg: 14, windup: 0.34, strike: 0.12, recover: 0.44,
+    atkRange: 70, hurtRange: 74, speed: 88, hp: 26, dmg: 18, windup: 0.32, strike: 0.12, recover: 0.42,
     flying: false, scale: 1.7, ranged: false, projSpeed: 0,
     dashRange: 190, dashSpeed: 340, dashTime: 0.28, hop: 10, stepEvery: 0.9, stepBack: 34,
   },
   // Crab: heavy — lumbers, then lunges forward with its claw during the strike.
   lancer: {
-    atkRange: 116, hurtRange: 122, speed: 50, hp: 52, dmg: 24, windup: 0.6, strike: 0.16, recover: 0.62,
+    atkRange: 116, hurtRange: 122, speed: 52, hp: 56, dmg: 28, windup: 0.58, strike: 0.16, recover: 0.6,
     flying: false, scale: 2.0, ranged: false, projSpeed: 0,
     dashRange: 150, dashSpeed: 240, dashTime: 0.3, hop: 0, stepEvery: 0, stepBack: 0,
   },
@@ -116,6 +134,15 @@ const ENEMY_DEF: Record<Kind, EnemyDef> = {
 // Projectiles fired by ranged enemies (skull bolts).
 type Projectile = { x: number; y: number; vx: number; dmg: number; dead: boolean; hit: boolean };
 const projectiles: Projectile[] = [];
+
+// Floating combat text so defensive/offensive outcomes READ at a glance
+// (DODGE / GUARD / PUNISH / WHIFF / HIT). Makes "what did jumping do?" obvious.
+type Popup = { x: number; y: number; text: string; color: string; t: number };
+const popups: Popup[] = [];
+function popup(x: number, text: string, color: string): void {
+  popups.push({ x, y: groundY - 70, text, color, t: 0 });
+  if (popups.length > 24) popups.shift();
+}
 
 // ── Observation ──
 type Obs = {
@@ -317,12 +344,13 @@ function resolveAttackHit(a: 'light' | 'heavy' | 'special'): void {
     e.hp -= attack * s.dmg;
     combo++;
     // punish window bonus: hitting during enemy windup/recover is the skilled play
-    const punish = e.phase === 'windup' || e.phase === 'recover' ? 0.6 : 0.15;
-    reward += punish;
+    const isPunish = e.phase === 'windup' || e.phase === 'recover';
+    reward += isPunish ? 0.7 : 0.15;
+    popup(e.x, isPunish ? 'PUNISH!' : 'HIT', isPunish ? '#ffe39a' : '#cfe0e2');
     if (e.hp <= 0 && !e.dead) killEnemy(e);
     if (a !== 'special') break; // single-target for light/heavy; special is AoE
   }
-  if (!landed) reward -= 0.45; // whiff: full recovery for nothing
+  if (!landed) { reward -= 0.5; popup(hero.x + s.range, 'WHIFF', '#7890b5'); } // full recovery for nothing
 }
 
 function killEnemy(e: Enemy): void {
@@ -433,31 +461,35 @@ function stepProjectiles(dt: number): void {
     p.x += p.vx * dt;
     if (!p.hit && p.x <= hero.x + 22) {
       p.hit = true; p.dead = true;
-      const dodgedByJump = hero.airborne > 0;            // bolts fly low → a jump clears them
-      if (dodgedByJump) { reward += 0.35; continue; }
-      if (hero.guarding) { hp -= p.dmg * 0.3; stamina = Math.max(0, stamina - 6); reward += 0.35; hero.hurtT = 0.12; continue; }
+      // Bolts fly at head height — a jump does NOT clear them. Guard is the answer.
+      if (hero.guarding) { hp -= p.dmg * 0.25; stamina = Math.max(0, stamina - 7); reward += 0.5; hero.hurtT = 0.12; popup(hero.x, 'GUARD', '#83e7ff'); continue; }
       const inRecovery = hero.act?.phase === 'recovery';
       hp -= p.dmg; combo = 0;
-      reward -= inRecovery ? 1.5 : 1.0;
-      hero.hurtT = 0.22; setAnim('hurt');
+      reward -= inRecovery ? 1.6 : 1.1;
+      hero.hurtT = 0.22; setAnim('hurt'); popup(hero.x, '-' + Math.round(p.dmg), '#ff6d84');
     }
     if (p.x < -40) p.dead = true;
   }
   for (let i = projectiles.length - 1; i >= 0; i--) if (projectiles[i].dead) projectiles.splice(i, 1);
 }
 
+function stepPopups(dt: number): void {
+  for (const p of popups) { p.t += dt; p.y -= dt * 34; }
+  for (let i = popups.length - 1; i >= 0; i--) if (popups[i].t > 0.8) popups.splice(i, 1);
+}
+
 function resolveEnemyStrike(e: Enemy): void {
   const d = e.x - hero.x;
   if (d < 0 || d > e.def.hurtRange) return; // hero slipped out of reach — good spacing
-  const dodgedByJump = hero.airborne > 0 && !e.def.flying;
-  if (dodgedByJump) { reward += 0.3; return; }
-  if (hero.guarding) { hp -= e.def.dmg * 0.2; stamina = Math.max(0, stamina - 8); reward += 0.35; hero.hurtT = 0.12; return; }
+  // Jump clears a GROUND melee swing (walker/lancer); guard reduces everything.
+  if (hero.airborne > 0 && !e.def.flying) { reward += 0.5; popup(hero.x, 'DODGE', '#8fffb0'); return; }
+  if (hero.guarding) { hp -= e.def.dmg * 0.2; stamina = Math.max(0, stamina - 9); reward += 0.5; hero.hurtT = 0.12; popup(hero.x, 'GUARD', '#83e7ff'); return; }
   const inRecovery = hero.act?.phase === 'recovery';
   hp -= e.def.dmg;
   combo = 0;
-  reward -= inRecovery ? 1.6 : 1.0; // getting caught mid-commit is the worst outcome
+  reward -= inRecovery ? 1.7 : 1.1; // getting caught mid-commit is the worst outcome
   hero.hurtT = 0.25;
-  setAnim('hurt');
+  setAnim('hurt'); popup(hero.x, '-' + Math.round(e.def.dmg), '#ff6d84');
 }
 
 // ── Main step ──
@@ -483,15 +515,20 @@ function update(dt: number): void {
     lastChosen = actions.indexOf(dec.action);
     lastExplore = dec.exploratory;
     beginAction(dec.action, dec.exploratory);
+    // tiny nudge toward acting over standing still (waiting for a punish still wins easily)
+    if (dec.action === 'idle') reward -= 0.03;
     ui.action.textContent = labels[dec.action] + (dec.exploratory ? ' *' : '');
     ui.policy.textContent = labels[dec.action];
   }
 
   // 3. simulate
   if (!hero.dead) lifeTime += dt;
+  const heroXBefore = hero.x;
   advanceHero(dt);
+  bg.update(dt, (hero.x - heroXBefore) / dt || 0); // parallax scroll only while the hero is actually moving
   stepEnemies(dt);
   stepProjectiles(dt);
+  stepPopups(dt);
   // regen
   stamina = Math.min(100, stamina + dt * 24);
   sp = Math.min(100, sp + dt * 5);
@@ -542,9 +579,11 @@ function chooseUpgrade(): void {
 function respawn(): void {
   wave = 1; distance = 0; level = 1; xp = 0; nextXp = 10;
   hp = 100; sp = 100; stamina = 100; combo = 0; attack = 9;
+  waveTime = 0; spawnTimer = 0;
   episodeReturn = 0; rewardRate = 0; waveReturn = 0; upgradePending = false; upgradeBanner = '';
   killsThisLife = 0; lifeTime = 0;
-  enemies.length = 0; projectiles.length = 0; hero.dead = false; hero.act = null; setAnim('idle');
+  hero.x = W * 0.30; hero.airborne = 0; hero.guarding = false; hero.hurtT = 0;
+  enemies.length = 0; projectiles.length = 0; popups.length = 0; hero.dead = false; hero.act = null; setAnim('idle');
   ui.status.textContent = 'AI操作 · オンライン学習中';
 }
 
@@ -562,9 +601,7 @@ function drawHeroVector(cx: number, ground: number): void {
   ctx.beginPath(); ctx.moveTo(-8, -8); ctx.lineTo(-16, 0); ctx.moveTo(8, -8); ctx.lineTo(16, 0); ctx.moveTo(-12, -35); ctx.lineTo(-29, -21); ctx.moveTo(12, -35); ctx.lineTo(29, -21); ctx.stroke(); ctx.restore();
 }
 function draw(): void {
-  const sky = ctx.createLinearGradient(0, 0, 0, groundY);
-  sky.addColorStop(0, '#151c31'); sky.addColorStop(1, '#31465a');
-  ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H);
+  bg.draw(ctx, W, H, groundY); // parallax biome (falls back to a sky gradient if unloaded)
   // ground band
   const g = ctx.createLinearGradient(0, groundY, 0, H);
   g.addColorStop(0, '#3c4a30'); g.addColorStop(1, '#1c2417');
@@ -578,22 +615,27 @@ function draw(): void {
   // enemies (behind hero when to the right is fine; draw all then hero)
   for (const e of enemies) {
     const anim = ENEMY_ANIM[e.kind][e.anim] ?? ENEMY_ANIM[e.kind].idle;
-    const yOff = (e.def.flying ? -46 : 0) + e.y;
+    const foot = e.def.flying ? 0 : FOOT_PAD[e.kind] * e.def.scale; // seat feet on the ground
+    const yOff = (e.def.flying ? -46 : 0) + e.y + foot;
     if (e.phase === 'dash' && !e.dead) drawDashStreak(e);
     if (e.dead) ctx.globalAlpha = Math.max(0, 1 - e.deadT / 0.55);
-    drawEnemyVector(e, groundY + yOff);
+    const sh = sheets[e.kind];
+    if (sh.ready) sh.drawFrame(ctx, sh.frameAt(anim, e.animT), e.x, groundY + yOff, e.def.scale, ENEMY_FLIP);
+    else drawEnemyVector(e, groundY + yOff);
     ctx.globalAlpha = 1;
     if (!e.dead) drawHpBar(e);
   }
 
   drawProjectiles();
   drawHeroAttackRange();
+  drawPopups();
 
   // hero
   const ha = HERO[hero.anim] ?? HERO.idle;
   const y = groundY - hero.airborne * 90;
   if (hero.hurtT > 0) ctx.globalAlpha = 0.6 + 0.4 * Math.sin(performance.now() * 0.05);
-  drawHeroVector(hero.x, y);
+  if (heroSheet.ready) heroSheet.drawFrame(ctx, heroSheet.frameAt(ha, hero.animT), hero.x, y, 2.4, false);
+  else drawHeroVector(hero.x, y);
   ctx.globalAlpha = 1;
 
   drawQPanel();
@@ -722,6 +764,18 @@ function drawDashStreak(e: Enemy): void {
   ctx.save();
   ctx.strokeStyle = 'rgba(255,180,120,.5)'; ctx.lineWidth = 3;
   ctx.beginPath(); ctx.moveTo(e.x + 40, groundY - 26 + e.y); ctx.lineTo(e.x + 120, groundY - 26 + e.y); ctx.stroke();
+  ctx.restore();
+}
+
+function drawPopups(): void {
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 14px ui-monospace, monospace';
+  for (const p of popups) {
+    ctx.globalAlpha = Math.max(0, 1 - p.t / 0.8);
+    ctx.fillStyle = p.color;
+    ctx.fillText(p.text, p.x, p.y);
+  }
   ctx.restore();
 }
 
