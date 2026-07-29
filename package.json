@@ -39,12 +39,14 @@
     "start:submarine-3d": "npm start -- --page=submarine_3d",
     "start:colony": "npm start -- --page=colony",
     "start:arena-shooter": "npm start -- --page=arena_shooter",
-    "start:drone-bastion": "npm start -- --page=drone_bastion"
-    ,"start:zombie-survivor": "npm start -- --page=zombie_survivor"
+    "start:drone-bastion": "npm start -- --page=drone_bastion",
+    "start:zombie-survivor": "npm start -- --page=zombie_survivor",
+    "start:one-line-rpg": "npm start -- --page=one_line_rpg",
+    "start:one-line-browser": "npm run build && node build-node/scripts/start_one_line_browser.js"
   },
   "devDependencies": {
     "@types/three": "^0.184.1",
-    "electron": "^42.5.0",
+    "electron": "^43.2.0",
     "typescript": "^6.0.3",
     "vite": "^8.0.16"
   },

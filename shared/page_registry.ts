@@ -1,7 +1,7 @@
 export type PageLoadMode = 'file' | 'http';
 
 export type PageDefinition = {
-  number: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13;
+  number: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14;
   key: string;
   label: string;
   accelerator: string;
@@ -136,6 +136,15 @@ export const PAGE_REGISTRY = [
     loadMode: 'http',
     htmlPath: 'apps/zombie-survivor/zombie_survivor.html',
     target: 'http://localhost:3000/zombie_survivor.html',
+  },
+  {
+    number: 14,
+    key: 'one_line_rpg',
+    label: 'One-Line RPG',
+    accelerator: 'CmdOrCtrl+Shift+4',
+    loadMode: 'http',
+    htmlPath: 'apps/one-line-rpg/one_line_rpg.html',
+    target: 'http://localhost:3000/one_line_rpg.html',
   },
 ] as const satisfies readonly PageDefinition[];
 
