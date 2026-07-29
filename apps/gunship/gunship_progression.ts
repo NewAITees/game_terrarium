@@ -1,5 +1,3 @@
-import type { GunshipBody } from './gunship_physics.js';
-
 export type GunshipRunProgress = { level: number; xp: number; nextXp: number; pending: number; thrust: number; turn: number; damage: number; fireRate: number; laser: number; missile: number; lastUpgrade: string };
 export type GunshipUpgrade = { id: 'thrust' | 'turn' | 'damage' | 'fireRate' | 'laser' | 'missile'; label: string; detail: string };
 
@@ -16,4 +14,3 @@ export function createRunProgress(): GunshipRunProgress { return { level: 1, xp:
 export function addXp(run: GunshipRunProgress, value: number): void { run.xp += value; while (run.xp >= run.nextXp) { run.xp -= run.nextXp; run.level++; run.nextXp = Math.ceil(run.nextXp * 1.28); run.pending++; } }
 export function choicesFor(run: GunshipRunProgress): GunshipUpgrade[] { const available = UPGRADES.filter((upgrade) => upgrade.id !== 'laser' || run.laser === 0).filter((upgrade) => upgrade.id !== 'missile' || run.missile === 0); const offset = (run.level + run.thrust + run.damage) % available.length; return [available[offset], available[(offset + 1) % available.length], available[(offset + 2) % available.length]]; }
 export function applyUpgrade(run: GunshipRunProgress, choice: GunshipUpgrade): void { run[choice.id]++; run.pending = Math.max(0, run.pending - 1); run.lastUpgrade = choice.label; }
-export function configureShip(body: GunshipBody, run: GunshipRunProgress): void { body.thrustScale = 1.14 ** run.thrust; body.turnScale = 1.12 ** run.turn; }
