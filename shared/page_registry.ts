@@ -1,7 +1,7 @@
 export type PageLoadMode = 'file' | 'http';
 
 export type PageDefinition = {
-  number: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14;
+  number: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15;
   key: string;
   label: string;
   accelerator: string;
@@ -146,6 +146,15 @@ export const PAGE_REGISTRY = [
     htmlPath: 'apps/one-line-rpg/one_line_rpg.html',
     target: 'http://localhost:3000/one_line_rpg.html',
   },
+  {
+    number: 15,
+    key: 'gunship',
+    label: 'Gravity Gunship',
+    accelerator: 'CmdOrCtrl+Shift+5',
+    loadMode: 'http',
+    htmlPath: 'apps/gunship/gunship.html',
+    target: 'http://localhost:3000/gunship.html',
+  },
 ] as const satisfies readonly PageDefinition[];
 
 export type PageKey = (typeof PAGE_REGISTRY)[number]['key'];
@@ -163,12 +172,6 @@ export function isPageKey(value: string): value is PageKey {
 }
 
 export function describePage(page: { number: number; key: string; label: string }): string {
-  const shortcut = page.number === 10
-    ? 'Ctrl+Shift+0'
-    : page.number === 11
-      ? 'Ctrl+Shift+1'
-    : page.number === 12
-      ? 'Ctrl+Shift+2'
-      : `Ctrl+${page.number}`;
+  const shortcut = page.number >= 10 ? `Ctrl+Shift+${page.number - 10}` : `Ctrl+${page.number}`;
   return `${shortcut} / ${page.label} (${page.key})`;
 }

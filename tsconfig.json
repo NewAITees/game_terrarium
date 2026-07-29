@@ -29,6 +29,7 @@
     "apps/drone-bastion/**/*.ts",
     "apps/ai-restoration/**/*.ts",
     "apps/one-line-rpg/**/*.ts",
+    "apps/gunship/**/*.ts",
     "game/**/*.ts",
     "shared/*.ts",
     "shared/rl/**/*.ts",

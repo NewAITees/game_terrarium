@@ -66,6 +66,8 @@ export default defineConfig({
           resolve(__dirname, 'apps/drone-bastion/drone_bastion.ts'),
         'apps/ai-restoration/ai_restoration':
           resolve(__dirname, 'apps/ai-restoration/ai_restoration.ts'),
+        'apps/gunship/gunship':
+          resolve(__dirname, 'apps/gunship/gunship.ts'),
       },
       output: {
         format: 'es',

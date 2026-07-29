@@ -12,3 +12,16 @@ logs/
 build-node/scripts/validate_dom_ids.js
 build-node/game/
 .tmp/
+
+# Locally supplied art packs: retain them on disk, but do not add them to the repository.
+assets/2D Pixel Art Platformer Biome - American Forest.meta
+assets/2D Pixel Art Platformer Biome - American Forest/
+assets/Enemy Galore 1 - Pixel Art.meta
+assets/Enemy Galore 1 - Pixel Art/
+assets/Hero Knight - Pixel Art.meta
+assets/Hero Knight - Pixel Art/
+assets/Pixel Monster Pack.meta
+assets/Pixel Monster Pack/
+assets/karsiori.meta
+assets/karsiori/
+assets/one-line-rpg/sprites/

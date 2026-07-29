@@ -60,6 +60,7 @@ export async function mountBrowserAssetRoutes(app: express.Express, projectRoot:
     '/submarine_network_3d.js': 'build/apps/submarine-network-3d/submarine_network_3d.js',
     '/zombie_survivor.js': 'build/apps/zombie-survivor/zombie_survivor.js',
     '/one_line_rpg.js': 'build/apps/one-line-rpg/one_line_rpg.js',
+    '/gunship.js': 'build/apps/gunship/gunship.js',
     '/network-core.js': 'build/shared/network-core.js',
   });
   app.use(express.static(path.join(projectRoot, 'public')));
@@ -92,6 +93,7 @@ export async function mountBrowserAssetRoutes(app: express.Express, projectRoot:
     '/submarine_network_3d.html': 'pages/submarine_network_3d.html',
     '/zombie_survivor.html': 'apps/zombie-survivor/zombie_survivor.html',
     '/one_line_rpg.html': 'apps/one-line-rpg/one_line_rpg.html',
+    '/gunship.html': 'apps/gunship/gunship.html',
     '/network-defense/network-core.js': 'build/shared/network-core.js',
     '/network-ecosystem/network-core.js': 'build/shared/network-core.js',
     '/telemetry-client.js': 'shared/telemetry-client.js',

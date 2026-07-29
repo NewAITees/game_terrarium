@@ -98,6 +98,13 @@ const appBuildTargets: readonly AppBuildTarget[] = [
     bundle: 'build/apps/drone-bastion/drone_bastion.js',
     htmlModuleSrc: './drone_bastion.js',
   },
+  {
+    name: 'Gravity Gunship',
+    source: 'apps/gunship/gunship.ts',
+    html: 'apps/gunship/gunship.html',
+    bundle: 'build/apps/gunship/gunship.js',
+    htmlModuleSrc: './gunship.js',
+  },
 ];
 
 for (const app of appBuildTargets) {
