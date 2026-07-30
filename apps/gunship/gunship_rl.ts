@@ -3,7 +3,7 @@ import type { TabularQSave } from '../../shared/rl/rl_types.js';
 import type { GunshipAction, GunshipBody } from './gunship_physics.js';
 import { altitudeMargin, ceilingMargin } from './gunship_physics.js';
 
-export type GunshipTarget = { x: number; y: number; kind: 'ship' | 'chaser' | 'diver' | 'mine' | 'dreadnought' | 'submarine'; hp: number };
+export type GunshipTarget = { x: number; y: number; kind: 'destroyer' | 'cruiser' | 'carrier' | 'battleship' | 'chaser' | 'diver' | 'mine' | 'submarine'; hp: number };
 export type GunshipHazard = { x: number; y: number; vx: number; vy: number };
 export type UpgradeContext = { offer: readonly string[]; level: number };
 type Observation = { altitude: number; ceiling: number; fall: number; angle: number; aim: number; target: 'surface' | 'air' | 'none'; threat: number; danger: number };
@@ -85,7 +85,7 @@ export class GunshipAgent {
 function observe(ship: GunshipBody, targets: GunshipTarget[], hazards: GunshipHazard[]): Observation {
   const target = targets.slice().sort((a, b) => Math.hypot(a.x - ship.x, a.y - ship.y) - Math.hypot(b.x - ship.x, b.y - ship.y))[0];
   const aim = target ? normalize(Math.atan2(-(target.y - ship.y), target.x - ship.x) - ship.angle) : 0;
-  const targetClass = !target ? 'none' : target.kind === 'ship' || target.kind === 'dreadnought' || target.kind === 'submarine' ? 'surface' : 'air';
+  const targetClass = !target ? 'none' : ['destroyer', 'cruiser', 'carrier', 'battleship', 'submarine'].includes(target.kind) ? 'surface' : 'air';
   return { altitude: band(altitudeMargin(ship), [-20, 75, 180, 330]), ceiling: band(ceilingMargin(ship), [70, 210]), fall: band(ship.vy, [-20, 75, 180]), angle: band(ship.angle, [-.7, .25, 1.1]), aim: band(aim, [-.45, -.1, .1, .45]), target: targetClass, threat: target ? band(Math.hypot(target.x - ship.x, target.y - ship.y), [160, 360]) : 2, danger: incomingDanger(ship, hazards) };
 }
 // Time-to-impact of the closest incoming shot, banded so the agent can finally learn to dodge what it is punished for.
