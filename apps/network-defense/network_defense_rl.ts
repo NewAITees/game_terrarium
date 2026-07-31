@@ -180,7 +180,6 @@ function createNetworkDefenseLearner(): TabularQAgent<NetworkDefenseRlObservatio
     actions: NETWORK_DEFENSE_RL_ACTIONS,
     encodeState: encodeNetworkDefenseObservation,
     allowedActionIndices: allowedNetworkDefenseActions,
-    initialValues: initialNetworkDefenseValues,
     learningRate: 0.14,
     discount: 0.94,
     initialEpsilon: 0.24,
@@ -254,29 +253,6 @@ function allowedNetworkDefenseActions(observation: NetworkDefenseRlObservation):
     .filter((index) => index >= 0);
 }
 
-function initialNetworkDefenseValues(
-  observation: NetworkDefenseRlObservation,
-  actionCount: number,
-): readonly number[] {
-  const values = Array<number>(actionCount).fill(0);
-  values[NETWORK_DEFENSE_RL_ACTIONS.indexOf('patrol')] = 0.12;
-  values[NETWORK_DEFENSE_RL_ACTIONS.indexOf('idle')] = 0.02;
-  if (observation.serverThreatBand > 0) {
-    values[NETWORK_DEFENSE_RL_ACTIONS.indexOf('containServerNeighbor')] = 0.7;
-  }
-  if (observation.enemyBand > 0) {
-    values[NETWORK_DEFENSE_RL_ACTIONS.indexOf('interceptEnemy')] = 0.45;
-    values[NETWORK_DEFENSE_RL_ACTIONS.indexOf('deployFirewallGuard')] = 0.38;
-  }
-  if (observation.infectionBand > 0) {
-    values[NETWORK_DEFENSE_RL_ACTIONS.indexOf('suppressHottest')] = 0.5;
-    values[NETWORK_DEFENSE_RL_ACTIONS.indexOf('rebootNode')] = 0.42;
-  }
-  if (observation.damagedBand > 0) {
-    values[NETWORK_DEFENSE_RL_ACTIONS.indexOf('repairWeakest')] = 0.48;
-  }
-  return values;
-}
 
 function captureRewardSnapshot(
   context: Pick<NetworkDefenseRlControllerContext, 'game' | 'topo'>,

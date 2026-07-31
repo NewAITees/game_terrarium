@@ -23,7 +23,6 @@ export class QLearningAgent {
     allowedActionIndices: (observation) => ACTIONS
       .map((action, index) => isActionAllowed(observation.craftType, action) ? index : -1)
       .filter((index) => index >= 0),
-    initialValues: arenaInitialValues,
     learningRate: 0.16,
     discount: 0.92,
     initialEpsilon: 0.2,
@@ -139,38 +138,4 @@ export class QLearningAgent {
     this.previousUpgradeKey = null;
     this.upgradeReward = 0;
   }
-}
-
-function arenaInitialValues(observation: ArenaObservation, actionCount: number): readonly number[] {
-  const values = Array<number>(actionCount).fill(0);
-  // Arena-specific priors keep the first episodes watchable without making
-  // craft knowledge part of the reusable learner.
-  const aim = observation.aimSector;
-  if (aim === 0) {
-    values[6] = 0.7;
-    values[7] = observation.distanceBand > 0 ? 0.8 : 0.25;
-  } else if (observation.craftType === 'turret') {
-    values[aim <= 8 ? 14 : 13] = 0.72;
-    values[aim <= 8 ? 16 : 15] = 0.48;
-  } else if (aim <= 8) {
-    values[3] = 0.62;
-    values[5] = 0.46;
-  } else {
-    values[2] = 0.62;
-    values[4] = 0.46;
-  }
-  if (observation.projectileDistanceBand === 0 && observation.craftType === 'strafer') {
-    values[observation.projectileDangerSector <= 4 ? 9 : 10] = 0.9;
-  } else if (observation.projectileDistanceBand === 0) {
-    const evadeIndex = observation.projectileDangerSector <= 4 ? 4 : 5;
-    values[evadeIndex] = 0.86;
-  }
-  if (observation.edgeDistanceBand === 0) {
-    if (observation.edgeSector === 0) values[1] = 0.82;
-    else if (observation.edgeSector <= 3) values[2] = 0.82;
-    else if (observation.edgeSector >= 5) values[3] = 0.82;
-    else values[0] = 0.82;
-  }
-  if (observation.distanceBand === 0 || observation.hpBand === 0) values[8] = 0.65;
-  return values;
 }
