@@ -5,10 +5,14 @@ export type EnemyShot = { x: number; y: number; vx: number; vy: number; life: nu
 
 export function spawnWave(wave: number, id: number): Enemy[] {
   const ships = wave < 3 ? 1 : Math.min(3, 1 + Math.floor(wave / 3));
-  const chasers = Math.min(6, 1 + Math.floor(wave * .7));
+  // The craft can only fire within +/-90 degrees of its nose, so a thin sky leaves
+  // it with nothing legally aimable for most of a run. Measured at 6000 episodes,
+  // this density is where survival AND kills both climb; going denser (10x) starts
+  // eating the survival curve.
+  const chasers = Math.min(16, 6 + Math.floor(wave * 1.4));
   const enemies: Enemy[] = [
     ...Array.from({ length: ships }, (_, index) => ({ id: id + index, kind: 'destroyer' as const, x: 220 + index * 380, y: 735, vx: 18 + index * 5, hp: 65 + wave * 18, maxHp: 65 + wave * 18, cooldown: 1.05, radius: 43 })),
-    ...Array.from({ length: chasers }, (_, index) => ({ id: id + ships + index, kind: 'chaser' as const, x: 150 + (index * 177) % 930, y: 155 + (index % 3) * 115, vx: 0, hp: 22 + wave * 5, maxHp: 22 + wave * 5, cooldown: .8 + index * .08, radius: 17 })),
+    ...Array.from({ length: chasers }, (_, index) => ({ id: id + ships + index, kind: 'chaser' as const, x: 150 + (index * 177) % 930, y: 110 + (index % 5) * 95, vx: 0, hp: 22 + wave * 5, maxHp: 22 + wave * 5, cooldown: .8 + index * .08, radius: 17 })),
   ];
   if (wave >= 4) enemies.push({ id: id + 16, kind: 'cruiser', x: 760, y: 728, vx: -11, hp: 155 + wave * 30, maxHp: 155 + wave * 30, cooldown: .82, radius: 58 });
   if (wave >= 8) enemies.push({ id: id + 17, kind: 'carrier', x: 330, y: 724, vx: 8, hp: 245 + wave * 42, maxHp: 245 + wave * 42, cooldown: .68, radius: 72 });

@@ -26,6 +26,7 @@ window.addEventListener('keyup', (event) => keys.delete(event.key.toLowerCase())
 ui.pause.addEventListener('click', () => { paused = !paused; });
 try { const saved = localStorage.getItem('gravity-gunship-meta-v1'); if (saved) meta = { ...meta, ...JSON.parse(saved) }; } catch { /* Meta progression is optional. */ }
 ui.airframe.value = selection;
+refreshAirframeOptions();
 ui.airframe.addEventListener('change', () => switchAirframe(ui.airframe.value as 'random' | AirframeId));
 ui.mode.addEventListener('change', () => { if (ui.mode.value === 'agent') lastReward = 0; });
 ui.researchThrust.addEventListener('click', () => buyResearch('thrustResearch'));
@@ -52,7 +53,7 @@ function update(dt: number): void {
   if (currentAction.fire && ship.fireCooldown <= 0) fireMainWeapon();
   if (currentAction.fire && run.missile > 0 && missileCooldown <= 0) fireSubMissile();
   stepEnemies(enemies, enemyShots, ship, dt); moveShots(enemyShots, dt); moveShots(bullets, dt); resolveHits();
-  episodeReward += dt * .05;
+  episodeReward += dt * .6;
   // Loitering at the top of frame is the reward hack the design warned about: make the ceiling a mild cost, not a refuge.
   if (ceilingMargin(ship) < 70) episodeReward -= dt * .09;
   if (enemies.length === 0) { wave++; enemies = spawnWave(wave, nextId); nextId += enemies.length; episodeReward += 8; }
@@ -69,9 +70,28 @@ function resolveHits(): void {
   for (let i = enemyShots.length - 1; i >= 0; i--) if (Math.hypot(enemyShots[i].x - ship.x, enemyShots[i].y - ship.y) < 20) { ship.hp -= 10; enemyShots.splice(i, 1); episodeReward -= 1.5; }
 }
 function finishEpisode(fell: boolean): void { if (fell) fallingDeaths++; const finalReward = fell ? -16 : -9; episodeReward += finalReward; agent.finishEpisode(finalReward); meta.data += Math.max(1, Math.floor((kills + wave) / 4)); survivalHistory.push(episodeElapsed); if (survivalHistory.length > 10) survivalHistory.shift(); saveAgent(); restart = 1.6; }
-function saveAgent(): void { try { localStorage.setItem(agentKey(airframe.id), JSON.stringify(agent.serialize())); localStorage.setItem('gravity-gunship-meta-v1', JSON.stringify(meta)); ui.saveStatus.textContent = `SAVED ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`; } catch { ui.saveStatus.textContent = 'SAVE UNAVAILABLE'; } }
+function saveAgent(): void { try { localStorage.setItem(agentKey(airframe.id), JSON.stringify(agent.serialize())); localStorage.setItem('gravity-gunship-meta-v1', JSON.stringify(meta)); ui.saveStatus.textContent = `SAVED ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`; refreshAirframeOptions(); } catch { ui.saveStatus.textContent = 'SAVE UNAVAILABLE'; } }
 // Each airframe is a separately trained pilot: its Q-tables live under their own key and survive machine swaps.
 function agentKey(id: AirframeId): string { return `gravity-gunship-q-${id}`; }
+// Each airframe trains its own pilot, so "which of these has actually been flown"
+// is otherwise invisible — and picking an untrained one looks like lost progress.
+function trainingOf(id: AirframeId): { episodes: number; states: number } {
+  try {
+    const raw = localStorage.getItem(agentKey(id)) ?? (id === 'interceptor' ? localStorage.getItem('gravity-gunship-q-v1') : null);
+    if (!raw) return { episodes: 0, states: 0 };
+    const save = JSON.parse(raw);
+    return { episodes: Math.max(0, save?.episodes || 0), states: save?.learner?.qTable?.length ?? 0 };
+  } catch { return { episodes: 0, states: 0 }; }
+}
+function refreshAirframeOptions(): void {
+  for (const option of Array.from(ui.airframe.options)) {
+    if (option.value === 'random') continue;
+    const frame = AIRFRAMES.find((entry) => entry.id === option.value);
+    if (!frame) continue;
+    const { episodes, states } = trainingOf(frame.id);
+    option.textContent = episodes ? `${frame.label} · ${episodes}ep / ${states}状態` : `${frame.label} · 未訓練`;
+  }
+}
 function loadAgentFor(id: AirframeId): GunshipAgent { const next = new GunshipAgent(); const raw = localStorage.getItem(agentKey(id)) ?? (id === 'interceptor' ? localStorage.getItem('gravity-gunship-q-v1') : null); if (raw) { try { next.restore(JSON.parse(raw)); } catch { /* A corrupt per-type save must not stop the flight loop. */ } } return next; }
 function loadSelection(): 'random' | AirframeId { const raw = localStorage.getItem('gravity-gunship-frame-v1'); if (raw === 'random' || AIRFRAMES.some((frame) => frame.id === raw)) return raw as 'random' | AirframeId; return 'interceptor'; }
 // Swapping the airframe swaps the physics problem, so the run is reset — but permanent research and each pilot's model persist.
@@ -102,5 +122,5 @@ function showUpgradeChoices(): void { ui.upgrade.dataset.open = 'true'; ui.choic
 function chooseUpgrade(choice: GunshipUpgrade): void { applyUpgrade(run, choice); upgradeChoices = []; ui.upgrade.dataset.open = 'false'; upgradeRewardMark = episodeReward; }
 function manualAction() { const turn = keys.has('a') || keys.has('arrowleft') ? 1 : keys.has('d') || keys.has('arrowright') ? -1 : 0; const thrust = keys.has('w') || keys.has('arrowup'); const fire = keys.has('f') || keys.has('enter'); return { turn: turn as -1 | 0 | 1, thrust, fire, label: 'MANUAL FLIGHT' }; }
 function resize(): void { const ratio = Math.min(devicePixelRatio || 1, 2); const width = innerWidth * ratio; const height = innerHeight * ratio; if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; } }
-function updateUi(): void { const margin = altitudeMargin(ship); ui.hp.style.width = `${Math.max(0, ship.hp / ship.maxHp * 100)}%`; ui.hpText.textContent = `${Math.max(0, Math.ceil(ship.hp))} / ${ship.maxHp}`; ui.wave.textContent = String(wave); ui.episode.textContent = String(episode); ui.action.textContent = currentAction.label; ui.margin.textContent = `${Math.max(0, Math.round(margin))} m`; ui.burst.textContent = `${Math.max(0, Math.round(margin / Math.max(1, ship.vy + 55) * 60))} fr`; ui.kills.textContent = String(kills); ui.reward.textContent = episodeReward.toFixed(1); ui.epsilon.textContent = `${(agent.epsilon * 100).toFixed(1)}%`; ui.states.textContent = String(agent.knownStates); ui.steps.textContent = String(agent.steps); ui.deaths.textContent = `${fallingDeaths} / ${Math.max(1, episode - 1)}`; ui.level.textContent = String(run.level); ui.xp.textContent = `${run.xp} / ${run.nextXp}`; ui.shipAccuracy.textContent = `${Math.round(shipHits / Math.max(1, shots) * 100)}%`; ui.airAccuracy.textContent = `${Math.round(airHits / Math.max(1, shots) * 100)}%`; ui.lowMargin.textContent = `${Math.max(0, Math.round(episodeMinMargin))} m`; ui.noseDown.textContent = `${noseDownSeconds.toFixed(1)} s`; ui.cycle.textContent = cycleCount ? `${(cycleTotal / cycleCount).toFixed(1)} s` : '—'; ui.survival.textContent = survivalHistory.length ? `${(survivalHistory.reduce((sum, value) => sum + value, 0) / survivalHistory.length).toFixed(1)} s` : '—'; ui.data.textContent = String(meta.data); ui.researchThrust.textContent = `THRUST +6% · ${researchCost('thrustResearch')} DATA`; ui.researchHull.textContent = `HULL +12% · ${researchCost('hullResearch')} DATA`; ui.researchThrust.disabled = meta.data < researchCost('thrustResearch'); ui.researchHull.disabled = meta.data < researchCost('hullResearch'); ui.pause.textContent = paused ? 'RESUME' : 'PAUSE'; ui.frameName.textContent = selection === 'random' ? `RANDOM → ${airframe.label}` : airframe.label; ui.frameStats.textContent = `TWR ${twrOf(airframe).toFixed(2)} · TURN ${airframe.turn.toFixed(1)} · DRAG ${airframe.drag.toFixed(2)}`; }
+function updateUi(): void { const margin = altitudeMargin(ship); ui.hp.style.width = `${Math.max(0, ship.hp / ship.maxHp * 100)}%`; ui.hpText.textContent = `${Math.max(0, Math.ceil(ship.hp))} / ${ship.maxHp}`; ui.wave.textContent = String(wave); ui.episode.textContent = String(episode); ui.action.textContent = currentAction.label; ui.margin.textContent = `${Math.max(0, Math.round(margin))} m`; ui.burst.textContent = `${Math.max(0, Math.round(margin / Math.max(1, ship.vy + 55) * 60))} fr`; ui.kills.textContent = String(kills); ui.reward.textContent = episodeReward.toFixed(1); ui.epsilon.textContent = `${(agent.epsilon * 100).toFixed(1)}%`; ui.states.textContent = String(agent.knownStates); ui.steps.textContent = String(agent.steps); ui.deaths.textContent = `${fallingDeaths} / ${Math.max(1, episode - 1)}`; ui.level.textContent = String(run.level); ui.xp.textContent = `${run.xp} / ${run.nextXp}`; ui.shipAccuracy.textContent = `${Math.round(shipHits / Math.max(1, shots) * 100)}%`; ui.airAccuracy.textContent = `${Math.round(airHits / Math.max(1, shots) * 100)}%`; ui.lowMargin.textContent = `${Math.max(0, Math.round(episodeMinMargin))} m`; ui.noseDown.textContent = `${noseDownSeconds.toFixed(1)} s`; ui.cycle.textContent = cycleCount ? `${(cycleTotal / cycleCount).toFixed(1)} s` : '—'; ui.survival.textContent = survivalHistory.length ? `${(survivalHistory.reduce((sum, value) => sum + value, 0) / survivalHistory.length).toFixed(1)} s` : '—'; ui.data.textContent = String(meta.data); ui.researchThrust.textContent = `THRUST +6% · ${researchCost('thrustResearch')} DATA`; ui.researchHull.textContent = `HULL +12% · ${researchCost('hullResearch')} DATA`; ui.researchThrust.disabled = meta.data < researchCost('thrustResearch'); ui.researchHull.disabled = meta.data < researchCost('hullResearch'); ui.pause.textContent = paused ? 'RESUME' : 'PAUSE'; ui.frameName.textContent = selection === 'random' ? `RANDOM → ${airframe.label}` : airframe.label; ui.frameStats.textContent = `TWR ${twrOf(airframe).toFixed(2)} · TURN ${airframe.turn.toFixed(1)} · DRAG ${airframe.drag.toFixed(2)} · 通算 ${agent.episodes}ep`; }
 requestAnimationFrame(frame);

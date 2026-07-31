@@ -24,6 +24,22 @@ Browser apps are bundled by **Vite** (`vite.config.ts`) into `build/`. Shared ve
 - Use **named imports** from Three.js (`import { Mesh, Scene } from 'three'`) — never `import * as THREE`. Named imports enable tree-shaking.
 - Use `import type` for type-only imports.
 
+## Rule: no hand-authored policy. Behaviour is learned.
+
+**Hand-written rules are banned as a substitute for learning.** Every agent's behaviour must come from the reinforcement learner. Do not add, and do not "improve":
+
+- seeded Q values / initial value tables / action priors — the `initialValues` hook was **removed** from `shared/rl/` for this reason; do not reintroduce it
+- `if` ladders that pick actions, override the policy, or nudge it "just in the dangerous case"
+- scripted fallbacks that take over when the agent performs badly
+
+**Why this is a hard rule, not a preference.** Gunship shipped with a `seedValues` prior of `1.1 / 0.78 / 0.68`. Those numbers sat above any return the environment could actually pay, so the greedy policy stayed frozen on the hand-written rules and the learned Q values could never overtake them. Measured over 4000 episodes the agent did not merely fail to improve — it *degraded* (13.17s → 5.74s median survival), because the prior was better than anything learning could reach past it. Deleting the prior produced a real learning curve immediately (22.68s → 100.12s, falls 95% → 51%). A prior that looks like competence is the thing preventing competence.
+
+The legitimate levers are the environment and the reward: observation design, action set, reward weights, discount, exploration schedule, difficulty. Change those, then measure.
+
+**Always measure before and after.** `npm run sim:gunship --episodes=6000 --repeats=4`. `--repeats` averages independent agents; a single run's curve is noise and must not be used to justify a change. Reward weights are overridable from the CLI (`--survival`, `--ceiling`, `--kill`, `--density`).
+
+Pre-existing exceptions, not a precedent: `agent_rules/` (network-defense) and `faction_rules/` (colony) are older JSON rule engines that predate the RL work. Do not extend the pattern to new work.
+
 ## Architecture
 
 This is an **Electron desktop app** (`main.js`) that hosts an always-on-top window with switchable visualization pages, plus an Express+WebSocket game server.
@@ -65,7 +81,21 @@ This is an **Electron desktop app** (`main.js`) that hosts an always-on-top wind
 
 ### Page switching
 
-`main.js` defines 10 named pages (`city`, `moss`, `escort_td`, `net_sw`, `submarine`, `submarine_3d`, `net_defense`, `net_ecosystem`, `colony`, `planet_strategy`). Standalone pages under `pages/` are loaded as local files via Electron; app pages are served over `http://localhost:3000/`. The server also exposes `POST /electron/action` with `{ type: "switch_page", page: "<key>" }` to switch from the browser side. Keyboard shortcuts Ctrl+1–9, Ctrl+0 and Ctrl+Shift+T (toggle always-on-top) are registered as global shortcuts.
+`shared/page_registry.ts` is the single source of truth for every page (key, label, accelerator, URL). `main.ts` reads it to build the menus, shortcuts and the switcher. Add new experiences there and every switching route picks them up automatically.
+
+There are four ways to switch:
+
+| Route | How |
+|---|---|
+| **Command palette** | **Ctrl+K (Cmd+K) from any page.** Type to filter, ↑↓ + Enter, Esc to close |
+| Tray menu | Menu-bar icon → pick a page. Works without focusing the window |
+| App menu | View menu, radio-checked to the current page |
+| Keyboard | Ctrl+0–9 and Ctrl+Shift+0–5 (registered both globally and per-window) |
+| HTTP | `POST /electron/action` with `{ type: "switch_page", page: "<key>" }` |
+
+The palette lives in `preload.ts`, injected into every page by the main process — pages carry no navigation code of their own. It talks to main over the `terrarium:pages` / `terrarium:switch-page` IPC channels. Set `ELECTRON_DISABLE_TRAY=1` to skip the tray.
+
+Ctrl+Shift+T toggles always-on-top.
 
 ### Game API (roguelike dungeon)
 
