@@ -34,11 +34,7 @@ export class DroneBastionAgent {
   private readonly learner = new TabularQAgent<DroneBastionObservation, DroneAction>({
     actions: DRONE_BASTION_ACTIONS,
     encodeState: encodeDroneBastionObservation,
-    allowedActionIndices: (observation) => DRONE_BASTION_ACTIONS
-      .map((action, index) => (
-        action.switch !== 0 && observation.droneCountBand === 0 ? -1 : index
-      ))
-      .filter((index) => index >= 0),
+    allowedActionIndices: allowedDroneBastionActions,
     learningRate: 0.15,
     discount: 0.93,
     initialEpsilon: 0.24,
@@ -134,4 +130,12 @@ export class DroneBastionAgent {
     this.previousUpgrade = undefined;
     this.upgradeReward = 0;
   }
+}
+
+function allowedDroneBastionActions(observation: DroneBastionObservation): readonly number[] {
+  return DRONE_BASTION_ACTIONS
+    .map((action, index) => (
+      action.switch !== 0 && observation.droneCountBand === 0 ? -1 : index
+    ))
+    .filter((index) => index >= 0);
 }

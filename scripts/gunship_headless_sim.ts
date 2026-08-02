@@ -17,7 +17,7 @@ import { addXp, applyUpgrade, choicesFor, createRunProgress } from '../apps/guns
 const DT = 1 / 60;
 // Reward weights are the thing under test, so they are knobs rather than literals.
 // Defaults mirror apps/gunship/gunship.ts exactly.
-const W = { survival: .6, ceiling: .09, death: -16, hpDeath: -9, kill: 1, hit: -1.5, wave: 8 };
+const W = { hp: 1, fireRate: 1, maxChasers: 0, survival: .6, ceiling: .09, death: -16, hpDeath: -9, kill: 1, hit: -1.5, wave: 8 };
 // The craft can only shoot within +/-90 degrees of straight ahead, so with a
 // near-empty sky most of its life is spent with nothing it can legally aim at.
 // --density=N multiplies the airborne opposition to test that balance lever.
@@ -31,6 +31,20 @@ function densify(enemies: Enemy[], density: number, seed: number): Enemy[] {
     }
   }
   return [...enemies, ...extra];
+}
+
+// spawnWave now fields 7-16 chasers so the craft always has something aimable.
+// --maxChasers isolates how much of the survival ceiling that density costs.
+function capChasers(enemies: Enemy[]): Enemy[] {
+  if (W.maxChasers <= 0) return enemies;
+  let kept = 0;
+  return enemies.filter((enemy) => enemy.kind !== 'chaser' || ++kept <= W.maxChasers);
+}
+
+function slowFire(enemies: Enemy[]): Enemy[] {
+  if (W.fireRate === 1) return enemies;
+  for (const enemy of enemies) enemy.cooldown /= W.fireRate;
+  return enemies;
 }
 
 const SURFACE_KINDS = ['destroyer', 'cruiser', 'carrier', 'battleship', 'submarine'];
@@ -61,10 +75,10 @@ function freshShip(maxHp: number): GunshipBody {
 function runEpisode(agent: GunshipAgent, airframeId: AirframeId, capSeconds: number, density: number): EpisodeResult {
   const airframe = airframeById(airframeId);
   const run = createRunProgress();
-  const ship = freshShip(airframe.maxHp);
+  const ship = freshShip(Math.round(airframe.maxHp * W.hp));
   let wave = 1;
   let nextId = 50;
-  let enemies: Enemy[] = densify(spawnWave(wave, nextId), density, wave);
+  let enemies: Enemy[] = slowFire(capChasers(densify(spawnWave(wave, nextId), density, wave)));
   nextId += enemies.length;
   let enemyShots: EnemyShot[] = [];
   let bullets: EnemyShot[] = [];
@@ -129,7 +143,7 @@ function runEpisode(agent: GunshipAgent, airframeId: AirframeId, capSeconds: num
 
     episodeReward += DT * W.survival;
     if (ceilingMargin(ship) < 70) episodeReward -= DT * W.ceiling;
-    if (enemies.length === 0) { wave += 1; enemies = densify(spawnWave(wave, nextId), density, wave); nextId += enemies.length; episodeReward += W.wave; }
+    if (enemies.length === 0) { wave += 1; enemies = slowFire(capChasers(densify(spawnWave(wave, nextId), density, wave))); nextId += enemies.length; episodeReward += W.wave; }
 
     if (ship.y >= SEA_Y || ship.hp <= 0) {
       const fell = ship.y >= SEA_Y;
@@ -180,8 +194,10 @@ function main(): void {
     // One agent's curve is mostly noise at this episode count, so average the
     // per-block medians over independent agents before reading any trend.
     const runs: EpisodeResult[][] = [];
+    const agents: GunshipAgent[] = [];
     for (let repeat = 0; repeat < repeats; repeat += 1) {
       const agent = new GunshipAgent();
+      agents.push(agent);
       const single: EpisodeResult[] = [];
       for (let episode = 0; episode < episodes; episode += 1) single.push(runEpisode(agent, airframeId, capSeconds, density));
       runs.push(single);
@@ -202,6 +218,25 @@ function main(): void {
         + `${`${(blockFalls(start) * 100).toFixed(0)}%`.padStart(8)}`
         + `${blockKills(start).toFixed(2).padStart(11)}`,
       );
+    }
+    const evaluate = Number(args.get('evaluate') ?? 0);
+    if (evaluate > 0) {
+      const evalSeconds: number[] = [];
+      let evalKills = 0;
+      for (const agent of agents) {
+        agent.setEvaluationMode(true);
+        for (let episode = 0; episode < evaluate; episode += 1) {
+          const outcome = runEpisode(agent, airframeId, capSeconds, density);
+          evalSeconds.push(outcome.seconds);
+          evalKills += outcome.kills;
+        }
+        agent.setEvaluationMode(false);
+      }
+      console.log(`  greedy evaluation (${evaluate} eps x ${agents.length} agents, no exploration):`
+        + ` median ${median(evalSeconds).toFixed(1)}s  mean ${mean(evalSeconds).toFixed(1)}s`
+        + `  best ${Math.max(...evalSeconds).toFixed(1)}s`
+        + `  >=120s ${(evalSeconds.filter((v) => v >= 120).length / evalSeconds.length * 100).toFixed(0)}%`
+        + `  kills/ep ${(evalKills / evalSeconds.length).toFixed(2)}`);
     }
     const first = blockMedian(starts[0]);
     const last = blockMedian(starts[starts.length - 1]);

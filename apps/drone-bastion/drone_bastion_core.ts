@@ -566,16 +566,16 @@ export function observeDroneBastion(state: DroneBastionState): DroneBastionObser
   const wallRatio = state.walls.reduce((sum, wall) => sum + wall.hp / wall.maxHp, 0)
     / Math.max(1, state.walls.length);
   return {
-    towerHpBand: ratioBand(state.tower.hp / state.tower.maxHp),
+    towerHpBand: thresholdBand(state.tower.hp / state.tower.maxHp, [0.25, 0.5, 0.75]),
     selectedKind: drone.kind,
-    speedBand: valueBand(Math.hypot(drone.vx, drone.vy), [8, 45, 100]),
+    speedBand: thresholdBand(Math.hypot(drone.vx, drone.vy), [8, 45, 100]),
     aimSector: directionBand(relative),
-    distanceBand: valueBand(distance, [75, 170, 300]),
+    distanceBand: thresholdBand(distance, [75, 170, 300]),
     threatSector,
-    threatBand: valueBand(sectorCounts[threatSector], [1, 4, 9]),
-    wallBand: ratioBand(wallRatio),
+    threatBand: thresholdBand(sectorCounts[threatSector], [1, 4, 9]),
+    wallBand: thresholdBand(wallRatio, [0.25, 0.5, 0.75]),
     droneCountBand: Math.min(4, state.drones.filter((candidate) => candidate.mode !== 'disabled').length - 1),
-    selectedHpBand: ratioBand(drone.hp / drone.maxHp),
+    selectedHpBand: thresholdBand(drone.hp / drone.maxHp, [0.25, 0.5, 0.75]),
     dense: createDenseObservation(state, drone),
   };
 }
@@ -1155,17 +1155,6 @@ function octantSector(angle: number): number {
   return Math.floor(normalized / (Math.PI / 4)) % 8;
 }
 
-function ratioBand(value: number): number {
-  return value < 0.25 ? 0 : value < 0.5 ? 1 : value < 0.75 ? 2 : 3;
-}
-
-function valueBand(value: number, thresholds: readonly number[]): number {
-  for (let index = 0; index < thresholds.length; index += 1) {
-    if (value < thresholds[index]) return index;
-  }
-  return thresholds.length;
-}
-
 function waveEnemyTotal(wave: number): number {
   return Math.min(240, 8 + wave * 4 + Math.floor(Math.pow(wave, 1.32)));
 }
@@ -1190,3 +1179,4 @@ function approach(current: number, target: number, maximumDelta: number): number
   if (current < target) return Math.min(target, current + maximumDelta);
   return Math.max(target, current - maximumDelta);
 }
+import { thresholdBand } from '../../shared/rl/discretize.js';

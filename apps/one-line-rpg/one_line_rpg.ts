@@ -1,4 +1,15 @@
-import { TabularQAgent } from '../../shared/rl/tabular_q_agent.js';
+import { readTabularQSave, writeTabularQSave } from '../../shared/rl/tabular_q_storage.js';
+import { thresholdBand } from '../../shared/rl/discretize.js';
+import {
+  ONE_LINE_ACTIONS as actions,
+  ONE_LINE_ACTION_LABELS as labels,
+  ONE_LINE_UPGRADE_LABELS as upLabels,
+  oneLineAgent as agent,
+  oneLineUpgradeAgent as upgradeAgent,
+  type OneLineAction as Action,
+  type OneLineObservation as Obs,
+  type OneLineUpgradeObservation as UpObs,
+} from './one_line_rpg_agent.js';
 import { Sheet } from './sprite_sheet.js';
 import { Parallax } from './background.js';
 
@@ -8,17 +19,11 @@ import { Parallax } from './background.js';
 // AIは最初下手で、Q学習で「待つ→間合い→隙に差す」を覚えていく過程を観察する。
 // ─────────────────────────────────────────────────────────────────────────────
 
-type Action = 'idle' | 'back' | 'forward' | 'jump' | 'guard' | 'light' | 'heavy' | 'special';
 type Kind = 'walker' | 'lancer' | 'spitter';
 type Phase = 'startup' | 'active' | 'recovery';
 type EnemyPhase = 'approach' | 'dash' | 'windup' | 'strike' | 'recover';
 type Anim = { start: number; frames: number; fps: number; loop: boolean };
 
-const actions: readonly Action[] = ['idle', 'back', 'forward', 'jump', 'guard', 'light', 'heavy', 'special'];
-const labels: Record<Action, string> = {
-  idle: 'WAIT', back: 'BACKSTEP', forward: 'ADVANCE', jump: 'JUMP',
-  guard: 'GUARD', light: 'LIGHT', heavy: 'HEAVY', special: 'SPECIAL',
-};
 
 // ── Sprites (grids confirmed; frame ranges below are TUNABLE by eye at runtime) ──
 
@@ -144,40 +149,6 @@ function popup(x: number, text: string, color: string): void {
   if (popups.length > 24) popups.shift();
 }
 
-// ── Observation ──
-type Obs = {
-  distBand: number; kind: number; enemyPhase: number; selfPhase: number;
-  inLight: number; inHeavy: number; hpBand: number; spBand: number; stamBand: number;
-  incoming: number; // 0 none, 1 a bolt is closing in
-};
-const agent = new TabularQAgent<Obs, Action>({
-  actions,
-  learningRate: 0.18,
-  discount: 0.93,
-  initialEpsilon: 0.35,
-  encodeState: (o) => `${o.distBand}|${o.kind}|${o.enemyPhase}|${o.selfPhase}|${o.inLight}|${o.inHeavy}|${o.hpBand}|${o.spBand}|${o.stamBand}|${o.incoming}`,
-  allowedActionIndices: (o) => {
-    const a = [0, 1, 2, 3, 4, 5];              // idle,back,forward,jump,guard,light
-    if (o.stamBand > 0) a.push(6);             // heavy needs stamina
-    if (o.spBand >= 2) a.push(7);              // special needs sp
-    return a;
-  },
-});
-
-// ── Upgrade agent: a second, smaller Q-learner that picks the wave-break reward. ──
-// State = coarse situation; reward = combat return earned during the wave that follows,
-// so it learns which upgrade actually pays off in each situation (not a fixed choice).
-type UpAction = 'heal' | 'power' | 'focus';
-type UpObs = { hpBand: number; spBand: number; waveBand: number };
-const upActions: readonly UpAction[] = ['heal', 'power', 'focus'];
-const upLabels: Record<UpAction, string> = { heal: '休息 +35HP', power: '火力 +3ATK', focus: '必殺 +40SP' };
-const upgradeAgent = new TabularQAgent<UpObs, UpAction>({
-  actions: upActions,
-  learningRate: 0.25,
-  discount: 0.85,
-  initialEpsilon: 0.4,
-  encodeState: (o) => `${o.hpBand}|${o.spBand}|${o.waveBand}`,
-});
 let waveReturn = 0;             // combat return accumulated during the current wave
 let upgradePending = false;     // an upgrade choice is awaiting its next-wave reward
 let upgradeBanner = '';         // "AI強化: …" text shown during the wave banner
@@ -197,10 +168,10 @@ let savedFlash = 0;
 
 function loadAgent(): void {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) agent.restore(JSON.parse(raw));
-    const up = localStorage.getItem(UPGRADE_KEY);
-    if (up) upgradeAgent.restore(JSON.parse(up));
+    const combatSave = readTabularQSave(STORAGE_KEY, { fallbackEpsilon: 0.35 });
+    if (combatSave) agent.restore(combatSave);
+    const upgradeSave = readTabularQSave(UPGRADE_KEY, { fallbackEpsilon: 0.4 });
+    if (upgradeSave) upgradeAgent.restore(upgradeSave);
     const hist = localStorage.getItem(HISTORY_KEY);
     if (hist) { const arr = JSON.parse(hist); if (Array.isArray(arr)) history.push(...arr.slice(-120)); }
   } catch { /* ignore corrupt/absent save */ }
@@ -210,8 +181,8 @@ function saveHistory(): void {
 }
 function saveAgent(): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(agent.serialize()));
-    localStorage.setItem(UPGRADE_KEY, JSON.stringify(upgradeAgent.serialize()));
+    writeTabularQSave(STORAGE_KEY, agent.serialize());
+    writeTabularQSave(UPGRADE_KEY, upgradeAgent.serialize());
     savedFlash = 1.2;
   } catch { /* storage full or unavailable */ }
 }
@@ -294,9 +265,9 @@ function observe(): Obs {
     selfPhase: sph,
     inLight: e && d > 0 && d < ATK.light.range ? 1 : 0,
     inHeavy: e && d > 0 && d < ATK.heavy.range ? 1 : 0,
-    hpBand: hp < 30 ? 0 : hp < 65 ? 1 : 2,
-    spBand: sp < 35 ? 0 : sp < 70 ? 1 : 2,
-    stamBand: stamina < 16 ? 0 : stamina < 55 ? 1 : 2,
+    hpBand: thresholdBand(hp, [30, 65]),
+    spBand: thresholdBand(sp, [35, 70]),
+    stamBand: thresholdBand(stamina, [16, 55]),
     incoming: bolt ? 1 : 0,
   };
 }
@@ -560,8 +531,8 @@ function update(dt: number): void {
 // combat return earned during wave N (so good picks that help survival get reinforced).
 function chooseUpgrade(): void {
   const o: UpObs = {
-    hpBand: hp < 35 ? 0 : hp < 70 ? 1 : 2,
-    spBand: sp < 40 ? 0 : sp < 80 ? 1 : 2,
+    hpBand: thresholdBand(hp, [35, 70]),
+    spBand: thresholdBand(sp, [40, 80]),
     waveBand: Math.min(3, Math.floor((wave - 1) / 2)),
   };
   if (upgradePending) upgradeAgent.observe(o, waveReturn); // reward previous pick with the wave it produced
