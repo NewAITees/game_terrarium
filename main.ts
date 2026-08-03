@@ -1,4 +1,4 @@
-import { app, BrowserWindow, globalShortcut, Menu, type MenuItemConstructorOptions } from 'electron';
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, Tray, type MenuItemConstructorOptions } from 'electron';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { startServer } from './server';
@@ -12,6 +12,7 @@ const ENABLE_GLOBAL_SHORTCUTS = process.env.ELECTRON_DISABLE_SHORTCUTS !== '1';
 const ENABLE_ALWAYS_ON_TOP = process.env.ELECTRON_ENABLE_ALWAYS_ON_TOP === '1' && !IS_DEBUG_MINIMAL;
 const ENABLE_ALL_WORKSPACES = process.env.ELECTRON_ENABLE_ALL_WORKSPACES === '1' && !IS_DEBUG_MINIMAL;
 const ENABLE_SERVER = process.env.ELECTRON_DISABLE_SERVER !== '1';
+const ENABLE_TRAY = process.env.ELECTRON_DISABLE_TRAY !== '1' && !IS_DEBUG_MINIMAL;
 const REQUESTED_SERVER_PORT = Number.parseInt(
   process.env.GAME_TERRARIUM_PORT || process.env.PORT || '3000',
   10,
@@ -19,6 +20,7 @@ const REQUESTED_SERVER_PORT = Number.parseInt(
 let activeServerPort = REQUESTED_SERVER_PORT;
 
 let win: BrowserWindow | null = null;
+let tray: Tray | null = null;
 const requestedPage = process.argv
   .find((argument) => argument.startsWith('--page='))
   ?.slice('--page='.length)
@@ -104,7 +106,60 @@ async function canReuseGameServer(port: number): Promise<boolean> {
   return false;
 }
 
+function pageShortcutLabel(page: { number: number }): string {
+  return page.number >= 10 ? `Ctrl+Shift+${page.number - 10}` : `Ctrl+${page.number}`;
+}
+
+function registerSwitchHandlers(): void {
+  ipcMain.handle('terrarium:pages', () => ({
+    currentPage,
+    pages: PAGE_REGISTRY.map((page) => ({
+      key: page.key,
+      label: page.label,
+      shortcut: pageShortcutLabel(page),
+    })),
+  }));
+  ipcMain.on('terrarium:switch-page', (_event, pageKey: unknown) => {
+    const key = String(pageKey ?? '');
+    if (isPageKey(key)) loadPage(key);
+  });
+}
+
+/**
+ * Menu-bar entry point. The window is always-on-top and often not focused, so a
+ * tray menu is the switching route that needs neither focus nor a shortcut.
+ */
+function refreshTray(): void {
+  if (!ENABLE_TRAY) return;
+  if (!tray) {
+    const iconPath = join(__dirname, '..', 'assets', 'tray', 'trayTemplate.png');
+    const icon = nativeImage.createFromPath(iconPath);
+    if (icon.isEmpty()) {
+      console.warn(`[tray] icon missing at ${iconPath}; skipping tray`);
+      return;
+    }
+    icon.setTemplateImage(true);
+    tray = new Tray(icon);
+    tray.setToolTip('Game Terrarium');
+  }
+  tray.setContextMenu(Menu.buildFromTemplate([
+    ...PAGE_REGISTRY.map((page): MenuItemConstructorOptions => ({
+      label: page.label,
+      type: 'radio',
+      checked: currentPage === page.key,
+      click: () => {
+        loadPage(page.key);
+        win?.show();
+      },
+    })),
+    { type: 'separator' },
+    { label: 'Show Window', click: () => win?.show() },
+    { label: 'Quit', role: 'quit' },
+  ]));
+}
+
 function refreshMenu(): void {
+  refreshTray();
   if (!ENABLE_APP_MENU) {
     Menu.setApplicationMenu(null);
     return;
@@ -155,14 +210,18 @@ function createMainWindow(): void {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      // Injects the Ctrl+K page palette into every page so switching does not
+      // depend on each experience shipping its own navigation.
+      preload: join(__dirname, 'preload.js'),
     },
   });
 
   // Global shortcuts can be claimed by the OS; keep focused-window page switching reliable.
   win.webContents.on('before-input-event', (event, input) => {
     const modifierPressed = process.platform === 'darwin' ? input.meta : input.control;
-    if (!modifierPressed || input.alt || input.shift || !/^[0-9]$/.test(input.key)) return;
-    const page = PAGE_BY_NUMBER.get(Number(input.key));
+    if (!modifierPressed || input.alt || !/^[0-9]$/.test(input.key)) return;
+    // Shift+digit reaches the pages past the ten the plain digits can address.
+    const page = PAGE_BY_NUMBER.get(input.shift ? Number(input.key) + 10 : Number(input.key));
     if (!page) return;
     event.preventDefault();
     loadPage(page.key);
@@ -213,6 +272,7 @@ function createMainWindow(): void {
 }
 
 app.whenReady().then(async () => {
+  registerSwitchHandlers();
   if (ENABLE_SERVER) {
     if (await canReuseGameServer(activeServerPort)) {
       console.log(`[server] reusing game server on port ${activeServerPort}`);

@@ -1,4 +1,5 @@
 import { TabularQAgent } from '../../shared/rl/tabular_q_agent.js';
+import { thresholdBand } from '../../shared/rl/discretize.js';
 import type { TabularDecision, TabularQSave } from '../../shared/rl/rl_types.js';
 
 export const NETWORK_DEFENSE_RL_ACTIONS = [
@@ -17,6 +18,7 @@ export const NETWORK_DEFENSE_RL_ACTIONS = [
 
 export type NetworkDefenseRlAction = typeof NETWORK_DEFENSE_RL_ACTIONS[number];
 type NetworkDefenseRank = 'senior' | 'mid' | 'junior';
+const NETWORK_DEFENSE_RANKS: readonly NetworkDefenseRank[] = ['senior', 'mid', 'junior'];
 
 export type NetworkDefenseRlObservation = {
   rank: NetworkDefenseRank;
@@ -56,11 +58,7 @@ export type NetworkDefenseRlSave = {
 };
 
 export class NetworkDefenseRlController {
-  private readonly learners = {
-    senior: createNetworkDefenseLearner(),
-    mid: createNetworkDefenseLearner(),
-    junior: createNetworkDefenseLearner(),
-  };
+  private readonly learners = createRankLearners();
   private readonly now: () => number;
   private previousRewards: Record<NetworkDefenseRank, RewardSnapshot>;
   private lastDecision: TabularDecision<NetworkDefenseRlAction> | null = null;
@@ -69,11 +67,7 @@ export class NetworkDefenseRlController {
   constructor(private readonly context: NetworkDefenseRlControllerContext) {
     this.now = context.now ?? (() => performance.now() / 1000);
     const initial = captureRewardSnapshot(context);
-    this.previousRewards = {
-      senior: { ...initial },
-      mid: { ...initial },
-      junior: { ...initial },
-    };
+    this.previousRewards = snapshotsForRanks(initial);
   }
 
   assignAgent(agent: any): void {
@@ -102,7 +96,7 @@ export class NetworkDefenseRlController {
 
   finishEpisode(victory: boolean): void {
     if (this.episodeFinished) return;
-    for (const rank of ['senior', 'mid', 'junior'] as const) {
+    for (const rank of NETWORK_DEFENSE_RANKS) {
       const terminal = this.collectReward(rank) + (victory ? 40 : -40);
       this.learners[rank].finishEpisode(terminal);
     }
@@ -112,29 +106,23 @@ export class NetworkDefenseRlController {
   serialize(): NetworkDefenseRlSave {
     return {
       version: 1,
-      policies: {
-        senior: this.learners.senior.serialize(),
-        mid: this.learners.mid.serialize(),
-        junior: this.learners.junior.serialize(),
-      },
+      policies: Object.fromEntries(
+        NETWORK_DEFENSE_RANKS.map((rank) => [rank, this.learners[rank].serialize()]),
+      ) as NetworkDefenseRlSave['policies'],
     };
   }
 
   restore(save: NetworkDefenseRlSave | TabularQSave): void {
     if ('policies' in save) {
-      for (const rank of ['senior', 'mid', 'junior'] as const) {
+      for (const rank of NETWORK_DEFENSE_RANKS) {
         this.learners[rank].restore(save.policies[rank]);
       }
     } else {
       // Migrate the first shared-policy prototype without discarding learning.
-      for (const rank of ['senior', 'mid', 'junior'] as const) this.learners[rank].restore(save);
+      for (const rank of NETWORK_DEFENSE_RANKS) this.learners[rank].restore(save);
     }
     const current = captureRewardSnapshot(this.context);
-    this.previousRewards = {
-      senior: { ...current },
-      mid: { ...current },
-      junior: { ...current },
-    };
+    this.previousRewards = snapshotsForRanks(current);
     this.episodeFinished = false;
   }
 
@@ -175,12 +163,23 @@ export class NetworkDefenseRlController {
   }
 }
 
+function createRankLearners(): Record<NetworkDefenseRank, TabularQAgent<NetworkDefenseRlObservation, NetworkDefenseRlAction>> {
+  return Object.fromEntries(
+    NETWORK_DEFENSE_RANKS.map((rank) => [rank, createNetworkDefenseLearner()]),
+  ) as Record<NetworkDefenseRank, TabularQAgent<NetworkDefenseRlObservation, NetworkDefenseRlAction>>;
+}
+
+function snapshotsForRanks(snapshot: RewardSnapshot): Record<NetworkDefenseRank, RewardSnapshot> {
+  return Object.fromEntries(
+    NETWORK_DEFENSE_RANKS.map((rank) => [rank, { ...snapshot }]),
+  ) as Record<NetworkDefenseRank, RewardSnapshot>;
+}
+
 function createNetworkDefenseLearner(): TabularQAgent<NetworkDefenseRlObservation, NetworkDefenseRlAction> {
   return new TabularQAgent({
     actions: NETWORK_DEFENSE_RL_ACTIONS,
     encodeState: encodeNetworkDefenseObservation,
     allowedActionIndices: allowedNetworkDefenseActions,
-    initialValues: initialNetworkDefenseValues,
     learningRate: 0.14,
     discount: 0.94,
     initialEpsilon: 0.24,
@@ -208,13 +207,13 @@ export function observeNetworkDefense(
     : 0;
   return {
     rank: agent.rank,
-    serverHpBand: band(server.hp / server.maxHp, [0.25, 0.5, 0.75]),
-    serverThreatBand: band(serverThreat, [0.15, 0.35, 0.6]),
-    infectionBand: band(averageInfection, [0.08, 0.22, 0.45]),
+    serverHpBand: thresholdBand(server.hp / server.maxHp, [0.25, 0.5, 0.75]),
+    serverThreatBand: thresholdBand(serverThreat, [0.15, 0.35, 0.6]),
+    infectionBand: thresholdBand(averageInfection, [0.08, 0.22, 0.45]),
     damagedBand: countBand(damaged),
     enemyBand: countBand(context.enemyPackets.length),
     firewallBand: countBand(context.firewalls.size),
-    creditBand: band(context.game.credits, [80, 160, 300]),
+    creditBand: thresholdBand(context.game.credits, [80, 160, 300]),
     agentBand: countBand(context.agents.length),
     waveBand: Math.min(4, Math.floor((context.game.wave - 1) / 2)),
   };
@@ -254,29 +253,6 @@ function allowedNetworkDefenseActions(observation: NetworkDefenseRlObservation):
     .filter((index) => index >= 0);
 }
 
-function initialNetworkDefenseValues(
-  observation: NetworkDefenseRlObservation,
-  actionCount: number,
-): readonly number[] {
-  const values = Array<number>(actionCount).fill(0);
-  values[NETWORK_DEFENSE_RL_ACTIONS.indexOf('patrol')] = 0.12;
-  values[NETWORK_DEFENSE_RL_ACTIONS.indexOf('idle')] = 0.02;
-  if (observation.serverThreatBand > 0) {
-    values[NETWORK_DEFENSE_RL_ACTIONS.indexOf('containServerNeighbor')] = 0.7;
-  }
-  if (observation.enemyBand > 0) {
-    values[NETWORK_DEFENSE_RL_ACTIONS.indexOf('interceptEnemy')] = 0.45;
-    values[NETWORK_DEFENSE_RL_ACTIONS.indexOf('deployFirewallGuard')] = 0.38;
-  }
-  if (observation.infectionBand > 0) {
-    values[NETWORK_DEFENSE_RL_ACTIONS.indexOf('suppressHottest')] = 0.5;
-    values[NETWORK_DEFENSE_RL_ACTIONS.indexOf('rebootNode')] = 0.42;
-  }
-  if (observation.damagedBand > 0) {
-    values[NETWORK_DEFENSE_RL_ACTIONS.indexOf('repairWeakest')] = 0.48;
-  }
-  return values;
-}
 
 function captureRewardSnapshot(
   context: Pick<NetworkDefenseRlControllerContext, 'game' | 'topo'>,
@@ -289,13 +265,6 @@ function captureRewardSnapshot(
     infection: nodes.reduce((sum, node) => sum + (node.infection ?? 0), 0) / Math.max(1, nodes.length),
     wave: context.game.wave,
   };
-}
-
-function band(value: number, thresholds: readonly number[]): number {
-  for (let index = 0; index < thresholds.length; index += 1) {
-    if (value < thresholds[index]) return index;
-  }
-  return thresholds.length;
 }
 
 function countBand(value: number): number {

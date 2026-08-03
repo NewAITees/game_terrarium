@@ -20,7 +20,9 @@ export function stepPhysics(body: GunshipBody, action: GunshipAction, dt: number
   // Turning is slower under thrust (LUFTRAUSERS): a fast aim demands cutting the engine and accepting the fall.
   const turnRate = body.turn * (action.thrust ? body.thrustTurnK : 1);
   body.angle += action.turn * turnRate * dt;
-  body.angle = Math.max(-Math.PI * .92, Math.min(Math.PI * .92, body.angle));
+  // Side-view aircraft never reverses through its own tail: -90° is a vertical dive,
+  // +90° is a vertical climb. This keeps the readable top-side silhouette on screen.
+  body.angle = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, body.angle));
   const thrust = action.thrust ? body.thrust * thrustEfficiency(body.y) : 0;
   body.vx += (Math.cos(body.angle) * thrust - body.vx * body.drag) * dt;
   body.vy += (-Math.sin(body.angle) * thrust + GRAVITY - body.vy * body.drag) * dt;

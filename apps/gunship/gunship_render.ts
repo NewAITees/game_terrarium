@@ -16,6 +16,8 @@ export function renderGunship(ctx: CanvasRenderingContext2D, width: number, heig
   ctx.fillStyle = 'rgba(255,205,125,.16)'; ctx.beginPath(); ctx.arc(975, 105, 65, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = '#08334d'; ctx.fillRect(0, SEA_Y, 1200, 400); ctx.strokeStyle = '#68cde7'; ctx.lineWidth = 3; ctx.beginPath(); for (let x = 0; x <= 1200; x += 12) { const y = SEA_Y + Math.sin(x * .04 + performance.now() * .002) * 4; x ? ctx.lineTo(x, y) : ctx.moveTo(x, y); } ctx.stroke();
   for (const enemy of enemies) drawEnemy(ctx, enemy);
+  for (const enemy of enemies) drawSurfaceAssets(ctx, enemy);
+  for (const enemy of enemies) drawEnemyAircraft(ctx, enemy);
   for (const shot of enemyShots) drawShot(ctx, shot, '#ff8964');
   for (const bullet of bullets) drawShot(ctx, bullet, '#e8f8a6');
   ctx.save(); ctx.translate(ship.x, ship.y); ctx.rotate(-ship.angle); drawShip(ctx, frameId, action); ctx.restore();
@@ -31,10 +33,80 @@ export function renderGunship(ctx: CanvasRenderingContext2D, width: number, heig
   ctx.fillStyle = 'rgba(230,245,255,.6)'; ctx.font = '12px ui-monospace,monospace'; ctx.fillText(`WAVE ${wave}  //  ${enemies.length} HOSTILES`, 22, height - 16);
 }
 
-function drawEnemy(ctx: CanvasRenderingContext2D, enemy: Enemy): void { ctx.save(); ctx.translate(enemy.x, enemy.y); const surface = enemy.kind === 'ship' || enemy.kind === 'dreadnought'; if (enemy.kind === 'dreadnought') { ctx.fillStyle = '#29394c'; ctx.fillRect(-76, -25, 152, 39); ctx.fillStyle = '#637b8d'; ctx.fillRect(-32, -54, 64, 30); ctx.fillStyle = '#f56f63'; [-48, 0, 48].forEach((x) => ctx.fillRect(x, -62, 5, 34)); } else if (enemy.kind === 'ship') { ctx.fillStyle = '#2c3b4a'; ctx.beginPath(); ctx.moveTo(-44, -8); ctx.lineTo(46, -8); ctx.lineTo(39, 11); ctx.lineTo(-39, 11); ctx.closePath(); ctx.fill(); ctx.fillStyle = '#3f5267'; ctx.fillRect(-44, -14, 88, 6); ctx.fillStyle = '#72899a'; ctx.fillRect(-14, -30, 28, 16); ctx.fillStyle = '#93a7b6'; ctx.fillRect(-5, -39, 11, 9); ctx.save(); ctx.translate(23, -13); ctx.fillStyle = '#556b7d'; ctx.fillRect(-8, -5, 16, 9); ctx.strokeStyle = '#243441'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(2, -3); ctx.lineTo(15, -17); ctx.stroke(); ctx.restore(); ctx.fillStyle = '#fc8068'; ctx.fillRect(-1, -46, 4, 8); } else if (enemy.kind === 'mine') { ctx.strokeStyle = '#ffd66b'; ctx.fillStyle = '#3e4559'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, 15, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); for (let i = 0; i < 8; i++) { const angle = i * Math.PI / 4; ctx.beginPath(); ctx.moveTo(Math.cos(angle) * 15, Math.sin(angle) * 15); ctx.lineTo(Math.cos(angle) * 23, Math.sin(angle) * 23); ctx.stroke(); } } else if (enemy.kind === 'submarine') { ctx.globalAlpha = enemy.surfaced ? 1 : .35; ctx.fillStyle = '#33506b'; ctx.beginPath(); ctx.ellipse(0, 0, 34, 12, 0, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#5f7d94'; ctx.fillRect(-7, -21, 14, 13); ctx.fillStyle = enemy.surfaced ? '#ff7a5f' : '#8fb0c4'; ctx.fillRect(-2, -27, 4, 8); ctx.globalAlpha = 1; } else { ctx.fillStyle = enemy.kind === 'diver' ? '#d89afa' : '#f27878'; ctx.beginPath(); ctx.moveTo(18, 0); ctx.lineTo(-15, -11); ctx.lineTo(-8, 0); ctx.lineTo(-15, 11); ctx.closePath(); ctx.fill(); } ctx.fillStyle = 'rgba(8,15,24,.7)'; ctx.fillRect(-20, surface ? 22 : 20, 40, 4); ctx.fillStyle = enemy.kind === 'dreadnought' ? '#e0a5ff' : '#ffbc72'; ctx.fillRect(-20, surface ? 22 : 20, 40 * enemy.hp / enemy.maxHp, 4); ctx.restore(); }
+function drawEnemy(ctx: CanvasRenderingContext2D, enemy: Enemy): void { ctx.save(); ctx.translate(enemy.x, enemy.y); const surface = ['destroyer', 'cruiser', 'carrier', 'battleship'].includes(enemy.kind); if (enemy.kind === 'battleship') { ctx.fillStyle = '#29394c'; ctx.fillRect(-76, -25, 152, 39); ctx.fillStyle = '#637b8d'; ctx.fillRect(-32, -54, 64, 30); } else if (surface) { ctx.fillStyle = '#3f5267'; ctx.fillRect(-44, -14, 88, 25); } else if (enemy.kind === 'mine') { ctx.strokeStyle = '#ffd66b'; ctx.fillStyle = '#3e4559'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, 15, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); for (let i = 0; i < 8; i++) { const angle = i * Math.PI / 4; ctx.beginPath(); ctx.moveTo(Math.cos(angle) * 15, Math.sin(angle) * 15); ctx.lineTo(Math.cos(angle) * 23, Math.sin(angle) * 23); ctx.stroke(); } } else if (enemy.kind === 'submarine') { ctx.globalAlpha = enemy.surfaced ? 1 : .35; ctx.fillStyle = '#33506b'; ctx.beginPath(); ctx.ellipse(0, 0, 34, 12, 0, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#5f7d94'; ctx.fillRect(-7, -21, 14, 13); ctx.fillStyle = enemy.surfaced ? '#ff7a5f' : '#8fb0c4'; ctx.fillRect(-2, -27, 4, 8); ctx.globalAlpha = 1; } else { ctx.fillStyle = enemy.kind === 'diver' ? '#d89afa' : '#f27878'; ctx.beginPath(); ctx.moveTo(18, 0); ctx.lineTo(-15, -11); ctx.lineTo(-8, 0); ctx.lineTo(-15, 11); ctx.closePath(); ctx.fill(); } ctx.fillStyle = 'rgba(8,15,24,.7)'; ctx.fillRect(-20, surface ? 22 : 20, 40, 4); ctx.fillStyle = enemy.kind === 'battleship' ? '#e0a5ff' : '#ffbc72'; ctx.fillRect(-20, surface ? 22 : 20, 40 * enemy.hp / enemy.maxHp, 4); ctx.restore(); }
 function drawShot(ctx: CanvasRenderingContext2D, shot: EnemyShot, color: string): void { if (shot.weapon === 'laser' && shot.originX !== undefined && shot.originY !== undefined) { ctx.save(); ctx.strokeStyle = '#a8faff'; ctx.lineWidth = 4; ctx.shadowColor = '#52e9ff'; ctx.shadowBlur = 16; ctx.beginPath(); ctx.moveTo(shot.originX, shot.originY); ctx.lineTo(shot.x, shot.y); ctx.stroke(); ctx.restore(); return; } if (shot.weapon === 'missile') { ctx.save(); ctx.strokeStyle = 'rgba(255,174,92,.55)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(shot.x - shot.vx * .08, shot.y - shot.vy * .08); ctx.lineTo(shot.x, shot.y); ctx.stroke(); ctx.fillStyle = '#fff2bc'; ctx.beginPath(); ctx.arc(shot.x, shot.y, 5, 0, Math.PI * 2); ctx.fill(); ctx.restore(); return; } ctx.fillStyle = color; ctx.beginPath(); ctx.arc(shot.x, shot.y, 3.5, 0, Math.PI * 2); ctx.fill(); }
 function drawClouds(ctx: CanvasRenderingContext2D): void { const time = performance.now() * .000015; ctx.save(); ctx.fillStyle = 'rgba(225,244,247,.13)'; for (let index = 0; index < 6; index++) { const x = ((index * 265 + time * (22 + index * 5)) % 1450) - 130; const y = 80 + (index % 3) * 110; ctx.beginPath(); ctx.ellipse(x, y, 90, 19, 0, 0, Math.PI * 2); ctx.ellipse(x + 54, y + 8, 65, 15, 0, 0, Math.PI * 2); ctx.fill(); } ctx.restore(); }
 function drawWaterSpray(ctx: CanvasRenderingContext2D, ship: GunshipBody): void { ctx.save(); ctx.fillStyle = 'rgba(184,241,250,.6)'; const count = Math.min(22, Math.floor((ship.vy - 35) / 12)); for (let index = 0; index < count; index++) { const x = ship.x + Math.sin(index * 19.7) * (18 + index * 3); const y = SEA_Y - Math.abs(Math.cos(index * 7.3)) * (8 + index * 2); ctx.fillRect(x, y, 2, 2 + index % 3); } ctx.restore(); }
+
+const surfaceArt = {
+  destroyer: imageAsset('/assets/gunship/sprites/ships/destroyer.png'),
+  cruiser: imageAsset('/assets/gunship/sprites/ships/cruiser.png'),
+  battleship: imageAsset('/assets/gunship/sprites/ships/battleship_hull.png'),
+  carrier: imageAsset('/assets/gunship/sprites/ships/carrier.png'),
+  aa: imageAsset('/assets/gunship/sprites/ordnance/aa_rapid.png'),
+  medium: imageAsset('/assets/gunship/sprites/ordnance/dual_medium.png'),
+  heavy: imageAsset('/assets/gunship/sprites/ordnance/heavy_cannon.png'),
+  vls: imageAsset('/assets/gunship/sprites/ordnance/vls_silo.png'),
+  ciws: imageAsset('/assets/gunship/sprites/ordnance/ciws.png'),
+};
+
+const enemyAirArt = {
+  chaser: imageAsset('/assets/gunship/sprites/enemies/raider.png'),
+  diver: imageAsset('/assets/gunship/sprites/enemies/diver.png'),
+};
+
+function imageAsset(src: string): HTMLImageElement { const image = new Image(); image.src = src; return image; }
+
+function drawSurfaceAssets(ctx: CanvasRenderingContext2D, enemy: Enemy): void {
+  if (enemy.kind !== 'destroyer' && enemy.kind !== 'cruiser' && enemy.kind !== 'carrier' && enemy.kind !== 'battleship') return;
+  const hullKey = enemy.kind;
+  const hull = surfaceArt[hullKey];
+  if (!hull.complete || !hull.naturalWidth) return;
+  const width = enemy.kind === 'battleship' ? 205 : hullKey === 'carrier' ? 145 : hullKey === 'cruiser' ? 132 : 118;
+  const height = width * hull.naturalHeight / hull.naturalWidth;
+  ctx.save(); ctx.translate(enemy.x, enemy.y + 13);
+  ctx.drawImage(hull, -width / 2, -height, width, height);
+  if (enemy.kind === 'battleship') {
+    drawDeckPart(ctx, surfaceArt.heavy, -52, -height * .52, 42, 26);
+    drawDeckPart(ctx, surfaceArt.heavy, 12, -height * .52, 42, 26);
+    drawDeckPart(ctx, surfaceArt.medium, 54, -height * .42, 30, 19);
+    drawDeckPart(ctx, surfaceArt.vls, -2, -height * .66, 31, 22);
+    drawDeckPart(ctx, surfaceArt.ciws, -78, -height * .45, 22, 16);
+  } else if (hullKey === 'carrier') {
+    drawDeckPart(ctx, surfaceArt.vls, 38, -height * .52, 25, 18);
+    drawDeckPart(ctx, surfaceArt.ciws, -48, -height * .48, 19, 14);
+  } else if (hullKey === 'cruiser') {
+    drawDeckPart(ctx, surfaceArt.medium, 20, -height * .54, 28, 18);
+    drawDeckPart(ctx, surfaceArt.vls, -25, -height * .57, 23, 16);
+    drawDeckPart(ctx, surfaceArt.aa, -48, -height * .46, 16, 12);
+  } else {
+    drawDeckPart(ctx, surfaceArt.aa, 25, -height * .5, 17, 12);
+    drawDeckPart(ctx, surfaceArt.ciws, -26, -height * .47, 17, 12);
+  }
+  ctx.fillStyle = 'rgba(8,15,24,.78)'; ctx.fillRect(-width * .28, 18, width * .56, 4);
+  ctx.fillStyle = enemy.kind === 'battleship' ? '#e0a5ff' : '#ffbc72'; ctx.fillRect(-width * .28, 18, width * .56 * enemy.hp / enemy.maxHp, 4);
+  ctx.restore();
+}
+
+function drawEnemyAircraft(ctx: CanvasRenderingContext2D, enemy: Enemy): void {
+  if (enemy.kind !== 'chaser' && enemy.kind !== 'diver') return;
+  const image = enemyAirArt[enemy.kind];
+  if (!image.complete || !image.naturalWidth) return;
+  const width = enemy.kind === 'diver' ? 58 : 46;
+  const height = width * image.naturalHeight / image.naturalWidth;
+  ctx.save();
+  ctx.translate(enemy.x, enemy.y);
+  if (enemy.vx < 0) ctx.scale(-1, 1);
+  ctx.drawImage(image, -width / 2, -height / 2, width, height);
+  ctx.fillStyle = 'rgba(8,15,24,.78)'; ctx.fillRect(-20, height / 2 + 3, 40, 4);
+  ctx.fillStyle = enemy.kind === 'diver' ? '#e0a5ff' : '#ff8e72'; ctx.fillRect(-20, height / 2 + 3, 40 * enemy.hp / enemy.maxHp, 4);
+  ctx.restore();
+}
+
+function drawDeckPart(ctx: CanvasRenderingContext2D, image: HTMLImageElement, x: number, y: number, width: number, height: number): void {
+  if (!image.complete || !image.naturalWidth) return;
+  ctx.drawImage(image, x - width / 2, y - height, width, height);
+}
 
 // Nose points +x in local space; the whole sprite is rotated by the craft angle. Each airframe has a distinct
 // silhouette AND an unmistakable front: bright nose wedge + muzzle glow + a faint forward aim line. Thrust flame

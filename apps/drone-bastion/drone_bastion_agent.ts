@@ -34,12 +34,7 @@ export class DroneBastionAgent {
   private readonly learner = new TabularQAgent<DroneBastionObservation, DroneAction>({
     actions: DRONE_BASTION_ACTIONS,
     encodeState: encodeDroneBastionObservation,
-    allowedActionIndices: (observation) => DRONE_BASTION_ACTIONS
-      .map((action, index) => (
-        action.switch !== 0 && observation.droneCountBand === 0 ? -1 : index
-      ))
-      .filter((index) => index >= 0),
-    initialValues: initialBastionValues,
+    allowedActionIndices: allowedDroneBastionActions,
     learningRate: 0.15,
     discount: 0.93,
     initialEpsilon: 0.24,
@@ -137,32 +132,10 @@ export class DroneBastionAgent {
   }
 }
 
-function initialBastionValues(
-  observation: DroneBastionObservation,
-  actionCount: number,
-): readonly number[] {
-  const values = Array<number>(actionCount).fill(0);
-  values[0] = 0.04;
-  const aligned = observation.aimSector === 3 || observation.aimSector === 4;
-  if (aligned) {
-    values[6] = observation.distanceBand <= 2 ? 0.72 : 0.22;
-    values[7] = observation.distanceBand >= 2 ? 0.58 : 0.28;
-  } else if (observation.aimSector < 4) {
-    values[3] = 0.48;
-    values[8] = 0.55;
-  } else {
-    values[4] = 0.48;
-    values[9] = 0.55;
-  }
-  if (
-    observation.speedBand >= 2
-    && ['rook', 'bishop', 'queen'].includes(observation.selectedKind)
-  ) {
-    values[5] = observation.selectedKind === 'queen' ? 0.78 : 0.62;
-  }
-  if (observation.towerHpBand <= 1 && observation.droneCountBand > 0) {
-    values[11] = 0.32;
-    values[12] = 0.32;
-  }
-  return values;
+function allowedDroneBastionActions(observation: DroneBastionObservation): readonly number[] {
+  return DRONE_BASTION_ACTIONS
+    .map((action, index) => (
+      action.switch !== 0 && observation.droneCountBand === 0 ? -1 : index
+    ))
+    .filter((index) => index >= 0);
 }

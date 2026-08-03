@@ -408,16 +408,16 @@ export function observeArena(state: ArenaState): ArenaObservation {
     targetSector,
     aimSector,
     projectileDangerSector,
-    projectileDistanceBand: nearestProjectileDistance < 90 ? 0 : nearestProjectileDistance < 220 ? 1 : 2,
+    projectileDistanceBand: thresholdBand(nearestProjectileDistance, [90, 220]),
     velocitySector,
-    speedBand: speed < 45 ? 0 : speed < 150 ? 1 : 2,
+    speedBand: thresholdBand(speed, [45, 150]),
     edgeSector: angleToSector(normalizeAngle(nearestEdge.angle - state.ship.angle)),
     edgeDistanceBand: edgeDistanceBand(nearestEdge.distance),
     edgeDistanceBands: edges.map((edge) => edgeDistanceBand(edge.distance)),
     pulseProjectileCount: projectileCount,
     pulseProjectileParity: projectileCount % 2 as 0 | 1,
-    distanceBand: nearestDistance < 150 ? 0 : nearestDistance < 340 ? 1 : 2,
-    hpBand: state.ship.hp < 35 ? 0 : state.ship.hp < 70 ? 1 : 2,
+    distanceBand: thresholdBand(nearestDistance, [150, 340]),
+    hpBand: thresholdBand(state.ship.hp, [35, 70]),
     enemyCountBand: countBand(state.enemies.length),
     hostileProjectileCountBand: countBand(hostileProjectileCount),
     canFire: state.ship.fireCooldown <= 0,
@@ -1181,26 +1181,13 @@ function clamp(value: number, minimum: number, maximum: number): number {
   return Math.max(minimum, Math.min(maximum, value));
 }
 
-function sensorDistanceBand(normalizedDistance: number): number {
-  if (normalizedDistance < 0.12) return 0;
-  if (normalizedDistance < 0.3) return 1;
-  return 2;
-}
+function sensorDistanceBand(normalizedDistance: number): number { return thresholdBand(normalizedDistance, [0.12, 0.3]); }
 
-function countBand(count: number): number {
-  if (count <= 0) return 0;
-  if (count <= 2) return 1;
-  if (count <= 5) return 2;
-  if (count <= 9) return 3;
-  return 4;
-}
+function countBand(count: number): number { return thresholdBand(count, [1, 3, 6, 10]); }
 
-function edgeDistanceBand(distance: number): number {
-  if (distance < 55) return 0;
-  if (distance < 140) return 1;
-  return 2;
-}
+function edgeDistanceBand(distance: number): number { return thresholdBand(distance, [55, 140]); }
 
 function pulseProjectileCount(level: number): number {
   return Math.min(5, 1 + Math.floor((level + 1) / 2));
 }
+import { thresholdBand } from '../../shared/rl/discretize.js';
