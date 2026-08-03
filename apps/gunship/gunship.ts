@@ -37,7 +37,7 @@ window.addEventListener('pagehide', saveAgent);
 function frame(now: number): void { const dt = Math.min(.033, (now - previous) / 1000); previous = now; if (!paused) update(dt); resize(); renderGunship(ctx, canvas.width, canvas.height, ship, currentAction, airframe.id, enemies, enemyShots, bullets, wave); updateUi(); requestAnimationFrame(frame); }
 let currentAction = agent.decide(ship, enemies, enemyShots, 0, 0).action;
 function update(dt: number): void {
-  if (restart > 0) { restart -= dt; if (restart <= 0) { if (selection === 'random') randomizeRespawnAirframe(); resetTelemetry(); ship = freshShip(); enemies = spawnWave(wave, nextId); nextId += enemies.length; enemyShots = []; bullets = []; episode++; } return; }
+  if (restart > 0) { restart -= dt; if (restart <= 0) { if (selection === 'random') randomizeRespawnAirframe(); resetTelemetry(); Object.assign(run, createRunProgress()); wave = 1; kills = 0; episodeReward = 0; upgradeRewardMark = 0; ship = freshShip(); enemies = spawnWave(wave, nextId); nextId += enemies.length; enemyShots = []; bullets = []; episode++; } return; }
   const manual = ui.mode.value === 'manual';
   if (run.pending > 0) { processUpgrade(dt); return; }
   const rewardStart = episodeReward;
