@@ -11,7 +11,9 @@ type Observation = { altitude: number; ceiling: number; fall: number; lift: numb
 export type GunshipAgentSave =
   | { version: 1; learner: TabularQSave; episodes: number }
   | { version: 2; learner: TabularQSave; upgrade: TabularQSave; episodes: number }
-  | { version: 3; learner: TabularQSave; upgrade: TabularQSave; episodes: number };
+  | { version: 3; learner: TabularQSave; upgrade: TabularQSave; episodes: number }
+  | { version: 4; learner: TabularQSave; upgrade: TabularQSave; episodes: number }
+  | { version: 5; learner: TabularQSave; upgrade: TabularQSave; episodes: number };
 
 // Dedicated aim bucket for "the target is behind the nose-limit", so the agent can
 // learn to stop aiming and fly instead of grinding against the +/-90 clamp.
@@ -23,6 +25,9 @@ const ACTIONS: readonly GunshipAction[] = [
   { turn: 0, thrust: true, fire: false, label: 'CLIMB / HOLD' },
   { turn: 1, thrust: true, fire: false, label: 'CLIMB / TURN' },
   { turn: -1, thrust: true, fire: false, label: 'CLIMB / TURN' },
+  { turn: 0, thrust: true, fire: true, label: 'CLIMB / FIRE' },
+  { turn: 1, thrust: true, fire: true, label: 'CLIMB / TRACK' },
+  { turn: -1, thrust: true, fire: true, label: 'CLIMB / TRACK' },
   { turn: 1, thrust: false, fire: false, label: 'NOSE-DOWN / AIM' },
   { turn: -1, thrust: false, fire: false, label: 'NOSE-DOWN / AIM' },
   { turn: 0, thrust: false, fire: false, label: 'COAST / AIM' },
@@ -86,13 +91,13 @@ export class GunshipAgent {
   // Called when a level-up window resolves. `reward` is the return earned since the previous pick; returns the chosen slot.
   decideUpgrade(context: UpgradeContext, reward: number): number { this.upgradeLearner.observe(context, reward); return this.upgradeLearner.decide(context).actionIndex; }
   finishEpisode(finalReward: number): void { this.learner.finishEpisode(finalReward); this.upgradeLearner.finishEpisode(finalReward); this.episodes++; this.timer = 0; }
-  serialize(): GunshipAgentSave { return { version: 3, learner: this.learner.serialize(), upgrade: this.upgradeLearner.serialize(), episodes: this.episodes }; }
+  serialize(): GunshipAgentSave { return { version: 5, learner: this.learner.serialize(), upgrade: this.upgradeLearner.serialize(), episodes: this.episodes }; }
   restore(save: GunshipAgentSave): void {
-    // v3 redefined what the state key means (attitude became a lift ratio, the aim
+    // v5 changes the reward contract for battleship damage. v4 adds thrust-and-fire actions, changing every Q-table action index. v3 redefined what the state key means (attitude became a lift ratio, the aim
     // bands gained an unreachable bucket, band() stopped wrapping its top bucket).
     // Older tables use the same key shape for different situations, so replaying
     // them would poison the new policy rather than give it a head start.
-    if (!save || save.version !== 3) return;
+    if (!save || save.version !== 5) return;
     this.learner.restore(save.learner);
     if (save.upgrade) this.upgradeLearner.restore(save.upgrade);
     this.episodes = Math.max(0, save.episodes || 0);

@@ -72,7 +72,7 @@ function freshShip(maxHp: number): GunshipBody {
   return { x: 600, y: 260, vx: 0, vy: 0, angle: Math.PI / 2, hp: maxHp, maxHp, fireCooldown: 0, thrust: 0, turn: 0, thrustTurnK: 0, drag: 0 };
 }
 
-function runEpisode(agent: GunshipAgent, airframeId: AirframeId, capSeconds: number, density: number): EpisodeResult {
+export function runEpisode(agent: GunshipAgent, airframeId: AirframeId, capSeconds: number, density: number): EpisodeResult {
   const airframe = airframeById(airframeId);
   const run = createRunProgress();
   const ship = freshShip(Math.round(airframe.maxHp * W.hp));
@@ -105,7 +105,7 @@ function runEpisode(agent: GunshipAgent, airframeId: AirframeId, capSeconds: num
     stepPhysics(ship, action, DT);
     missileCooldown = Math.max(0, missileCooldown - DT);
     if (action.fire && ship.fireCooldown <= 0) {
-      bullets.push({ x: ship.x + Math.cos(ship.angle) * 28, y: ship.y - Math.sin(ship.angle) * 28, vx: Math.cos(ship.angle) * 610, vy: -Math.sin(ship.angle) * 610, life: 1.5, weapon: 'cannon' });
+      bullets.push({ x: ship.x + Math.cos(ship.angle) * 28, y: ship.y - Math.sin(ship.angle) * 28, vx: Math.cos(ship.angle) * 610, vy: -Math.sin(ship.angle) * 610, life: 2.2, weapon: 'cannon' });
       ship.fireCooldown = .22 / (1.16 ** run.fireRate);
     }
     if (action.fire && run.missile > 0 && missileCooldown <= 0) {
@@ -126,7 +126,9 @@ function runEpisode(agent: GunshipAgent, airframeId: AirframeId, capSeconds: num
       const target = enemies.find((enemy) => Math.hypot(enemy.x - bullet.x, enemy.y - bullet.y) < enemy.radius + 4 && !(enemy.kind === 'submarine' && !enemy.surfaced));
       if (!target) continue;
       const surface = SURFACE_KINDS.includes(target.kind);
-      target.hp -= (bullet.weapon === 'missile' ? 48 : surface ? 14 : 24) * 1.2 ** run.damage;
+      const damage = (bullet.weapon === 'missile' ? 48 : surface ? 14 : 24) * 1.2 ** run.damage;
+      target.hp -= damage;
+      if (target.kind === 'battleship') episodeReward += damage * .03;
       bullets.splice(index, 1);
       if (target.hp > 0) continue;
       enemies.splice(enemies.indexOf(target), 1);
@@ -244,4 +246,4 @@ function main(): void {
   }
 }
 
-main();
+if (require.main === module) main();

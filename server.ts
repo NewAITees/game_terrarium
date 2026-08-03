@@ -334,6 +334,25 @@ export async function startServer(
     });
   });
 
+  app.get('/api/gunship/live-models', async (_req, res) => {
+    try {
+      const raw = await fs.readFile(path.join(projectRoot, 'logs', 'gunship-live-models.json'), 'utf8');
+      res.json(JSON.parse(raw));
+    } catch {
+      res.json({ version: 1, revision: 0, publishedAt: null, models: {} });
+    }
+  });
+
+  app.post('/api/gunship/live-models/reset', async (_req, res) => {
+    try {
+      const modelPath = path.join(projectRoot, 'logs', 'gunship-live-models.json');
+      await fs.mkdir(path.dirname(modelPath), { recursive: true });
+      await fs.writeFile(path.join(projectRoot, 'logs', 'gunship-live-models.reset'), String(Date.now()), 'utf8');
+      await fs.rm(modelPath, { force: true });
+      res.json({ ok: true });
+    } catch (error) { res.status(500).json({ ok: false, error: String(error) }); }
+  });
+
   app.get('/api/arena-shooter/save', async (_req, res) => {
     try {
       res.json({ ok: true, save: await arenaSaveStore.load() });
