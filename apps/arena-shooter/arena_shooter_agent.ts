@@ -14,6 +14,7 @@ import type { UpgradeChoice } from './arena_shooter_progression.js';
 export type AgentDecision = TabularDecision<ArenaAction>;
 
 export type QLearningAgentSave = TabularQSave & {
+  policyVersion?: 2;
   upgradeValues?: Array<[string, number]>;
 };
 
@@ -76,9 +77,14 @@ export class QLearningAgent {
     this.decisionTimer = 0;
   }
 
+  setEvaluationMode(enabled: boolean): void {
+    this.learner.setEvaluationMode(enabled);
+  }
+
   serialize(): QLearningAgentSave {
     return {
       ...this.learner.serialize(),
+      policyVersion: 2,
       upgradeValues: this.upgradeBandit.entries(),
     };
   }

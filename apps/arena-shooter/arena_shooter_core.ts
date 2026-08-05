@@ -164,26 +164,22 @@ export type ArenaStepResult = {
   waveAdvanced: boolean;
 };
 
-export const ACTIONS: readonly ArenaAction[] = [
-  { thrust: 1, turn: 0, strafe: 0, aimTurn: 0, fire: false, label: '前進' },
-  { thrust: -1, turn: 0, strafe: 0, aimTurn: 0, fire: false, label: '後退' },
-  { thrust: 0, turn: -1, strafe: 0, aimTurn: 0, fire: false, label: '左旋回' },
-  { thrust: 0, turn: 1, strafe: 0, aimTurn: 0, fire: false, label: '右旋回' },
-  { thrust: 1, turn: -1, strafe: 0, aimTurn: 0, fire: false, label: '前進＋左' },
-  { thrust: 1, turn: 1, strafe: 0, aimTurn: 0, fire: false, label: '前進＋右' },
-  { thrust: 0, turn: 0, strafe: 0, aimTurn: 0, fire: true, label: '射撃' },
-  { thrust: 1, turn: 0, strafe: 0, aimTurn: 0, fire: true, label: '前進＋射撃' },
-  { thrust: -1, turn: 0, strafe: 0, aimTurn: 0, fire: true, label: '後退＋射撃' },
-  { thrust: 0, turn: 0, strafe: -1, aimTurn: 0, fire: false, label: '左平行移動' },
-  { thrust: 0, turn: 0, strafe: 1, aimTurn: 0, fire: false, label: '右平行移動' },
-  { thrust: 0, turn: 0, strafe: -1, aimTurn: 0, fire: true, label: '左平行移動＋射撃' },
-  { thrust: 0, turn: 0, strafe: 1, aimTurn: 0, fire: true, label: '右平行移動＋射撃' },
-  { thrust: 0, turn: 0, strafe: 0, aimTurn: -1, fire: false, label: '砲塔左旋回' },
-  { thrust: 0, turn: 0, strafe: 0, aimTurn: 1, fire: false, label: '砲塔右旋回' },
-  { thrust: 1, turn: 0, strafe: 0, aimTurn: -1, fire: true, label: '前進＋砲塔左＋射撃' },
-  { thrust: 1, turn: 0, strafe: 0, aimTurn: 1, fire: true, label: '前進＋砲塔右＋射撃' },
-] as const;
+const CONTROL_VALUES = [-1, 0, 1] as const;
+const FIRE_VALUES = [false, true] as const;
 
+function actionLabel(thrust: -1 | 0 | 1, turn: -1 | 0 | 1, strafe: -1 | 0 | 1, aimTurn: -1 | 0 | 1, fire: boolean): string {
+  const parts: string[] = [];
+  if (thrust === 1) parts.push('前進'); else if (thrust === -1) parts.push('後退');
+  if (turn === 1) parts.push('右旋回'); else if (turn === -1) parts.push('左旋回');
+  if (strafe === 1) parts.push('右平行移動'); else if (strafe === -1) parts.push('左平行移動');
+  if (aimTurn === 1) parts.push('砲塔右'); else if (aimTurn === -1) parts.push('砲塔左');
+  if (fire) parts.push('射撃');
+  return parts.join('＋') || '停止';
+}
+
+export const ACTIONS: readonly ArenaAction[] = CONTROL_VALUES.flatMap((thrust) => CONTROL_VALUES.flatMap((turn) => CONTROL_VALUES.flatMap((strafe) => CONTROL_VALUES.flatMap((aimTurn) => FIRE_VALUES.map((fire) => ({
+  thrust, turn, strafe, aimTurn, fire, label: actionLabel(thrust, turn, strafe, aimTurn, fire),
+}))))));
 const TAU = Math.PI * 2;
 
 const CRAFT_TYPES: readonly CraftType[] = ['interceptor', 'strafer', 'turret'];

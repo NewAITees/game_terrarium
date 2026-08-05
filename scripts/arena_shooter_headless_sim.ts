@@ -102,10 +102,13 @@ const waveResult = stepArena(waveState, idleAction, 0);
 assert.equal(waveState.wave, 2, 'defeating the complete wave should advance it');
 assert.equal(waveResult.waveAdvanced, true, 'wave completion should be reported');
 
-assert.equal(isActionAllowed('interceptor', ACTIONS[9]), false, 'interceptor must not strafe');
-assert.equal(isActionAllowed('strafer', ACTIONS[9]), true, 'strafer should have lateral movement');
-assert.equal(isActionAllowed('turret', ACTIONS[13]), true, 'turret should rotate its weapon independently');
-assert.equal(isActionAllowed('strafer', ACTIONS[13]), false, 'strafer must not use turret-only actions');
+const strafeAction = ACTIONS.find((action) => action.strafe !== 0 && action.aimTurn === 0)!;
+const turretAction = ACTIONS.find((action) => action.aimTurn === 1 && action.strafe === 0)!;
+assert.equal(isActionAllowed('interceptor', strafeAction), false, 'interceptor must not strafe');
+assert.equal(isActionAllowed('strafer', strafeAction), true, 'strafer should have lateral movement');
+assert.equal(isActionAllowed('turret', turretAction), true, 'turret should rotate its weapon independently');
+assert.equal(isActionAllowed('strafer', turretAction), false, 'strafer must not use turret-only actions');
+assert.ok(ACTIONS.some((action) => action.thrust === -1 && action.turn !== 0 && action.aimTurn !== 0 && action.fire), 'turret must support reversing, turning, aiming, and firing together');
 
 const sensorState = createArenaState(800, 600);
 sensorState.ship.angle = 0;
@@ -221,13 +224,13 @@ assert.deepEqual(
 const baseTurretState = createArenaState(800, 600);
 setCraftPreference(baseTurretState, 'turret');
 baseTurretState.ship.turretAngle = 0;
-stepArena(baseTurretState, ACTIONS[14], 0.1);
+stepArena(baseTurretState, turretAction, 0.1);
 const baseTurretRotation = baseTurretState.ship.turretAngle;
 const upgradedTurretState = createArenaState(800, 600);
 setCraftPreference(upgradedTurretState, 'turret');
 upgradedTurretState.ship.turretAngle = 0;
 upgradedTurretState.turretTurnLevel = 2;
-stepArena(upgradedTurretState, ACTIONS[14], 0.1);
+stepArena(upgradedTurretState, turretAction, 0.1);
 assert.ok(upgradedTurretState.ship.turretAngle > baseTurretRotation, 'turret drive levels should rotate the turret faster');
 
 const upgradeChoices = getUpgradeChoices(run);

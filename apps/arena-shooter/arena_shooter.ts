@@ -41,6 +41,17 @@ const state = createArenaState(1600, 900);
 const craftPreference = loadCraftPreference();
 setCraftPreference(state, craftPreference);
 const agent = new QLearningAgent();
+agent.setEvaluationMode(true);
+// The visible ship only ever plays back the latest synced policy; all learning
+// happens in backgroundAgent below so the two can never fall out of process sync.
+const backgroundAgent = new QLearningAgent();
+const backgroundState = createArenaState(960, 540);
+setCraftPreference(backgroundState, 'random');
+let backgroundRun = createRunProgress();
+let backgroundReward = 0;
+let syncTimer = 0;
+const BACKGROUND_STEP_BUDGET_MS = 6;
+const SYNC_INTERVAL_SECONDS = 2;
 let meta: ArenaMetaProgress = {
   ...DEFAULT_META,
   data: loaded?.data ?? DEFAULT_META.data,
@@ -112,7 +123,7 @@ const ui = {
 ui.craftSelect.value = craftPreference;
 ui.mode.textContent = 'LIVE EVOLUTION';
 ui.mode.dataset.training = 'false';
-ui.agentStatus.textContent = 'LIVE LEARNING';
+ui.agentStatus.textContent = 'BG TRAINING STARTING';
 
 function resize(): void {
   const ratio = Math.min(window.devicePixelRatio || 1, 2);
@@ -150,12 +161,57 @@ function frame(now: number): void {
     }
   }
 
+  runBackgroundTraining();
+  syncTimer += dt;
+  if (syncTimer >= SYNC_INTERVAL_SECONDS) {
+    syncTimer = 0;
+    agent.restore(backgroundAgent.serialize());
+    ui.agentStatus.textContent = `BG TRAINED · ${backgroundAgent.trainingSteps.toLocaleString()} steps`;
+  }
+
   bannerTimer -= dt;
   ui.banner.dataset.open = String(bannerTimer > 0);
   renderArena(context, state, observation, decision);
   updateHud(decision.action.label, decision.exploratory, observation);
   updatePanelOcclusion();
   requestAnimationFrame(frame);
+}
+
+// Runs many unrendered episodes on a separate arena instance within the same
+// process/tick, time-boxed so it never starves the visible frame. This is what
+// keeps training running for as long as the app is open, with no separate
+// process to start, forget, or fall out of sync with what's on screen.
+function runBackgroundTraining(): void {
+  const deadline = performance.now() + BACKGROUND_STEP_BUDGET_MS;
+  while (performance.now() < deadline) {
+    const observation = observeArena(backgroundState);
+    const decision = backgroundAgent.decide(observation, 1 / 60, backgroundReward);
+    const result = stepArena(backgroundState, decision.action, 1 / 60);
+    backgroundReward = result.reward;
+    for (const value of result.killedValues) addKillProgress(backgroundRun, value, backgroundState.wave);
+    while (backgroundRun.pendingUpgrades > 0) {
+      applyUpgrade(backgroundRun, getUpgradeChoices(backgroundRun, backgroundState.ship.craftType)[0], () => {
+        backgroundState.ship.hp = backgroundState.ship.maxHp;
+      });
+    }
+    backgroundState.pulseLevel = backgroundRun.weapons.pulse;
+    backgroundState.fireRateLevel = backgroundRun.fireRateLevel;
+    backgroundState.projectileCountLevel = backgroundRun.projectileCountLevel;
+    backgroundState.projectileSpeedLevel = backgroundRun.projectileSpeedLevel;
+    backgroundState.projectileInterceptLevel = backgroundRun.projectileInterceptLevel;
+    backgroundState.turretTurnLevel = backgroundRun.turretTurnLevel;
+    backgroundState.missileLevel = backgroundRun.weapons.missile;
+    backgroundState.novaLevel = backgroundRun.weapons.nova;
+    backgroundState.laserLevel = backgroundRun.weapons.laser;
+    backgroundState.ricochetLevel = backgroundRun.weapons.ricochet;
+    backgroundState.trailLevel = backgroundRun.weapons.trail;
+    if (backgroundState.ship.hp <= 0) {
+      backgroundAgent.finishEpisode(backgroundReward - 12);
+      backgroundRun = createRunProgress();
+      resetEpisode(backgroundState);
+      backgroundReward = 0;
+    }
+  }
 }
 
 function configureShipFromProgress(): void {
