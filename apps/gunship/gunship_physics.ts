@@ -2,9 +2,9 @@ export type GunshipBody = { x: number; y: number; vx: number; vy: number; angle:
 export type GunshipAction = { turn: -1 | 0 | 1; thrust: boolean; fire: boolean; label: string };
 
 export const SEA_Y = 790;
-export const WORLD_W = 1200;
-export const WORLD_TOP = -680;   // hard backstop; the real ceiling is where thin air starves the engine (below this).
-export const GRAVITY = 255;
+export const WORLD_W = 3600;
+export const WORLD_TOP = -1415;   // hard backstop; the real ceiling is where thin air starves the engine (below this).
+export const GRAVITY = 200;
 const THIN_START = 80;           // above this altitude (smaller y) the air thins and thrust weakens.
 const THIN_FULL = -520;
 const MIN_EFF = .4;
@@ -20,9 +20,9 @@ export function stepPhysics(body: GunshipBody, action: GunshipAction, dt: number
   // Turning is slower under thrust (LUFTRAUSERS): a fast aim demands cutting the engine and accepting the fall.
   const turnRate = body.turn * (action.thrust ? body.thrustTurnK : 1);
   body.angle += action.turn * turnRate * dt;
-  // Side-view aircraft never reverses through its own tail: -90° is a vertical dive,
-  // +90° is a vertical climb. This keeps the readable top-side silhouette on screen.
-  body.angle = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, body.angle));
+  // Full 360°: the craft can face and thrust in any direction, including leftward. Normalize into
+  // (-pi, pi] each step rather than clamp, so heading can't grow unbounded across many turns.
+  body.angle = Math.atan2(Math.sin(body.angle), Math.cos(body.angle));
   const thrust = action.thrust ? body.thrust * thrustEfficiency(body.y) : 0;
   body.vx += (Math.cos(body.angle) * thrust - body.vx * body.drag) * dt;
   body.vy += (-Math.sin(body.angle) * thrust + GRAVITY - body.vy * body.drag) * dt;

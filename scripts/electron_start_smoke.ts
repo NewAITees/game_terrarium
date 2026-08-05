@@ -172,6 +172,16 @@ async function main(): Promise<void> {
     if (fatalError) throw fatalError;
     await assertStableLoad('arena_shooter');
 
+    await postElectronAction('switch_page', { page: 'gunship' });
+    if (fatalError) throw fatalError;
+    await waitForState(
+      (state) => state.currentPage === 'gunship' && state.lastLoadState?.status === 'loaded',
+      30_000,
+      'gunship load',
+    );
+    if (fatalError) throw fatalError;
+    await assertStableLoad('gunship');
+
     await postElectronAction('switch_page', { page: 'planet_strategy' });
     if (fatalError) throw fatalError;
     await waitForState((state) => state.currentPage === 'planet_strategy' && state.lastLoadState?.status === 'loaded', 30000, 'planet strategy load');

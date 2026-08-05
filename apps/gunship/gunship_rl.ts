@@ -3,21 +3,28 @@ import { thresholdBand } from '../../shared/rl/discretize.js';
 import type { TabularQSave } from '../../shared/rl/rl_types.js';
 import type { GunshipAction, GunshipBody } from './gunship_physics.js';
 import { altitudeMargin, ceilingMargin, GRAVITY, thrustEfficiency, WORLD_W } from './gunship_physics.js';
+import type { WeaponKind } from './gunship_weapons.js';
 
 export type GunshipTarget = { x: number; y: number; kind: 'destroyer' | 'cruiser' | 'carrier' | 'battleship' | 'chaser' | 'diver' | 'mine' | 'submarine'; hp: number };
 export type GunshipHazard = { x: number; y: number; vx: number; vy: number };
+export type GunshipOrb = { x: number; y: number };
+export type GunshipTacticalContext = { weapon: WeaponKind; recoveryDelay: number };
 export type UpgradeContext = { offer: readonly string[]; level: number };
-type Observation = { altitude: number; ceiling: number; fall: number; lift: number; aim: number; target: 'surface' | 'air' | 'none'; threat: number; danger: number };
+type Observation = { altitude: number; ceiling: number; fall: number; lift: number; aim: number; target: 'surface' | 'air' | 'none'; threat: number; danger: number; xpAim: number; xpDist: number; weapon: WeaponKind; recovery: number };
 export type GunshipAgentSave =
   | { version: 1; learner: TabularQSave; episodes: number }
   | { version: 2; learner: TabularQSave; upgrade: TabularQSave; episodes: number }
   | { version: 3; learner: TabularQSave; upgrade: TabularQSave; episodes: number }
   | { version: 4; learner: TabularQSave; upgrade: TabularQSave; episodes: number }
-  | { version: 5; learner: TabularQSave; upgrade: TabularQSave; episodes: number };
+  | { version: 5; learner: TabularQSave; upgrade: TabularQSave; episodes: number }
+  | { version: 6; learner: TabularQSave; upgrade: TabularQSave; episodes: number }
+  | { version: 7; learner: TabularQSave; upgrade: TabularQSave; episodes: number }
+  | { version: 8; learner: TabularQSave; upgrade: TabularQSave; episodes: number };
 
-// Dedicated aim bucket for "the target is behind the nose-limit", so the agent can
-// learn to stop aiming and fly instead of grinding against the +/-90 clamp.
-const AIM_UNREACHABLE = 9;
+// Sentinel buckets for "no orb currently exists" — distinct from any real banded value,
+// so the agent can tell "nothing to collect" apart from "there is one, but it's far/behind".
+const NO_ORB_AIM = 5;
+const NO_ORB_DIST = 3;
 
 // 0.12s beat 0.2 / 0.3 / 0.45 in a 6000-episode sweep: a longer hold also holds
 // each exploratory mistake longer, and in a gravity game that is fatal.
@@ -75,12 +82,12 @@ export class GunshipAgent {
   private current = ACTIONS[0];
 
   private pendingReward = 0;
-  decide(ship: GunshipBody, targets: GunshipTarget[], hazards: GunshipHazard[], dt: number, reward: number): { action: GunshipAction; exploratory: boolean } {
+  decide(ship: GunshipBody, targets: GunshipTarget[], hazards: GunshipHazard[], orbs: readonly GunshipOrb[], tactical: GunshipTacticalContext, dt: number, reward: number): { action: GunshipAction; exploratory: boolean } {
     this.pendingReward += reward;
     this.timer -= dt;
     if (this.timer > 0) return { action: this.current, exploratory: false };
     this.timer = .12;
-    const observation = observe(ship, targets, hazards);
+    const observation = observe(ship, targets, hazards, orbs, tactical);
     this.learner.observe(observation, this.pendingReward);
     this.pendingReward = 0;
     const decision = this.learner.decide(observation);
@@ -91,13 +98,18 @@ export class GunshipAgent {
   // Called when a level-up window resolves. `reward` is the return earned since the previous pick; returns the chosen slot.
   decideUpgrade(context: UpgradeContext, reward: number): number { this.upgradeLearner.observe(context, reward); return this.upgradeLearner.decide(context).actionIndex; }
   finishEpisode(finalReward: number): void { this.learner.finishEpisode(finalReward); this.upgradeLearner.finishEpisode(finalReward); this.episodes++; this.timer = 0; }
-  serialize(): GunshipAgentSave { return { version: 5, learner: this.learner.serialize(), upgrade: this.upgradeLearner.serialize(), episodes: this.episodes }; }
+  serialize(): GunshipAgentSave { return { version: 8, learner: this.learner.serialize(), upgrade: this.upgradeLearner.serialize(), episodes: this.episodes }; }
   restore(save: GunshipAgentSave): void {
-    // v5 changes the reward contract for battleship damage. v4 adds thrust-and-fire actions, changing every Q-table action index. v3 redefined what the state key means (attitude became a lift ratio, the aim
-    // bands gained an unreachable bucket, band() stopped wrapping its top bucket).
+    // v8 drops the AIM_UNREACHABLE sentinel now that the craft can turn and thrust through a full
+    // 360° (see stepPhysics) — a target to world-left is no longer categorically unreachable, so the
+    // bucket that used to override it with "impossible" was actively wrong. v7 adds weapon/recovery
+    // state. v6 adds the xp-orb observation (xpAim/xpDist), changing the state key shape. v5 changes
+    // the reward contract for battleship damage. v4 adds thrust-and-fire actions, changing every
+    // Q-table action index. v3 redefined what the state key means (attitude became a lift ratio, the
+    // aim bands gained an unreachable bucket, band() stopped wrapping its top bucket).
     // Older tables use the same key shape for different situations, so replaying
     // them would poison the new policy rather than give it a head start.
-    if (!save || save.version !== 5) return;
+    if (!save || save.version !== 8) return;
     this.learner.restore(save.learner);
     if (save.upgrade) this.upgradeLearner.restore(save.upgrade);
     this.episodes = Math.max(0, save.episodes || 0);
@@ -120,21 +132,35 @@ function wrappedDx(fromX: number, toX: number): number {
   else if (dx < -WORLD_W / 2) dx += WORLD_W;
   return dx;
 }
-function observe(ship: GunshipBody, targets: GunshipTarget[], hazards: GunshipHazard[]): Observation {
+function observe(ship: GunshipBody, targets: GunshipTarget[], hazards: GunshipHazard[], orbs: readonly GunshipOrb[], tactical: GunshipTacticalContext): Observation {
   const target = nearestTarget(ship, targets);
   const targetDx = target ? wrappedDx(ship.x, target.x) : 0;
   const aim = target ? normalize(Math.atan2(-(target.y - ship.y), targetDx) - ship.angle) : 0;
+  const orb = nearestOrb(ship, orbs);
+  const orbDx = orb ? wrappedDx(ship.x, orb.x) : 0;
+  const orbAim = orb ? normalize(Math.atan2(-(orb.y - ship.y), orbDx) - ship.angle) : 0;
   return {
     altitude: thresholdBand(altitudeMargin(ship), [-20, 75, 180, 330]),
     ceiling: thresholdBand(ceilingMargin(ship), [70, 210]),
     fall: thresholdBand(ship.vy, [-20, 75, 180]),
     lift: thresholdBand(liftRatio(ship), [0, .55, 1, 1.5]),
-    aim: targetDx < 0 ? AIM_UNREACHABLE : thresholdBand(aim, [-.45, -.1, .1, .45]),
+    aim: thresholdBand(aim, [-.45, -.1, .1, .45]),
     target: classifyTarget(target),
     threat: target ? thresholdBand(targetDistance(ship, target), [160, 360]) : 2,
     danger: incomingDanger(ship, hazards),
+    xpAim: orb ? thresholdBand(orbAim, [-.45, -.1, .1, .45]) : NO_ORB_AIM,
+    xpDist: orb ? thresholdBand(Math.hypot(orbDx, orb.y - ship.y), [80, 250]) : NO_ORB_DIST,
+    weapon: tactical.weapon,
+    recovery: thresholdBand(tactical.recoveryDelay, [.2, 1, 1.8]),
   };
 }
+
+function nearestOrb(ship: GunshipBody, orbs: readonly GunshipOrb[]): GunshipOrb | undefined {
+  return orbs.reduce<GunshipOrb | undefined>((nearest, candidate) => (
+    !nearest || orbDistance(ship, candidate) < orbDistance(ship, nearest) ? candidate : nearest
+  ), undefined);
+}
+function orbDistance(ship: GunshipBody, orb: GunshipOrb): number { return Math.hypot(wrappedDx(ship.x, orb.x), orb.y - ship.y); }
 
 function nearestTarget(ship: GunshipBody, targets: readonly GunshipTarget[]): GunshipTarget | undefined {
   return targets.reduce<GunshipTarget | undefined>((nearest, candidate) => (
@@ -165,7 +191,7 @@ function incomingDanger(ship: GunshipBody, hazards: GunshipHazard[]): number {
   }
   return thresholdBand(nearest, [90, 220]);
 }
-function encode(o: Observation): string { return `${o.altitude}|${o.ceiling}|${o.fall}|${o.lift}|${o.aim}|${o.target}|${o.threat}|${o.danger}`; }
+function encode(o: Observation): string { return `${o.altitude}|${o.ceiling}|${o.fall}|${o.lift}|${o.aim}|${o.target}|${o.threat}|${o.danger}|${o.xpAim}|${o.xpDist}|${o.weapon}|${o.recovery}`; }
 function encodeUpgrade(context: UpgradeContext): string { return `${context.offer.join(',')}|${Math.min(9, context.level >> 1)}`; }
 // findIndex returns -1 for values above every cut, so the previous `+ 1` form
 // labelled the topmost bucket 0 — the same label as the bottom-most one in every

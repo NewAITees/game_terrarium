@@ -2,7 +2,10 @@ import { GunshipAgent } from '../apps/gunship/gunship_rl.js';
 import { AIRFRAMES, airframeById, configureShip, type AirframeId } from '../apps/gunship/gunship_airframes.js';
 import { altitudeMargin, ceilingMargin, SEA_Y, stepPhysics, type GunshipBody } from '../apps/gunship/gunship_physics.js';
 import { spawnWave, stepEnemies, type Enemy, type EnemyShot } from '../apps/gunship/gunship_enemies.js';
-import { addXp, applyUpgrade, choicesFor, createRunProgress } from '../apps/gunship/gunship_progression.js';
+import { addXp, applyUpgrade, choicesFor, createRunProgress, type GunshipRunProgress } from '../apps/gunship/gunship_progression.js';
+import { comboMultiplier, createCombatState, registerKill, stepCombatState } from '../apps/gunship/gunship_combat.js';
+import { collectOrbs, spawnOrb, stepOrbs, type XpOrb } from '../apps/gunship/gunship_pickups.js';
+import { applyWeaponRecoil, weaponCooldown, weaponDamage, weaponKind, weaponProfile } from '../apps/gunship/gunship_weapons.js';
 
 /**
  * Headless mirror of the update loop in apps/gunship/gunship.ts, without the
@@ -27,7 +30,7 @@ function densify(enemies: Enemy[], density: number, seed: number): Enemy[] {
   const extra: Enemy[] = [];
   for (let copy = 1; copy < density; copy += 1) {
     for (const base of chasers) {
-      extra.push({ ...base, id: base.id + 1000 * copy + seed, x: (base.x + copy * 311 + seed * 97) % 1180, y: 90 + ((base.y + copy * 137) % 420) });
+      extra.push({ ...base, id: base.id + 1000 * copy + seed, x: (base.x + copy * 311 + seed * 97) % 3540, y: 90 + ((base.y + copy * 137) % 420) });
     }
   }
   return [...enemies, ...extra];
@@ -69,25 +72,67 @@ function moveShots(shots: EnemyShot[], dt: number, enemies: Enemy[]): void {
 }
 
 function freshShip(maxHp: number): GunshipBody {
-  return { x: 600, y: 260, vx: 0, vy: 0, angle: Math.PI / 2, hp: maxHp, maxHp, fireCooldown: 0, thrust: 0, turn: 0, thrustTurnK: 0, drag: 0 };
+  return { x: 1800, y: 260, vx: 0, vy: 0, angle: Math.PI / 2, hp: maxHp, maxHp, fireCooldown: 0, thrust: 0, turn: 0, thrustTurnK: 0, drag: 0 };
 }
 
 export function runEpisode(agent: GunshipAgent, airframeId: AirframeId, capSeconds: number, density: number): EpisodeResult {
   const airframe = airframeById(airframeId);
   const run = createRunProgress();
   const ship = freshShip(Math.round(airframe.maxHp * W.hp));
+  const WAVE_INTERVAL = 25;
   let wave = 1;
+  let waveTimer = WAVE_INTERVAL;
+  const waveRewardGiven = new Set<number>();
   let nextId = 50;
   let enemies: Enemy[] = slowFire(capChasers(densify(spawnWave(wave, nextId), density, wave)));
   nextId += enemies.length;
   let enemyShots: EnemyShot[] = [];
   let bullets: EnemyShot[] = [];
+  let orbs: XpOrb[] = [];
   let episodeReward = 0;
   let lastReward = 0;
   let kills = 0;
   let elapsed = 0;
-  let missileCooldown = 0;
   let upgradeRewardMark = 0;
+  const combat = createCombatState();
+
+  // Mirrors fireMainWeapon()/fireCannon()/.../fireRailgun() in apps/gunship/gunship.ts.
+  function fireMainWeapon(run: GunshipRunProgress): void {
+    switch (run.weaponFamily) {
+      case 'laser': fireLaser(run); break;
+      case 'missile': fireMissile(run); break;
+      case 'flak': fireFlak(run); break;
+      case 'explosive': fireExplosive(run); break;
+      case 'railgun': fireRailgun(run); break;
+      default: fireCannon(run); break;
+    }
+    applyWeaponRecoil(ship, run, airframe.recoilScale);
+  }
+  function fireCannon(run: GunshipRunProgress): void { bullets.push({ x: ship.x + Math.cos(ship.angle) * 28, y: ship.y - Math.sin(ship.angle) * 28, vx: Math.cos(ship.angle) * 610, vy: -Math.sin(ship.angle) * 610, life: 2.2, weapon: 'cannon' }); ship.fireCooldown = weaponCooldown(run); }
+  function fireLaser(run: GunshipRunProgress): void { const target = enemies.find((enemy) => Math.abs(Math.atan2(-(enemy.y - ship.y), enemy.x - ship.x) - ship.angle) < .13 && Math.hypot(enemy.x - ship.x, enemy.y - ship.y) < 950); if (target) { const damage = 11 * 1.2 ** run.damage * 1.15 ** (run.laser - 1); target.hp -= damage; if (target.kind === 'battleship') episodeReward += damage * .03 * comboMultiplier(combat.combo); bullets.push({ x: target.x, y: target.y, vx: 0, vy: 0, life: .18, weapon: 'laser', originX: ship.x, originY: ship.y }); } ship.fireCooldown = weaponCooldown(run); }
+  function fireMissile(run: GunshipRunProgress): void { const target = enemies.slice().sort((a, b) => Math.hypot(a.x - ship.x, a.y - ship.y) - Math.hypot(b.x - ship.x, b.y - ship.y))[0]; if (target) { const dx = target.x - ship.x; const dy = target.y - ship.y; const length = Math.max(1, Math.hypot(dx, dy)); bullets.push({ x: ship.x, y: ship.y, vx: dx / length * 300, vy: dy / length * 300, life: 3.2, weapon: 'missile' }); } ship.fireCooldown = weaponCooldown(run); }
+  function fireFlak(run: GunshipRunProgress): void { const pellets = 5; for (let index = 0; index < pellets; index++) { const angle = ship.angle + (index - (pellets - 1) / 2) * .09; bullets.push({ x: ship.x + Math.cos(ship.angle) * 28, y: ship.y - Math.sin(ship.angle) * 28, vx: Math.cos(angle) * 560, vy: -Math.sin(angle) * 560, life: .35, weapon: 'flak' }); } ship.fireCooldown = weaponCooldown(run); }
+  function fireExplosive(run: GunshipRunProgress): void { bullets.push({ x: ship.x + Math.cos(ship.angle) * 28, y: ship.y - Math.sin(ship.angle) * 28, vx: Math.cos(ship.angle) * 500, vy: -Math.sin(ship.angle) * 500, life: 2.4, weapon: 'explosive' }); ship.fireCooldown = weaponCooldown(run); }
+  function fireRailgun(run: GunshipRunProgress): void {
+    const cone = .1;
+    const hits = enemies.filter((enemy) => Math.abs(Math.atan2(-(enemy.y - ship.y), enemy.x - ship.x) - ship.angle) < cone && Math.hypot(enemy.x - ship.x, enemy.y - ship.y) < 1400 && !(enemy.kind === 'submarine' && !enemy.surfaced));
+    const damage = 30 * 1.2 ** run.damage * 1.15 ** (run.railgun - 1);
+    for (const target of hits) { target.hp -= damage; if (target.kind === 'battleship') episodeReward += damage * .03 * comboMultiplier(combat.combo); bullets.push({ x: target.x, y: target.y, vx: 0, vy: 0, life: .15, weapon: 'railgun', originX: ship.x, originY: ship.y }); }
+    ship.fireCooldown = weaponCooldown(run);
+  }
+  function resolveKill(target: Enemy, surface: boolean): void {
+    if (target.hp > 0) return;
+    const index = enemies.indexOf(target);
+    if (index < 0) return;
+    enemies.splice(index, 1);
+    kills += 1;
+    const xp = target.kind === 'battleship' ? 12 : target.kind === 'carrier' ? 7 : surface ? 3 : 1;
+    const killReward = target.kind === 'battleship' ? 18 : target.kind === 'carrier' ? 10 : surface ? 5 : 2;
+    episodeReward += killReward * W.kill * comboMultiplier(combat.combo);
+    orbs.push(spawnOrb(target.x, target.y, Math.ceil(xp * comboMultiplier(combat.combo))));
+    registerKill(combat);
+    if (!waveRewardGiven.has(target.wave) && !enemies.some((enemy) => enemy.wave === target.wave)) { waveRewardGiven.add(target.wave); episodeReward += W.wave; }
+  }
 
   while (elapsed < capSeconds) {
     // Level-up resolves immediately here; the game gives a human 5s to override.
@@ -101,22 +146,9 @@ export function runEpisode(agent: GunshipAgent, airframeId: AirframeId, capSecon
     const rewardStart = episodeReward;
     elapsed += DT;
     configureShip(ship, run, airframe, 0);
-    const action = agent.decide(ship, enemies, enemyShots, DT, lastReward).action;
+    const action = agent.decide(ship, enemies, enemyShots, orbs, { weapon: weaponKind(run), recoveryDelay: combat.recoveryDelay }, DT, lastReward).action;
     stepPhysics(ship, action, DT);
-    missileCooldown = Math.max(0, missileCooldown - DT);
-    if (action.fire && ship.fireCooldown <= 0) {
-      bullets.push({ x: ship.x + Math.cos(ship.angle) * 28, y: ship.y - Math.sin(ship.angle) * 28, vx: Math.cos(ship.angle) * 610, vy: -Math.sin(ship.angle) * 610, life: 2.2, weapon: 'cannon' });
-      ship.fireCooldown = .22 / (1.16 ** run.fireRate);
-    }
-    if (action.fire && run.missile > 0 && missileCooldown <= 0) {
-      const target = enemies.slice().sort((a, b) => Math.hypot(a.x - ship.x, a.y - ship.y) - Math.hypot(b.x - ship.x, b.y - ship.y))[0];
-      if (target) {
-        const dx = target.x - ship.x; const dy = target.y - ship.y;
-        const length = Math.max(1, Math.hypot(dx, dy));
-        bullets.push({ x: ship.x, y: ship.y, vx: dx / length * 300, vy: dy / length * 300, life: 3.2, weapon: 'missile' });
-        missileCooldown = 2.4;
-      }
-    }
+    if (action.fire && ship.fireCooldown <= 0) fireMainWeapon(run);
     stepEnemies(enemies, enemyShots, ship, DT);
     moveShots(enemyShots, DT, enemies);
     moveShots(bullets, DT, enemies);
@@ -126,15 +158,23 @@ export function runEpisode(agent: GunshipAgent, airframeId: AirframeId, capSecon
       const target = enemies.find((enemy) => Math.hypot(enemy.x - bullet.x, enemy.y - bullet.y) < enemy.radius + 4 && !(enemy.kind === 'submarine' && !enemy.surfaced));
       if (!target) continue;
       const surface = SURFACE_KINDS.includes(target.kind);
-      const damage = (bullet.weapon === 'missile' ? 48 : surface ? 14 : 24) * 1.2 ** run.damage;
-      target.hp -= damage;
-      if (target.kind === 'battleship') episodeReward += damage * .03;
+      if (bullet.weapon !== 'laser' && bullet.weapon !== 'railgun') {
+        const damage = weaponDamage(run, bullet.weapon, surface);
+        target.hp -= damage;
+        if (target.kind === 'battleship') episodeReward += damage * .03 * comboMultiplier(combat.combo);
+      }
+      const impactX = bullet.x; const impactY = bullet.y; const wasExplosive = bullet.weapon === 'explosive';
       bullets.splice(index, 1);
-      if (target.hp > 0) continue;
-      enemies.splice(enemies.indexOf(target), 1);
-      kills += 1;
-      addXp(run, target.kind === 'battleship' ? 12 : target.kind === 'carrier' ? 7 : surface ? 3 : 1);
-      episodeReward += (target.kind === 'battleship' ? 18 : target.kind === 'carrier' ? 10 : surface ? 5 : 2) * W.kill;
+      resolveKill(target, surface);
+      if (wasExplosive) {
+        const splashDamage = 12 * 1.2 ** run.damage * 1.15 ** (run.explosive - 1);
+        for (const other of enemies.slice()) {
+          if (other === target || Math.hypot(other.x - impactX, other.y - impactY) >= 60) continue;
+          other.hp -= splashDamage;
+          if (other.kind === 'battleship') episodeReward += splashDamage * .03 * comboMultiplier(combat.combo);
+          resolveKill(other, SURFACE_KINDS.includes(other.kind));
+        }
+      }
     }
     for (let index = enemyShots.length - 1; index >= 0; index -= 1) {
       if (Math.hypot(enemyShots[index].x - ship.x, enemyShots[index].y - ship.y) >= 20) continue;
@@ -143,9 +183,14 @@ export function runEpisode(agent: GunshipAgent, airframeId: AirframeId, capSecon
       episodeReward += W.hit;
     }
 
+    stepCombatState(combat, ship, enemies, action.fire, DT, weaponProfile(run).recoveryDelay);
+    stepOrbs(orbs, DT);
+    const collected = collectOrbs(orbs, ship.x, ship.y);
+    if (collected > 0) addXp(run, collected);
     episodeReward += DT * W.survival;
     if (ceilingMargin(ship) < 70) episodeReward -= DT * W.ceiling;
-    if (enemies.length === 0) { wave += 1; enemies = slowFire(capChasers(densify(spawnWave(wave, nextId), density, wave))); nextId += enemies.length; episodeReward += W.wave; }
+    waveTimer -= DT;
+    if (waveTimer <= 0) { wave += 1; waveTimer = WAVE_INTERVAL; const spawned = slowFire(capChasers(densify(spawnWave(wave, nextId), density, wave))); nextId += spawned.length; enemies.push(...spawned); }
 
     if (ship.y >= SEA_Y || ship.hp <= 0) {
       const fell = ship.y >= SEA_Y;
