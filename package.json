@@ -47,6 +47,7 @@
     "start:zombie-survivor": "npm start -- --page=zombie_survivor",
     "start:one-line-rpg": "npm start -- --page=one_line_rpg",
     "start:gunship": "npm start -- --page=gunship",
+    "start:sorting-warehouse": "npm start -- --page=sorting_warehouse",
     "start:one-line-browser": "npm run build && node build-node/scripts/start_one_line_browser.js"
   },
   "devDependencies": {

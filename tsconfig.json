@@ -30,6 +30,7 @@
     "apps/ai-restoration/**/*.ts",
     "apps/one-line-rpg/**/*.ts",
     "apps/gunship/**/*.ts",
+    "apps/sorting-warehouse/**/*.ts",
     "game/**/*.ts",
     "shared/*.ts",
     "shared/rl/**/*.ts",

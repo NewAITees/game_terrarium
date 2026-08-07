@@ -1,7 +1,7 @@
 export type PageLoadMode = 'file' | 'http';
 
 export type PageDefinition = {
-  number: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15;
+  number: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16;
   key: string;
   label: string;
   accelerator: string;
@@ -154,6 +154,15 @@ export const PAGE_REGISTRY = [
     loadMode: 'http',
     htmlPath: 'apps/gunship/gunship.html',
     target: 'http://localhost:3000/gunship.html',
+  },
+  {
+    number: 16,
+    key: 'sorting_warehouse',
+    label: 'Sorting Terrarium',
+    accelerator: 'CmdOrCtrl+Shift+6',
+    loadMode: 'http',
+    htmlPath: 'apps/sorting-warehouse/sorting_warehouse.html',
+    target: 'http://localhost:3000/sorting_warehouse.html',
   },
 ] as const satisfies readonly PageDefinition[];
 

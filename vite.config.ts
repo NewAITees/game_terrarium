@@ -68,6 +68,8 @@ export default defineConfig({
           resolve(__dirname, 'apps/ai-restoration/ai_restoration.ts'),
         'apps/gunship/gunship':
           resolve(__dirname, 'apps/gunship/gunship.ts'),
+        'apps/sorting-warehouse/sorting_warehouse':
+          resolve(__dirname, 'apps/sorting-warehouse/sorting_warehouse.ts'),
       },
       output: {
         format: 'es',

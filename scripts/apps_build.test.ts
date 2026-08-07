@@ -105,6 +105,13 @@ const appBuildTargets: readonly AppBuildTarget[] = [
     bundle: 'build/apps/gunship/gunship.js',
     htmlModuleSrc: './gunship.js',
   },
+  {
+    name: 'Sorting Terrarium',
+    source: 'apps/sorting-warehouse/sorting_warehouse.ts',
+    html: 'apps/sorting-warehouse/sorting_warehouse.html',
+    bundle: 'build/apps/sorting-warehouse/sorting_warehouse.js',
+    htmlModuleSrc: './sorting_warehouse.js',
+  },
 ];
 
 for (const app of appBuildTargets) {
