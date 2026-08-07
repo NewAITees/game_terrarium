@@ -1,5 +1,3 @@
-import { Color, } from 'three';
-
 export function spawnEnemy(context: any) {
   const { game, topo, rng, enemyFrontierTarget, enemyPackets, route, createPacket, adj } = context;
   if (game.gameOver || game.waveRemaining <= 0) return;
@@ -22,9 +20,7 @@ export function spawnEnemy(context: any) {
 
 export function removePacket(context: any, list: any[], index: number) {
   const packet = list[index];
-  context.scene.remove(packet.mesh);
-  packet.mesh.geometry.dispose();
-  packet.mesh.material.dispose();
+  context.visuals.destroyPacket(packet.mesh);
   list.splice(index, 1);
 }
 
@@ -100,7 +96,7 @@ export function updateScanPackets(context: any, dt: number) {
 
     packet.t += dt * packet.speed * edgeTravelFactor(edge);
     if (packet.t >= 1) { packet.t = 0; packet.seg++; }
-    packet.mesh.position.copy(edge.curve.getPoint(edge.an === from ? packet.t : 1 - packet.t));
+    context.visuals.move(packet.mesh, edge.curve.getPoint(edge.an === from ? packet.t : 1 - packet.t));
     edge.activeUntil = Math.max(edge.activeUntil, performance.now() / 1000 + 0.2);
   }
 }
@@ -165,28 +161,13 @@ export function updatePackets(context: any, list: any[], dt: number, onArrive: (
       removePacket(list, index);
       continue;
     }
-    packet.mesh.position.copy(edge.curve.getPoint(edge.an === from ? packet.t : 1 - packet.t));
+    context.visuals.move(packet.mesh, edge.curve.getPoint(edge.an === from ? packet.t : 1 - packet.t));
     edge.activeUntil = Math.max(edge.activeUntil, performance.now() / 1000 + 0.35);
   }
 }
 
-export function setNodeColor(node: any, now: number) {
-  const style = node.baseStyle;
-  const base = new Color(style.color);
-  const color = base.lerp(new Color(0xff2e24), node.infection);
-  if (node.hardenUntil > now) color.lerp(new Color(0x80e8ff), 0.55);
-  if (node.rebootUntil > now) color.set(0x566472);
-  node.material.color.copy(color);
-  node.material.emissive.copy(color).multiplyScalar(node.isServer ? 0.55 : 0.35);
-  node.material.emissiveIntensity = node.targetedUntil > now ? 2.2 : style.emI;
-  if (node.halo?.material) {
-    node.halo.material.color.copy(color);
-    node.halo.material.opacity = node.hardenUntil > now ? 0.13 : style.hOp + node.infection * 0.13;
-  }
-}
-
 export function updateNodes(context: any, dt: number, now: number) {
-  const { topo, adj, setNodeColor } = context;
+  const { topo, adj, visuals } = context;
   for (const node of topo.nodes) {
     if (node.rebootUntil > now) {
       node.infection = Math.max(0, node.infection - dt * 0.75);
@@ -196,7 +177,7 @@ export function updateNodes(context: any, dt: number, now: number) {
       node.hp = Math.max(0, node.hp - dt * node.infection * 1.2);
     }
     if (!node.isServer && node.hp <= 0) node.infection = 1;
-    setNodeColor(node, now);
+    visuals.updateNode(node, now);
   }
 
   for (const node of topo.nodes) {

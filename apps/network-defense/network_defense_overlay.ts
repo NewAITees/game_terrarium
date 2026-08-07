@@ -32,6 +32,7 @@ function saveRunHistory(history: any[]) {
 export function showNetworkDefenseEndOverlay(game: any, topo: any, agents: any[], firewalls: Map<any, any>, isVictory: boolean) {
   game.gameOver = true;
   game.victory = isVictory;
+  if (typeof document === 'undefined') return;
   const overlay = document.getElementById('end-overlay');
   const title = document.getElementById('end-title');
   const stats = document.getElementById('end-stats');
@@ -75,6 +76,7 @@ export function showNetworkDefenseEndOverlay(game: any, topo: any, agents: any[]
 }
 
 export function updateNetworkDefenseHud(game: any, topo: any) {
+  if (typeof document === 'undefined') return;
   const requiredIds = ['time', 'score', 'credits', 'wave', 'kills', 'health', 'buy-junior', 'buy-mid', 'buy-senior', 'harden', 'reboot'] as const;
   const elements = Object.fromEntries(
     requiredIds.map((id) => [id, document.getElementById(id)])

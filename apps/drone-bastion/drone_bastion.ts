@@ -10,8 +10,22 @@ import {
   type DroneBastionState,
 } from './drone_bastion_core.js';
 import { DroneBastionScene } from './drone_bastion_scene.js';
+import { isCompatibleModelManifest, type ModelManifest } from '../../shared/rl/model_manifest.js';
 
 const STORAGE_KEY = 'drone-bastion-rl-v1';
+type LiveModelBundle = {
+  version: 1;
+  revision: number;
+  manifest?: ModelManifest;
+  model?: DroneBastionAgentSave;
+};
+const liveModelCompatibility = {
+  gameId: 'drone-bastion',
+  algorithm: 'tabular-q',
+  modelVersion: 1,
+  observationSchemaVersion: 1,
+  rewardSchemaVersion: 1,
+} as const;
 const canvas = requireElement<HTMLCanvasElement>('bastion');
 const scene3d = new DroneBastionScene(canvas);
 
@@ -38,28 +52,23 @@ const ui = {
 const state = createDroneBastionState(1200, 760, Math.floor(Date.now() / 1000));
 let agent = new DroneBastionAgent();
 restoreAgent();
+agent.setEvaluationMode(true);
+let loadedRevision = -1;
 let paused = false;
 let previousTime = performance.now();
 let upgradeTimer = 0;
 let restartTimer = 0;
 let episodeFinished = false;
-let saveTimer = 5;
 let bannerTimer = 0;
 let currentDecision = agent.decide(observeDroneBastion(state), 1, 0);
+void reloadLiveModel();
 
 ui.pause.addEventListener('click', () => {
   paused = !paused;
   ui.pause.dataset.active = String(paused);
   ui.pause.textContent = paused ? 'RESUME' : 'PAUSE';
 });
-ui.resetModel.addEventListener('click', () => {
-  localStorage.removeItem(STORAGE_KEY);
-  agent = new DroneBastionAgent();
-  resetDroneBastionEpisode(state);
-  episodeFinished = false;
-  restartTimer = 0;
-  showBanner('MODEL RESET // FRESH TRAINING');
-});
+ui.resetModel.addEventListener('click', () => { void resetLearning(); });
 
 function frame(now: number): void {
   const realDt = Math.min(0.05, Math.max(0, (now - previousTime) / 1000));
@@ -74,10 +83,10 @@ function update(dt: number): void {
   if (state.gameOver) {
     if (!episodeFinished) {
       agent.finishEpisode(state.lastReward);
-      saveAgent();
       episodeFinished = true;
-      restartTimer = 1.8;
+      restartTimer = Number.POSITIVE_INFINITY;
       showBanner(`KING TOWER LOST // EP ${state.episode} // REDEPLOYING`);
+      void reloadLiveModel().finally(() => { restartTimer = 1.8; });
     }
     restartTimer -= dt;
     if (restartTimer <= 0) {
@@ -109,11 +118,6 @@ function update(dt: number): void {
     showBanner(`WAVE ${state.wave} CLEAR // FLEET DECISION`);
   }
 
-  saveTimer -= dt;
-  if (saveTimer <= 0) {
-    saveAgent();
-    saveTimer = 5;
-  }
   tickBanner(dt);
 }
 
@@ -379,20 +383,49 @@ function resizeCanvas(): void {
   canvas.height = height;
 }
 
-function saveAgent(): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(agent.serialize()));
-  } catch {
-    // Learning continues in memory when storage is unavailable.
-  }
-}
-
 function restoreAgent(): void {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) agent.restore(JSON.parse(raw) as DroneBastionAgentSave);
   } catch {
     localStorage.removeItem(STORAGE_KEY);
+  }
+}
+
+async function reloadLiveModel(): Promise<void> {
+  try {
+    const response = await fetch('/api/rl/models/drone-bastion', { cache: 'no-store' });
+    if (!response.ok) return;
+    const bundle = await response.json() as LiveModelBundle;
+    if (bundle.manifest && !isCompatibleModelManifest(bundle.manifest, liveModelCompatibility)) return;
+    if (!bundle.model || bundle.revision <= loadedRevision) return;
+    const next = new DroneBastionAgent();
+    next.restore(bundle.model);
+    next.setEvaluationMode(true);
+    agent = next;
+    loadedRevision = bundle.revision;
+    currentDecision = agent.decide(observeDroneBastion(state), 1, 0);
+    showBanner(`INFERENCE MODEL r${bundle.revision}`);
+  } catch {
+    // Training is optional; keep the last compatible model.
+  }
+}
+
+async function resetLearning(): Promise<void> {
+  try {
+    const response = await fetch('/api/rl/models/drone-bastion/reset', { method: 'POST' });
+    if (!response.ok) throw new Error('reset rejected');
+    localStorage.removeItem(STORAGE_KEY);
+    agent = new DroneBastionAgent();
+    agent.setEvaluationMode(true);
+    loadedRevision = -1;
+    resetDroneBastionEpisode(state);
+    episodeFinished = false;
+    restartTimer = 0;
+    currentDecision = agent.decide(observeDroneBastion(state), 1, 0);
+    showBanner('TRAINER RESET REQUESTED');
+  } catch {
+    showBanner('RESET FAILED');
   }
 }
 

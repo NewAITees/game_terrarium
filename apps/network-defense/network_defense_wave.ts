@@ -22,7 +22,7 @@ export function updateSeniorStrategy(context: {
   callStrategyLlm(snapshot, game, topo).then((nextRule) => {
     if (nextRule !== game.rule) {
       game.rule = nextRule;
-      const rulesEl = document.getElementById('rules');
+      const rulesEl = typeof document === 'undefined' ? null : document.getElementById('rules');
       if (rulesEl) rulesEl.textContent = `rules: ${nextRule}`;
       setMessage(`Senior alert: rules.txt -> ${nextRule}`);
       if (observerMode) game.rankIntents.senior = `adapt network posture to ${nextRule}`;

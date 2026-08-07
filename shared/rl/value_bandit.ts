@@ -18,6 +18,9 @@ export class ValueBandit<Key extends string> {
 
   finish(reward: number, rate: number, limit: number): void { this.reward += reward; this.update(rate, limit); }
   value(key: Key): number { return this.values.get(key) ?? 0; }
+  best(keys: readonly Key[]): Key { return keys.reduce((best, candidate) => (
+    this.value(candidate) > this.value(best) ? candidate : best
+  )); }
   entries(): Array<[Key, number]> { return [...this.values.entries()]; }
   restore(entries: readonly [Key, number][]): void { this.values.clear(); for (const [key, value] of entries) if (Number.isFinite(value)) this.values.set(key, value); }
 

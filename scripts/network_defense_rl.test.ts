@@ -81,3 +81,22 @@ test('applies a terminal update only once', () => {
   assert.deepEqual(controller.serialize(), first);
   assert.equal(controller.finished, true);
 });
+
+test('keeps the Player controller inference-only in evaluation mode', () => {
+  const trainedFixture = createContext();
+  const trained = new NetworkDefenseRlController(trainedFixture.context);
+  trained.assignAgent(trainedFixture.agent);
+  const checkpoint = trained.serialize();
+
+  const playerFixture = createContext();
+  const player = new NetworkDefenseRlController(playerFixture.context);
+  player.restore(checkpoint);
+  player.setEvaluationMode(true);
+  const before = player.serialize();
+  player.assignAgent(playerFixture.agent);
+  playerFixture.game.gameOver = true;
+  player.finishEpisode(false);
+
+  assert.deepEqual(player.serialize(), before);
+  assert.equal(player.decision?.exploratory, false);
+});

@@ -1,4 +1,4 @@
-import { QLearningAgent } from './arena_shooter_agent.js';
+import { QLearningAgent, type QLearningAgentSave } from './arena_shooter_agent.js';
 import {
   createArenaState,
   craftLabel,
@@ -16,7 +16,6 @@ import {
   DEFAULT_META,
   addKillProgress,
   ascend,
-  ascensionPower,
   applyUpgrade,
   buyResearch,
   canAscend,
@@ -31,6 +30,8 @@ import {
 } from './arena_shooter_progression.js';
 import { loadArenaSave, saveArenaState } from './arena_shooter_save.js';
 import { renderArena } from './arena_shooter_render.js';
+import { applyArenaProgressToState } from './arena_shooter_episode.js';
+import { isCompatibleModelManifest, type ModelManifest } from '../../shared/rl/model_manifest.js';
 
 const canvas = requireElement<HTMLCanvasElement>('arena');
 const context = canvas.getContext('2d');
@@ -40,7 +41,11 @@ const loaded = await loadArenaSave();
 const state = createArenaState(1600, 900);
 const craftPreference = loadCraftPreference();
 setCraftPreference(state, craftPreference);
-const agent = new QLearningAgent();
+let agent = new QLearningAgent();
+agent.setEvaluationMode(true);
+type LiveModelBundle = { version: 1; revision: number; manifest?: ModelManifest; model?: QLearningAgentSave };
+const liveModelCompatibility = { gameId: 'arena-shooter', algorithm: 'tabular-q', modelVersion: 1, observationSchemaVersion: 1, rewardSchemaVersion: 1 } as const;
+let loadedModelRevision = -1;
 let meta: ArenaMetaProgress = {
   ...DEFAULT_META,
   data: loaded?.data ?? DEFAULT_META.data,
@@ -110,9 +115,10 @@ const ui = {
   craftSelect: requireElement<HTMLSelectElement>('craft-select'),
 };
 ui.craftSelect.value = craftPreference;
-ui.mode.textContent = 'LIVE EVOLUTION';
+ui.mode.textContent = 'HEADLESS TRAINING';
 ui.mode.dataset.training = 'false';
-ui.agentStatus.textContent = 'LIVE LEARNING';
+ui.agentStatus.textContent = 'INFERENCE';
+void reloadLiveModel();
 
 function resize(): void {
   const ratio = Math.min(window.devicePixelRatio || 1, 2);
@@ -159,24 +165,7 @@ function frame(now: number): void {
 }
 
 function configureShipFromProgress(): void {
-  state.pulseLevel = run.weapons.pulse;
-  state.fireRateLevel = run.fireRateLevel;
-  state.projectileCountLevel = run.projectileCountLevel;
-  state.projectileSpeedLevel = run.projectileSpeedLevel;
-  state.projectileInterceptLevel = run.projectileInterceptLevel;
-  state.turretTurnLevel = run.turretTurnLevel;
-  state.missileLevel = run.weapons.missile;
-  state.novaLevel = run.weapons.nova;
-  state.laserLevel = run.weapons.laser;
-  state.ricochetLevel = run.weapons.ricochet;
-  state.trailLevel = run.weapons.trail;
-  state.damageMultiplier = 1.18 ** meta.damageResearch * ascensionPower(meta);
-  const maxHp = Math.round(100 * 1.2 ** meta.hullResearch);
-  if (state.ship.maxHp !== maxHp) {
-    const ratio = state.ship.hp / state.ship.maxHp;
-    state.ship.maxHp = maxHp;
-    state.ship.hp = Math.max(1, Math.round(maxHp * ratio));
-  }
+  applyArenaProgressToState(state, run, meta);
 }
 
 function processUpgrade(dt: number): void {
@@ -231,11 +220,35 @@ function finishEpisode(): void {
   agent.finishEpisode(accumulatedReward);
   const earned = collectEpisode(meta, run, state.wave, state.kills);
   showBanner(`RUN COMPLETE  +${earned} DATA`, 4);
-  run = createRunProgress();
-  resetEpisode(state);
-  configureShipFromProgress();
-  state.ship.hp = state.ship.maxHp;
   persist();
+  const resume = paused;
+  paused = true;
+  void reloadLiveModel().finally(() => {
+    run = createRunProgress();
+    resetEpisode(state);
+    configureShipFromProgress();
+    state.ship.hp = state.ship.maxHp;
+    accumulatedReward = 0;
+    paused = resume;
+  });
+}
+
+async function reloadLiveModel(): Promise<void> {
+  try {
+    const response = await fetch('/api/rl/models/arena-shooter', { cache: 'no-store' });
+    if (!response.ok) return;
+    const bundle = await response.json() as LiveModelBundle;
+    if (bundle.manifest && !isCompatibleModelManifest(bundle.manifest, liveModelCompatibility)) return;
+    if (!bundle.model || bundle.revision <= loadedModelRevision) return;
+    const next = new QLearningAgent();
+    next.restore(bundle.model);
+    next.setEvaluationMode(true);
+    agent = next;
+    loadedModelRevision = bundle.revision;
+    ui.agentStatus.textContent = `INFERENCE r${bundle.revision}`;
+  } catch {
+    // Keep the last compatible inference model.
+  }
 }
 
 function persist(): void {

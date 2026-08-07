@@ -1,17 +1,17 @@
 import { GunshipAgent } from '../apps/gunship/gunship_rl.js';
-import { AIRFRAMES, airframeById, configureShip, type AirframeId } from '../apps/gunship/gunship_airframes.js';
-import { altitudeMargin, ceilingMargin, SEA_Y, stepPhysics, type GunshipBody } from '../apps/gunship/gunship_physics.js';
-import { spawnWave, stepEnemies, type Enemy, type EnemyShot } from '../apps/gunship/gunship_enemies.js';
-import { addXp, applyUpgrade, choicesFor, createRunProgress } from '../apps/gunship/gunship_progression.js';
+import { AIRFRAMES, airframeById, type AirframeId } from '../apps/gunship/gunship_airframes.js';
+import { type GunshipBody } from '../apps/gunship/gunship_physics.js';
+import { spawnWave, type Enemy } from '../apps/gunship/gunship_enemies.js';
+import { applyUpgrade, choicesFor, createRunProgress } from '../apps/gunship/gunship_progression.js';
+import {
+  stepGunshipCore,
+  type GunshipCoreState,
+  type GunshipRewardWeights,
+} from '../apps/gunship/gunship_core.js';
 
 /**
- * Headless mirror of the update loop in apps/gunship/gunship.ts, without the
- * canvas or the HUD. It exists to answer "is this thing actually learning?"
- * with a number instead of an impression, and to make hyperparameter changes
- * testable before they are shipped to a save file people are watching.
- *
- * Anything that changes reward, termination or the decision cadence in
- * gunship.ts must be mirrored here, or the numbers stop meaning anything.
+ * Headless driver for the same gunship_core used by the Electron player. It
+ * owns training cadence and experiment knobs, but not game transitions.
  */
 
 const DT = 1 / 60;
@@ -47,26 +47,7 @@ function slowFire(enemies: Enemy[]): Enemy[] {
   return enemies;
 }
 
-const SURFACE_KINDS = ['destroyer', 'cruiser', 'carrier', 'battleship', 'submarine'];
-
 type EpisodeResult = { seconds: number; kills: number; wave: number; fell: boolean; reward: number };
-
-// Mirrors moveShots() in apps/gunship/gunship.ts, which is not exported.
-function moveShots(shots: EnemyShot[], dt: number, enemies: Enemy[]): void {
-  for (const shot of shots) {
-    if (shot.weapon === 'missile') {
-      const target = enemies.slice().sort((a, b) => Math.hypot(a.x - shot.x, a.y - shot.y) - Math.hypot(b.x - shot.x, b.y - shot.y))[0];
-      if (target) {
-        const dx = target.x - shot.x; const dy = target.y - shot.y;
-        const length = Math.max(1, Math.hypot(dx, dy));
-        shot.vx += (dx / length * 390 - shot.vx) * Math.min(1, dt * 4);
-        shot.vy += (dy / length * 390 - shot.vy) * Math.min(1, dt * 4);
-      }
-    }
-    shot.x += shot.vx * dt; shot.y += shot.vy * dt; shot.life -= dt;
-  }
-  for (let index = shots.length - 1; index >= 0; index -= 1) if (shots[index].life <= 0) shots.splice(index, 1);
-}
 
 function freshShip(maxHp: number): GunshipBody {
   return { x: 600, y: 260, vx: 0, vy: 0, angle: Math.PI / 2, hp: maxHp, maxHp, fireCooldown: 0, thrust: 0, turn: 0, thrustTurnK: 0, drag: 0 };
@@ -74,91 +55,58 @@ function freshShip(maxHp: number): GunshipBody {
 
 export function runEpisode(agent: GunshipAgent, airframeId: AirframeId, capSeconds: number, density: number): EpisodeResult {
   const airframe = airframeById(airframeId);
-  const run = createRunProgress();
-  const ship = freshShip(Math.round(airframe.maxHp * W.hp));
-  let wave = 1;
-  let nextId = 50;
-  let enemies: Enemy[] = slowFire(capChasers(densify(spawnWave(wave, nextId), density, wave)));
-  nextId += enemies.length;
-  let enemyShots: EnemyShot[] = [];
-  let bullets: EnemyShot[] = [];
+  const initialEnemies = slowFire(capChasers(densify(spawnWave(1, 50), density, 1)));
+  const state: GunshipCoreState = {
+    run: createRunProgress(),
+    ship: freshShip(Math.round(airframe.maxHp * W.hp)),
+    airframe,
+    wave: 1,
+    nextId: 50 + initialEnemies.length,
+    enemies: initialEnemies,
+    enemyShots: [],
+    bullets: [],
+    missileCooldown: 0,
+    elapsed: 0,
+  };
   let episodeReward = 0;
   let lastReward = 0;
   let kills = 0;
-  let elapsed = 0;
-  let missileCooldown = 0;
   let upgradeRewardMark = 0;
+  const rewards: GunshipRewardWeights = {
+    survival: W.survival,
+    ceiling: W.ceiling,
+    death: W.death,
+    hpDeath: W.hpDeath,
+    kill: W.kill,
+    hit: W.hit,
+    wave: W.wave,
+  };
+  const createWave = (wave: number, nextId: number): Enemy[] => (
+    slowFire(capChasers(densify(spawnWave(wave, nextId), density, wave)))
+  );
 
-  while (elapsed < capSeconds) {
+  while (state.elapsed < capSeconds) {
     // Level-up resolves immediately here; the game gives a human 5s to override.
-    if (run.pending > 0) {
-      const offer = choicesFor(run);
-      const slot = agent.decideUpgrade({ offer: offer.map((choice) => choice.id), level: run.level }, episodeReward - upgradeRewardMark);
+    if (state.run.pending > 0) {
+      const offer = choicesFor(state.run);
+      const slot = agent.decideUpgrade({ offer: offer.map((choice) => choice.id), level: state.run.level }, episodeReward - upgradeRewardMark);
       upgradeRewardMark = episodeReward;
-      applyUpgrade(run, offer[Math.min(offer.length - 1, slot)]);
+      applyUpgrade(state.run, offer[Math.min(offer.length - 1, slot)]);
       continue;
     }
-    const rewardStart = episodeReward;
-    elapsed += DT;
-    configureShip(ship, run, airframe, 0);
-    const action = agent.decide(ship, enemies, enemyShots, DT, lastReward).action;
-    stepPhysics(ship, action, DT);
-    missileCooldown = Math.max(0, missileCooldown - DT);
-    if (action.fire && ship.fireCooldown <= 0) {
-      bullets.push({ x: ship.x + Math.cos(ship.angle) * 28, y: ship.y - Math.sin(ship.angle) * 28, vx: Math.cos(ship.angle) * 610, vy: -Math.sin(ship.angle) * 610, life: 2.2, weapon: 'cannon' });
-      ship.fireCooldown = .22 / (1.16 ** run.fireRate);
+    const action = agent.decide(state.ship, state.enemies, state.enemyShots, DT, lastReward).action;
+    const result = stepGunshipCore(state, action, DT, { rewards, createWave });
+    episodeReward += result.reward;
+    kills += result.kills;
+    if (result.finalReward !== null) {
+      agent.finishEpisode(result.finalReward);
+      return { seconds: state.elapsed, kills, wave: state.wave, fell: result.fell, reward: episodeReward };
     }
-    if (action.fire && run.missile > 0 && missileCooldown <= 0) {
-      const target = enemies.slice().sort((a, b) => Math.hypot(a.x - ship.x, a.y - ship.y) - Math.hypot(b.x - ship.x, b.y - ship.y))[0];
-      if (target) {
-        const dx = target.x - ship.x; const dy = target.y - ship.y;
-        const length = Math.max(1, Math.hypot(dx, dy));
-        bullets.push({ x: ship.x, y: ship.y, vx: dx / length * 300, vy: dy / length * 300, life: 3.2, weapon: 'missile' });
-        missileCooldown = 2.4;
-      }
-    }
-    stepEnemies(enemies, enemyShots, ship, DT);
-    moveShots(enemyShots, DT, enemies);
-    moveShots(bullets, DT, enemies);
-
-    for (let index = bullets.length - 1; index >= 0; index -= 1) {
-      const bullet = bullets[index];
-      const target = enemies.find((enemy) => Math.hypot(enemy.x - bullet.x, enemy.y - bullet.y) < enemy.radius + 4 && !(enemy.kind === 'submarine' && !enemy.surfaced));
-      if (!target) continue;
-      const surface = SURFACE_KINDS.includes(target.kind);
-      const damage = (bullet.weapon === 'missile' ? 48 : surface ? 14 : 24) * 1.2 ** run.damage;
-      target.hp -= damage;
-      if (target.kind === 'battleship') episodeReward += damage * .03;
-      bullets.splice(index, 1);
-      if (target.hp > 0) continue;
-      enemies.splice(enemies.indexOf(target), 1);
-      kills += 1;
-      addXp(run, target.kind === 'battleship' ? 12 : target.kind === 'carrier' ? 7 : surface ? 3 : 1);
-      episodeReward += (target.kind === 'battleship' ? 18 : target.kind === 'carrier' ? 10 : surface ? 5 : 2) * W.kill;
-    }
-    for (let index = enemyShots.length - 1; index >= 0; index -= 1) {
-      if (Math.hypot(enemyShots[index].x - ship.x, enemyShots[index].y - ship.y) >= 20) continue;
-      ship.hp -= 10;
-      enemyShots.splice(index, 1);
-      episodeReward += W.hit;
-    }
-
-    episodeReward += DT * W.survival;
-    if (ceilingMargin(ship) < 70) episodeReward -= DT * W.ceiling;
-    if (enemies.length === 0) { wave += 1; enemies = slowFire(capChasers(densify(spawnWave(wave, nextId), density, wave))); nextId += enemies.length; episodeReward += W.wave; }
-
-    if (ship.y >= SEA_Y || ship.hp <= 0) {
-      const fell = ship.y >= SEA_Y;
-      const finalReward = fell ? W.death : W.hpDeath;
-      episodeReward += finalReward;
-      agent.finishEpisode(finalReward);
-      return { seconds: elapsed, kills, wave, fell, reward: episodeReward };
-    }
-    lastReward = episodeReward - rewardStart;
+    lastReward = result.reward;
   }
   // Timed out rather than died: treat as a neutral cut so the cap cannot be farmed.
   agent.finishEpisode(0);
-  return { seconds: elapsed, kills, wave, fell: false, reward: episodeReward };
+  return { seconds: state.elapsed, kills, wave: state.wave, fell: false, reward: episodeReward };
 }
 
 function mean(values: number[]): number {

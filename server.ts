@@ -13,6 +13,7 @@ import { SubmarineCablesRuntime } from './game/submarine_cables_runtime';
 import { SubmarineNetwork3DRuntime } from './game/submarine_network_3d_runtime';
 import { EscortTdRuntime } from './game/escort_td_runtime';
 import { ArenaShooterSaveStore, type ArenaSaveBundle } from './game/arena_shooter_save_store';
+import { ModelFileStore } from './scripts/rl/model_file_store';
 
 const DEFAULT_PORT = Number.parseInt(process.env.GAME_TERRARIUM_PORT || process.env.PORT || '3000', 10) || 3000;
 const telemetry = new Map<string, any>();
@@ -300,6 +301,12 @@ export async function startServer(
   port = DEFAULT_PORT,
 ): Promise<void> {
   const projectRoot = path.resolve(__dirname, '..');
+  const rlModelStores = new Map([
+    ['gunship', new ModelFileStore<any>(projectRoot, 'gunship-live-models')],
+    ['drone-bastion', new ModelFileStore<any>(projectRoot, 'drone-bastion-live-model')],
+    ['arena-shooter', new ModelFileStore<any>(projectRoot, 'arena-shooter-live-model')],
+    ['network-defense', new ModelFileStore<any>(projectRoot, 'network-defense-live-model')],
+  ]);
   const shipJumpLogPath = path.join(projectRoot, 'logs', 'planet_strategy_ship_jumps.log');
   const engineModuleUrl = pathToFileURL(path.join(projectRoot, 'build-node', 'game', 'engine.js')).href;
   const importEngineModule = new Function('moduleUrl', 'return import(moduleUrl);') as (moduleUrl: string) => Promise<any>;
@@ -334,21 +341,37 @@ export async function startServer(
     });
   });
 
-  app.get('/api/gunship/live-models', async (_req, res) => {
+  const emptyGunshipModels = () => ({ version: 1, revision: 0, publishedAt: null, models: {} });
+  const emptyRlModel = (gameId: string) => gameId === 'drone-bastion' || gameId === 'arena-shooter' || gameId === 'network-defense'
+    ? { version: 1, revision: 0, publishedAt: null }
+    : emptyGunshipModels();
+  const modelStoreFor = (gameId: string) => rlModelStores.get(gameId);
+
+  app.get('/api/rl/models/:gameId', async (req, res) => {
+    const store = modelStoreFor(req.params.gameId);
+    if (!store) return res.status(404).json({ ok: false, error: 'unknown RL game' });
+    res.json(await store.load(() => emptyRlModel(req.params.gameId)));
+  });
+
+  app.post('/api/rl/models/:gameId/reset', async (req, res) => {
+    const store = modelStoreFor(req.params.gameId);
+    if (!store) return res.status(404).json({ ok: false, error: 'unknown RL game' });
     try {
-      const raw = await fs.readFile(path.join(projectRoot, 'logs', 'gunship-live-models.json'), 'utf8');
-      res.json(JSON.parse(raw));
-    } catch {
-      res.json({ version: 1, revision: 0, publishedAt: null, models: {} });
+      await store.requestReset();
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(500).json({ ok: false, error: String(error) });
     }
+  });
+
+  // Compatibility aliases for existing Gunship clients.
+  app.get('/api/gunship/live-models', async (_req, res) => {
+    res.json(await rlModelStores.get('gunship')!.load(emptyGunshipModels));
   });
 
   app.post('/api/gunship/live-models/reset', async (_req, res) => {
     try {
-      const modelPath = path.join(projectRoot, 'logs', 'gunship-live-models.json');
-      await fs.mkdir(path.dirname(modelPath), { recursive: true });
-      await fs.writeFile(path.join(projectRoot, 'logs', 'gunship-live-models.reset'), String(Date.now()), 'utf8');
-      await fs.rm(modelPath, { force: true });
+      await rlModelStores.get('gunship')!.requestReset();
       res.json({ ok: true });
     } catch (error) { res.status(500).json({ ok: false, error: String(error) }); }
   });
@@ -569,4 +592,3 @@ export async function startServer(
     });
   });
 }
-

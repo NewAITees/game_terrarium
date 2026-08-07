@@ -55,6 +55,7 @@ export class DroneBastionAgent {
   private previousUpgrade: 'deploy' | 'upgrade' | undefined;
   private upgradeReward = 0;
   private combatReward = 0;
+  private evaluationMode = false;
 
   decide(observation: DroneBastionObservation, dt: number, reward: number): TabularDecision<DroneAction> {
     this.upgradeReward += reward;
@@ -69,23 +70,25 @@ export class DroneBastionAgent {
   }
 
   chooseUpgrade(state: DroneBastionState): 'deploy' | 'upgrade' {
-    this.updateUpgradeValue();
+    if (!this.evaluationMode) this.updateUpgradeValue();
     const canDeploy = state.drones.length < 6;
-    const exploratory = Math.random() < this.learner.epsilon;
+    const exploratory = !this.evaluationMode && Math.random() < this.learner.epsilon;
     const choice = canDeploy && (exploratory
       ? Math.random() < 0.5
       : this.upgradeValues.deploy >= this.upgradeValues.upgrade)
       ? 'deploy'
       : 'upgrade';
-    this.previousUpgrade = choice;
+    this.previousUpgrade = this.evaluationMode ? undefined : choice;
     this.upgradeReward = 0;
     return choice;
   }
 
   finishEpisode(finalReward: number): void {
     this.upgradeReward += finalReward;
-    this.updateUpgradeValue();
+    if (!this.evaluationMode) this.updateUpgradeValue();
     this.learner.finishEpisode(this.combatReward + finalReward);
+    this.previousUpgrade = undefined;
+    this.upgradeReward = 0;
     this.combatReward = 0;
     this.decisionTimer = 0;
   }
@@ -120,6 +123,15 @@ export class DroneBastionAgent {
 
   get knownStates(): number {
     return this.learner.knownStates;
+  }
+
+  setEvaluationMode(enabled: boolean): void {
+    this.evaluationMode = enabled;
+    this.learner.setEvaluationMode(enabled);
+    this.previousUpgrade = undefined;
+    this.upgradeReward = 0;
+    this.combatReward = 0;
+    this.decisionTimer = 0;
   }
 
   private updateUpgradeValue(): void {

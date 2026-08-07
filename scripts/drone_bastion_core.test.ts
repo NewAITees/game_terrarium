@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { DroneBastionAgent } from '../apps/drone-bastion/drone_bastion_agent';
 import {
   applyBastionUpgrade,
   createDroneBastionState,
@@ -225,4 +226,16 @@ test('a fixed seed and action sequence produces the same simulation', () => {
     stepDroneBastion(second, coast, 0.05);
   }
   assert.deepEqual(first, second);
+});
+
+test('evaluation playback cannot mutate the Drone Bastion model', () => {
+  const state = createDroneBastionState(800, 600, 321);
+  const agent = new DroneBastionAgent();
+  agent.setEvaluationMode(true);
+  const before = agent.serialize();
+  const decision = agent.decide(observeDroneBastion(state), 0.2, 5);
+  stepDroneBastion(state, decision.action, 0.2);
+  agent.chooseUpgrade(state);
+  agent.finishEpisode(-30);
+  assert.deepEqual(agent.serialize(), before);
 });

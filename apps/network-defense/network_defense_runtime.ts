@@ -3,7 +3,6 @@ import {
   applyAttack as applyNetworkDefenseAttack,
   applyDefense as applyNetworkDefenseDefense,
   removePacket as removeNetworkDefensePacket,
-  setNodeColor as setNetworkDefenseNodeColor,
   spawnEnemy as spawnNetworkDefenseEnemy,
   spawnNormalTraffic as spawnNetworkDefenseTraffic,
   spawnScanner as spawnNetworkDefenseScanner,
@@ -38,7 +37,7 @@ export function createNetworkDefenseRuntime(context: any) {
   }
 
   function removePacket(list: any[], index: number): void {
-    removeNetworkDefensePacket({ scene: context.scene }, list, index);
+    removeNetworkDefensePacket({ visuals: context.visuals }, list, index);
   }
 
   function spawnNormalTraffic(): void {
@@ -73,6 +72,7 @@ export function createNetworkDefenseRuntime(context: any) {
       triggerFlash: context.triggerFlash,
       normalPool: context.normalPool,
       removePacket,
+      visuals: context.visuals,
     }, dt);
   }
 
@@ -103,15 +103,12 @@ export function createNetworkDefenseRuntime(context: any) {
       normalPool: context.normalPool,
       enemyPackets: context.enemyPackets,
       removePacket,
+      visuals: context.visuals,
     }, list, dt, onArrive);
   }
 
-  function setNodeColor(node: any, now: number): void {
-    setNetworkDefenseNodeColor(node, now);
-  }
-
   function updateNodes(dt: number, now: number): void {
-    updateNetworkDefenseNodes({ topo: context.topo, adj: context.adj, setNodeColor }, dt, now);
+    updateNetworkDefenseNodes({ topo: context.topo, adj: context.adj, visuals: context.visuals }, dt, now);
   }
 
   function applyAgentArrival(agent: any, lastEdge: any, now: number): void {
@@ -146,6 +143,7 @@ export function createNetworkDefenseRuntime(context: any) {
       applyAgentArrival,
       idleAtSpot,
       teleportHome,
+      visuals: context.visuals,
     }, dt, now);
   }
 

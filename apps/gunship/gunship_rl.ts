@@ -73,6 +73,7 @@ export class GunshipAgent {
   episodes = 0;
   private timer = 0;
   private current = ACTIONS[0];
+  private evaluationMode = false;
 
   private pendingReward = 0;
   decide(ship: GunshipBody, targets: GunshipTarget[], hazards: GunshipHazard[], dt: number, reward: number): { action: GunshipAction; exploratory: boolean } {
@@ -90,7 +91,7 @@ export class GunshipAgent {
 
   // Called when a level-up window resolves. `reward` is the return earned since the previous pick; returns the chosen slot.
   decideUpgrade(context: UpgradeContext, reward: number): number { this.upgradeLearner.observe(context, reward); return this.upgradeLearner.decide(context).actionIndex; }
-  finishEpisode(finalReward: number): void { this.learner.finishEpisode(finalReward); this.upgradeLearner.finishEpisode(finalReward); this.episodes++; this.timer = 0; }
+  finishEpisode(finalReward: number): void { this.learner.finishEpisode(finalReward); this.upgradeLearner.finishEpisode(finalReward); if (!this.evaluationMode) this.episodes++; this.timer = 0; this.pendingReward = 0; }
   serialize(): GunshipAgentSave { return { version: 5, learner: this.learner.serialize(), upgrade: this.upgradeLearner.serialize(), episodes: this.episodes }; }
   restore(save: GunshipAgentSave): void {
     // v5 changes the reward contract for battleship damage. v4 adds thrust-and-fire actions, changing every Q-table action index. v3 redefined what the state key means (attitude became a lift ratio, the aim
@@ -105,7 +106,7 @@ export class GunshipAgent {
   // Greedy playback of what the policy actually knows, with exploration and
   // learning switched off. Training medians include random actions and therefore
   // understate the learned behaviour.
-  setEvaluationMode(enabled: boolean): void { this.learner.setEvaluationMode(enabled); this.upgradeLearner.setEvaluationMode(enabled); this.timer = 0; }
+  setEvaluationMode(enabled: boolean): void { this.evaluationMode = enabled; this.learner.setEvaluationMode(enabled); this.upgradeLearner.setEvaluationMode(enabled); this.timer = 0; this.pendingReward = 0; }
   get epsilon(): number { return this.learner.epsilon; }
   get steps(): number { return this.learner.trainingSteps; }
   get knownStates(): number { return this.learner.knownStates; }

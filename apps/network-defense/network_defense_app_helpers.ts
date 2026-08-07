@@ -48,11 +48,11 @@ export function createNetworkDefenseAppHelpers(context: any) {
   }
 
   function createPacket(color: any, radius: any) {
-    return createDefensePacket({ scene: context.scene }, color, radius);
+    return createDefensePacket({ visuals: context.visuals }, color, radius);
   }
 
   function createAgent(rank: string, index = context.agents.length) {
-    return createDefenseAgent({ scene: context.scene, topo: context.topo, agents: context.agents }, rank, index);
+    return createDefenseAgent({ visuals: context.visuals, topo: context.topo, agents: context.agents }, rank, index);
   }
 
   function seedAgents() {
@@ -78,11 +78,11 @@ export function createNetworkDefenseAppHelpers(context: any) {
   }
 
   function deployFirewall(edge: any, now: number) {
-    deployNetworkDefenseFirewall({ edge, now, firewalls: context.firewalls, scene: context.scene, edgeKey: context.edgeKey });
+    deployNetworkDefenseFirewall({ edge, now, firewalls: context.firewalls, visuals: context.visuals, edgeKey: context.edgeKey });
   }
 
   function updateFirewalls(now: number, dt: number) {
-    updateNetworkDefenseFirewalls({ firewalls: context.firewalls, scene: context.scene, now });
+    updateNetworkDefenseFirewalls({ firewalls: context.firewalls, visuals: context.visuals, now });
   }
 
   function edgeTravelFactor(edge: any) {
