@@ -13,6 +13,8 @@ export type DroneBastionEpisodeResult = {
   kills: number;
   reward: number;
   outcome: 'defeat' | 'timeout';
+  terminated: boolean;
+  truncated: boolean;
 };
 
 export function runDroneBastionEpisode(
@@ -36,5 +38,7 @@ export function runDroneBastionEpisode(
     kills: state.kills,
     reward: state.episodeReward,
     outcome: state.gameOver ? 'defeat' : 'timeout',
+    terminated: state.gameOver,
+    truncated: !state.gameOver,
   };
 }

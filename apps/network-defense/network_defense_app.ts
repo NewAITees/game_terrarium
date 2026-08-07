@@ -35,7 +35,7 @@ const NETWORK_DEFENSE_MODEL_COMPATIBILITY = {
   rewardSchemaVersion: 1,
 } as const;
 
-export function startNetworkDefenseApp({ observerMode = false }: { observerMode?: boolean } = {}): void {
+export async function startNetworkDefenseApp({ observerMode = false }: { observerMode?: boolean } = {}): Promise<void> {
 const rlMode = !observerMode && new URLSearchParams(location.search).get('ai') !== 'rules';
 const {
   adj,
@@ -175,9 +175,8 @@ const rlController = rlMode
 let activeModelRevision = 0;
 if (rlController) {
   rlController.setEvaluationMode(true);
-  void loadPublishedNetworkDefenseModel(rlController).then((revision) => {
-    activeModelRevision = revision;
-  });
+  document.documentElement.dataset.rlModelStatus = 'loading';
+  activeModelRevision = await loadPublishedNetworkDefenseModel(rlController);
 }
 const assignAgent = rlController
   ? (agent: any) => rlController.assignAgent(agent)
@@ -331,16 +330,19 @@ startNetworkDefenseLoop({
 async function loadPublishedNetworkDefenseModel(controller: NetworkDefenseRlController): Promise<number> {
   try {
     const response = await fetch('/api/rl/models/network-defense', { cache: 'no-store' });
-    if (!response.ok) return 0;
+    if (!response.ok) { document.documentElement.dataset.rlModelStatus = 'unavailable'; return 0; }
     const bundle = await response.json() as {
       manifest?: ModelManifest;
       model?: NetworkDefenseRlSave;
     };
-    if (!bundle.model || !isCompatibleModelManifest(bundle.manifest, NETWORK_DEFENSE_MODEL_COMPATIBILITY)) return 0;
+    if (bundle.manifest && !isCompatibleModelManifest(bundle.manifest, NETWORK_DEFENSE_MODEL_COMPATIBILITY)) { document.documentElement.dataset.rlModelStatus = 'incompatible'; return 0; }
+    if (!bundle.model) { document.documentElement.dataset.rlModelStatus = 'fallback'; return 0; }
     controller.restore(bundle.model);
     controller.setEvaluationMode(true);
+    document.documentElement.dataset.rlModelStatus = 'compatible';
     return bundle.manifest.revision;
   } catch {
+    document.documentElement.dataset.rlModelStatus = 'unavailable';
     return 0;
   }
 }

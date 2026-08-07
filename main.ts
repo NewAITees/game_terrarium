@@ -277,12 +277,17 @@ app.whenReady().then(async () => {
     if (await canReuseGameServer(activeServerPort)) {
       console.log(`[server] reusing game server on port ${activeServerPort}`);
     } else {
-      const dispatch = (type: string, payload: any) => {
+      const dispatch = async (type: string, payload: any) => {
         if (type === 'switch_page') {
           const page = String(payload?.page ?? '');
           if (!isPageKey(page)) return { error: `unknown page: ${page}` };
           loadPage(page);
           return { currentPage };
+        }
+        if (type === 'rl_model_status') {
+          if (!win) return { error: 'window unavailable' };
+          const status = await win.webContents.executeJavaScript('document.documentElement.dataset.rlModelStatus || "unknown"', true);
+          return { status };
         }
         return { error: `unknown action: ${type}` };
       };

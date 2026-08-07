@@ -369,17 +369,17 @@ DQNまたはPPOへの昇格は、次をすべて満たした場合に行う。
 
 ### P0 — 現行並列実行の仕上げ
 
-- [ ] Gunship、Drone Bastion、Arena Shooter、Network Defenseの`start:*-live`をElectronでスモーク確認する。
-- [ ] Trainer停止後もPlayerが最後の正常snapshotで推論を継続することを確認する。
-- [ ] model reset、revision更新、manifest不一致時のfallbackを実機確認する。
-- [ ] Playerが初回model取得を完了する前に未学習方策を実行しない起動境界を追加する。
+- [x] Gunship、Drone Bastion、Arena Shooter、Network Defenseの`start:*-live`をElectronでスモーク確認する。`npm run smoke:rl-live`で隔離モデル領域を使い4ゲームを順次検証する。
+- [x] Trainer停止後もPlayerが最後の正常snapshotで推論を継続することを確認する。短時間Trainer終了後もElectron pageの生存とrenderer error不在を検査する。
+- [x] model reset、revision更新、manifest不一致時のfallbackを実機確認する。reset後の再publishと、schema versionを破壊したsnapshotの拒否状態までElectronから取得して検証する。
+- [x] Playerが初回model取得を完了する前に未学習方策を実行しない起動境界を追加する。4ゲームとも初回fetch完了まではsimulation updateを開始しない。
 
 ### P1 — 共通評価基盤
 
-- [ ] 固定seedを受け取るゲーム非依存の評価runnerを追加する。
-- [ ] `terminated`と`truncated`をepisode結果で区別する。
-- [ ] 共通`EpisodeMetrics` schemaでJSONLまたはCSVを出力する。
-- [ ] 勝率、平均報酬、到達wave、score、学習step、wall timeをゲーム別task指標として集計する。
+- [x] 固定seedを受け取るゲーム非依存の評価runnerを追加する。`scripts/rl/evaluation_runner.ts`がadapterとseed列を受け取り、同一順序でepisodeを実行する。
+- [x] `terminated`と`truncated`をepisode結果で区別する。4ゲームのheadless episode結果と共通評価schemaで明示する。
+- [x] 共通`EpisodeMetrics` schemaでJSONLと集計JSONを出力する。
+- [x] 勝率、平均報酬、到達wave、score、学習step、wall timeをゲーム別task指標として集計する。`npm run eval:rl-baselines`でJSONLとsummaryを生成する。
 - [ ] 4ゲームの現行Tabular Qモデルを同じseed集合で評価し、比較用baselineを保存する。
 
 ### P2 — Championモデル管理

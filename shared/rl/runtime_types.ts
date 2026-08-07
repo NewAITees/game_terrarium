@@ -48,6 +48,8 @@ export type EpisodeMetrics = {
   seed: number;
   decisionSteps: number;
   elapsedSeconds: number;
+  terminated: boolean;
+  truncated: boolean;
   outcome: 'success' | 'failure' | 'timeout';
   taskReturn: number;
   shapedReturn: number;

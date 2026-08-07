@@ -18,7 +18,7 @@ const compatibility = {
   observationSchemaVersion: 1,
   rewardSchemaVersion: 1,
 } as const;
-const store = new ModelFileStore<LiveModel>(process.cwd(), 'network-defense-live-model');
+const store = new ModelFileStore<LiveModel>(process.env.RL_MODEL_ROOT || process.cwd(), 'network-defense-live-model');
 const args = new Map(process.argv.slice(2).map((token) => {
   const [key, value = ''] = token.replace(/^--/, '').split('=');
   return [key, value];

@@ -51,16 +51,25 @@ function slowFire(enemies: Enemy[]): Enemy[] {
   return enemies;
 }
 
-type EpisodeResult = { seconds: number; kills: number; wave: number; fell: boolean; reward: number };
+export type GunshipEpisodeResult = {
+  seed: number;
+  seconds: number;
+  kills: number;
+  wave: number;
+  fell: boolean;
+  reward: number;
+  terminated: boolean;
+  truncated: boolean;
+};
 
 function freshShip(maxHp: number): GunshipBody {
   return { x: 1800, y: 260, vx: 0, vy: 0, angle: Math.PI / 2, hp: maxHp, maxHp, fireCooldown: 0, thrust: 0, turn: 0, thrustTurnK: 0, drag: 0 };
 }
 
-export function runEpisode(agent: GunshipAgent, airframeId: AirframeId, capSeconds: number, density: number): EpisodeResult {
+export function runEpisode(agent: GunshipAgent, airframeId: AirframeId, capSeconds: number, density: number, seed = 1): GunshipEpisodeResult {
   const airframe = airframeById(airframeId);
-  const nextId = 50;
-  const initialEnemies = slowFire(capChasers(densify(spawnWave(1, nextId), density, 1)));
+  const nextId = 50 + seed * 1000;
+  const initialEnemies = slowFire(capChasers(densify(spawnWave(1, nextId), density, seed)));
   const state: GunshipCoreState = createGunshipCoreState(
     freshShip(Math.round(airframe.maxHp * W.hp)),
     createRunProgress(),
@@ -101,13 +110,13 @@ export function runEpisode(agent: GunshipAgent, airframeId: AirframeId, capSecon
     kills += result.kills;
     if (result.finalReward !== null) {
       agent.finishEpisode(result.finalReward);
-      return { seconds: state.elapsed, kills, wave: state.wave, fell: result.fell, reward: episodeReward };
+      return { seed, seconds: state.elapsed, kills, wave: state.wave, fell: result.fell, reward: episodeReward, terminated: true, truncated: false };
     }
     lastReward = result.reward;
   }
   // Timed out rather than died: treat as a neutral cut so the cap cannot be farmed.
   agent.finishEpisode(0);
-  return { seconds: state.elapsed, kills, wave: state.wave, fell: false, reward: episodeReward };
+  return { seed, seconds: state.elapsed, kills, wave: state.wave, fell: false, reward: episodeReward, terminated: false, truncated: true };
 }
 
 function mean(values: number[]): number {
@@ -144,12 +153,12 @@ function main(): void {
   for (const airframeId of airframes) {
     // One agent's curve is mostly noise at this episode count, so average the
     // per-block medians over independent agents before reading any trend.
-    const runs: EpisodeResult[][] = [];
+    const runs: GunshipEpisodeResult[][] = [];
     const agents: GunshipAgent[] = [];
     for (let repeat = 0; repeat < repeats; repeat += 1) {
       const agent = new GunshipAgent();
       agents.push(agent);
-      const single: EpisodeResult[] = [];
+      const single: GunshipEpisodeResult[] = [];
       for (let episode = 0; episode < episodes; episode += 1) single.push(runEpisode(agent, airframeId, capSeconds, density));
       runs.push(single);
     }

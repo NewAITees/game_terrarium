@@ -31,6 +31,7 @@ import {
 import { loadArenaSave, saveArenaState } from './arena_shooter_save.js';
 import { renderArena } from './arena_shooter_render.js';
 import { applyArenaProgressToState } from './arena_shooter_episode.js';
+import { isCompatibleModelManifest, type ModelManifest } from '../../shared/rl/model_manifest.js';
 
 const canvas = requireElement<HTMLCanvasElement>('arena');
 const context = canvas.getContext('2d');
@@ -40,18 +41,12 @@ const loaded = await loadArenaSave();
 const state = createArenaState(1600, 900);
 const craftPreference = loadCraftPreference();
 setCraftPreference(state, craftPreference);
-const agent = new QLearningAgent();
+let agent = new QLearningAgent();
 agent.setEvaluationMode(true);
-// The visible ship only ever plays back the latest synced policy; all learning
-// happens in backgroundAgent below so the two can never fall out of process sync.
-const backgroundAgent = new QLearningAgent();
-const backgroundState = createArenaState(960, 540);
-setCraftPreference(backgroundState, 'random');
-let backgroundRun = createRunProgress();
-let backgroundReward = 0;
-let syncTimer = 0;
-const BACKGROUND_STEP_BUDGET_MS = 6;
-const SYNC_INTERVAL_SECONDS = 2;
+type LiveModelBundle = { version: 1; revision: number; manifest?: ModelManifest; model?: QLearningAgentSave };
+const liveModelCompatibility = { gameId: 'arena-shooter', algorithm: 'tabular-q', modelVersion: 1, observationSchemaVersion: 1, rewardSchemaVersion: 1 } as const;
+let loadedModelRevision = -1;
+let modelReady = false;
 let meta: ArenaMetaProgress = {
   ...DEFAULT_META,
   data: loaded?.data ?? DEFAULT_META.data,
@@ -123,7 +118,15 @@ const ui = {
 ui.craftSelect.value = craftPreference;
 ui.mode.textContent = 'HEADLESS TRAINING';
 ui.mode.dataset.training = 'false';
-ui.agentStatus.textContent = 'BG TRAINING STARTING';
+ui.agentStatus.textContent = 'WAITING FOR MODEL';
+document.documentElement.dataset.rlModelStatus = 'loading';
+void reloadLiveModel().finally(() => {
+  modelReady = true;
+  if (loadedModelRevision < 0 && document.documentElement.dataset.rlModelStatus === 'loading') {
+    document.documentElement.dataset.rlModelStatus = 'fallback';
+    ui.agentStatus.textContent = 'INFERENCE FALLBACK';
+  }
+});
 
 function resize(): void {
   const ratio = Math.min(window.devicePixelRatio || 1, 2);
@@ -138,6 +141,10 @@ function resize(): void {
 function frame(now: number): void {
   const dt = Math.min(0.033, (now - previousTime) / 1000);
   previousTime = now;
+  if (!modelReady) {
+    requestAnimationFrame(frame);
+    return;
+  }
   configureShipFromProgress();
   const observation = observeArena(state);
   const decision = agent.decide(observation, dt, accumulatedReward);
@@ -161,57 +168,12 @@ function frame(now: number): void {
     }
   }
 
-  runBackgroundTraining();
-  syncTimer += dt;
-  if (syncTimer >= SYNC_INTERVAL_SECONDS) {
-    syncTimer = 0;
-    agent.restore(backgroundAgent.serialize());
-    ui.agentStatus.textContent = `BG TRAINED · ${backgroundAgent.trainingSteps.toLocaleString()} steps`;
-  }
-
   bannerTimer -= dt;
   ui.banner.dataset.open = String(bannerTimer > 0);
   renderArena(context, state, observation, decision);
   updateHud(decision.action.label, decision.exploratory, observation);
   updatePanelOcclusion();
   requestAnimationFrame(frame);
-}
-
-// Runs many unrendered episodes on a separate arena instance within the same
-// process/tick, time-boxed so it never starves the visible frame. This is what
-// keeps training running for as long as the app is open, with no separate
-// process to start, forget, or fall out of sync with what's on screen.
-function runBackgroundTraining(): void {
-  const deadline = performance.now() + BACKGROUND_STEP_BUDGET_MS;
-  while (performance.now() < deadline) {
-    const observation = observeArena(backgroundState);
-    const decision = backgroundAgent.decide(observation, 1 / 60, backgroundReward);
-    const result = stepArena(backgroundState, decision.action, 1 / 60);
-    backgroundReward = result.reward;
-    for (const value of result.killedValues) addKillProgress(backgroundRun, value, backgroundState.wave);
-    while (backgroundRun.pendingUpgrades > 0) {
-      applyUpgrade(backgroundRun, getUpgradeChoices(backgroundRun, backgroundState.ship.craftType)[0], () => {
-        backgroundState.ship.hp = backgroundState.ship.maxHp;
-      });
-    }
-    backgroundState.pulseLevel = backgroundRun.weapons.pulse;
-    backgroundState.fireRateLevel = backgroundRun.fireRateLevel;
-    backgroundState.projectileCountLevel = backgroundRun.projectileCountLevel;
-    backgroundState.projectileSpeedLevel = backgroundRun.projectileSpeedLevel;
-    backgroundState.projectileInterceptLevel = backgroundRun.projectileInterceptLevel;
-    backgroundState.turretTurnLevel = backgroundRun.turretTurnLevel;
-    backgroundState.missileLevel = backgroundRun.weapons.missile;
-    backgroundState.novaLevel = backgroundRun.weapons.nova;
-    backgroundState.laserLevel = backgroundRun.weapons.laser;
-    backgroundState.ricochetLevel = backgroundRun.weapons.ricochet;
-    backgroundState.trailLevel = backgroundRun.weapons.trail;
-    if (backgroundState.ship.hp <= 0) {
-      backgroundAgent.finishEpisode(backgroundReward - 12);
-      backgroundRun = createRunProgress();
-      resetEpisode(backgroundState);
-      backgroundReward = 0;
-    }
-  }
 }
 
 function configureShipFromProgress(): void {
@@ -271,11 +233,37 @@ function finishEpisode(): void {
   const earned = collectEpisode(meta, run, state.wave, state.kills);
   showBanner(`RUN COMPLETE  +${earned} DATA`, 4);
   persist();
-  run = createRunProgress();
-  resetEpisode(state);
-  configureShipFromProgress();
-  state.ship.hp = state.ship.maxHp;
-  accumulatedReward = 0;
+  const resume = paused;
+  paused = true;
+  void reloadLiveModel().finally(() => {
+    run = createRunProgress();
+    resetEpisode(state);
+    configureShipFromProgress();
+    state.ship.hp = state.ship.maxHp;
+    accumulatedReward = 0;
+    paused = resume;
+  });
+}
+
+async function reloadLiveModel(): Promise<void> {
+  try {
+    const response = await fetch('/api/rl/models/arena-shooter', { cache: 'no-store' });
+    if (!response.ok) { document.documentElement.dataset.rlModelStatus = 'unavailable'; return; }
+    const bundle = await response.json() as LiveModelBundle;
+    if (bundle.manifest && !isCompatibleModelManifest(bundle.manifest, liveModelCompatibility)) { document.documentElement.dataset.rlModelStatus = 'incompatible'; return; }
+    if (!bundle.model) { document.documentElement.dataset.rlModelStatus = 'fallback'; return; }
+    if (bundle.revision <= loadedModelRevision) return;
+    const next = new QLearningAgent();
+    next.restore(bundle.model);
+    next.setEvaluationMode(true);
+    agent = next;
+    loadedModelRevision = bundle.revision;
+    document.documentElement.dataset.rlModelStatus = 'compatible';
+    ui.agentStatus.textContent = `INFERENCE r${bundle.revision}`;
+  } catch {
+    document.documentElement.dataset.rlModelStatus = 'unavailable';
+    // Keep the last compatible inference model.
+  }
 }
 
 function persist(): void {

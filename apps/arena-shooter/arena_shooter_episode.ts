@@ -25,6 +25,8 @@ export type ArenaEpisodeResult = {
   kills: number;
   reward: number;
   outcome: 'defeat' | 'timeout';
+  terminated: boolean;
+  truncated: boolean;
 };
 
 export function applyArenaProgressToState(
@@ -93,5 +95,7 @@ export function runArenaEpisode(
     kills: state.kills,
     reward: state.episodeReward,
     outcome: defeated ? 'defeat' : 'timeout',
+    terminated: defeated,
+    truncated: !defeated,
   };
 }

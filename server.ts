@@ -301,11 +301,12 @@ export async function startServer(
   port = DEFAULT_PORT,
 ): Promise<void> {
   const projectRoot = path.resolve(__dirname, '..');
+  const rlModelRoot = process.env.RL_MODEL_ROOT || projectRoot;
   const rlModelStores = new Map([
-    ['gunship', new ModelFileStore<any>(projectRoot, 'gunship-live-models')],
-    ['drone-bastion', new ModelFileStore<any>(projectRoot, 'drone-bastion-live-model')],
-    ['arena-shooter', new ModelFileStore<any>(projectRoot, 'arena-shooter-live-model')],
-    ['network-defense', new ModelFileStore<any>(projectRoot, 'network-defense-live-model')],
+    ['gunship', new ModelFileStore<any>(rlModelRoot, 'gunship-live-models')],
+    ['drone-bastion', new ModelFileStore<any>(rlModelRoot, 'drone-bastion-live-model')],
+    ['arena-shooter', new ModelFileStore<any>(rlModelRoot, 'arena-shooter-live-model')],
+    ['network-defense', new ModelFileStore<any>(rlModelRoot, 'network-defense-live-model')],
   ]);
   const shipJumpLogPath = path.join(projectRoot, 'logs', 'planet_strategy_ship_jumps.log');
   const engineModuleUrl = pathToFileURL(path.join(projectRoot, 'build-node', 'game', 'engine.js')).href;
@@ -570,10 +571,10 @@ export async function startServer(
     res.json(getElectronState());
   });
 
-  app.post('/electron/action', (req, res) => {
+  app.post('/electron/action', async (req, res) => {
     const { type, ...payload } = req.body || {};
     if (!type) return res.status(400).json({ ok: false, error: 'type required' });
-    const result = electronDispatch(type, payload);
+    const result = await electronDispatch(type, payload);
     if (result.error) return res.status(400).json({ ok: false, error: result.error });
     res.json({ ok: true, ...result });
   });

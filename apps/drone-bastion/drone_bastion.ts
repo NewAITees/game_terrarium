@@ -54,6 +54,7 @@ let agent = new DroneBastionAgent();
 restoreAgent();
 agent.setEvaluationMode(true);
 let loadedRevision = -1;
+let modelReady = false;
 let paused = false;
 let previousTime = performance.now();
 let upgradeTimer = 0;
@@ -61,7 +62,14 @@ let restartTimer = 0;
 let episodeFinished = false;
 let bannerTimer = 0;
 let currentDecision = agent.decide(observeDroneBastion(state), 1, 0);
-void reloadLiveModel();
+document.documentElement.dataset.rlModelStatus = 'loading';
+void reloadLiveModel().finally(() => {
+  modelReady = true;
+  if (loadedRevision < 0 && document.documentElement.dataset.rlModelStatus === 'loading') {
+    document.documentElement.dataset.rlModelStatus = 'fallback';
+    showBanner('INFERENCE FALLBACK // NO SNAPSHOT');
+  }
+});
 
 ui.pause.addEventListener('click', () => {
   paused = !paused;
@@ -73,7 +81,7 @@ ui.resetModel.addEventListener('click', () => { void resetLearning(); });
 function frame(now: number): void {
   const realDt = Math.min(0.05, Math.max(0, (now - previousTime) / 1000));
   previousTime = now;
-  if (!paused) update(realDt);
+  if (!paused && modelReady) update(realDt);
   scene3d.render(state);
   updateHud();
   requestAnimationFrame(frame);
@@ -395,18 +403,21 @@ function restoreAgent(): void {
 async function reloadLiveModel(): Promise<void> {
   try {
     const response = await fetch('/api/rl/models/drone-bastion', { cache: 'no-store' });
-    if (!response.ok) return;
+    if (!response.ok) { document.documentElement.dataset.rlModelStatus = 'unavailable'; return; }
     const bundle = await response.json() as LiveModelBundle;
-    if (bundle.manifest && !isCompatibleModelManifest(bundle.manifest, liveModelCompatibility)) return;
-    if (!bundle.model || bundle.revision <= loadedRevision) return;
+    if (bundle.manifest && !isCompatibleModelManifest(bundle.manifest, liveModelCompatibility)) { document.documentElement.dataset.rlModelStatus = 'incompatible'; return; }
+    if (!bundle.model) { document.documentElement.dataset.rlModelStatus = 'fallback'; return; }
+    if (bundle.revision <= loadedRevision) return;
     const next = new DroneBastionAgent();
     next.restore(bundle.model);
     next.setEvaluationMode(true);
     agent = next;
     loadedRevision = bundle.revision;
+    document.documentElement.dataset.rlModelStatus = 'compatible';
     currentDecision = agent.decide(observeDroneBastion(state), 1, 0);
     showBanner(`INFERENCE MODEL r${bundle.revision}`);
   } catch {
+    document.documentElement.dataset.rlModelStatus = 'unavailable';
     // Training is optional; keep the last compatible model.
   }
 }

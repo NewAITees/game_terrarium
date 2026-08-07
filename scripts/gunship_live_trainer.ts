@@ -20,8 +20,9 @@ const compatibility = {
   observationSchemaVersion: 1,
   rewardSchemaVersion: 1,
 } as const;
-const store = new ModelFileStore<LiveModels>(process.cwd(), 'gunship-live-models');
-const logsDir = join(process.cwd(), 'logs');
+const modelRoot = process.env.RL_MODEL_ROOT || process.cwd();
+const store = new ModelFileStore<LiveModels>(modelRoot, 'gunship-live-models');
+const logsDir = join(modelRoot, 'logs');
 const lockPath = join(logsDir, 'gunship-live-models.lock');
 const args = new Map(process.argv.slice(2).map((token) => { const [key, value = ''] = token.replace(/^--/, '').split('='); return [key, value]; }));
 const batch = Math.max(1, Number(args.get('batch') ?? 100));

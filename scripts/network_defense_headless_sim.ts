@@ -55,7 +55,7 @@ function buildSetup(seed: number) {
   return { ...simulation, attackPool, normalPool, scene: null, triggerFlash, visuals: nullNetworkDefenseVisualAdapter };
 }
 
-type RunResult = {
+export type NetworkDefenseEpisodeResult = {
   run: number;
   outcome: string;
   wave: number;
@@ -68,6 +68,8 @@ type RunResult = {
   trainingSteps: number;
   knownStates: number;
   model?: NetworkDefenseRlSave;
+  terminated: boolean;
+  truncated: boolean;
 };
 
 export async function runNetworkDefenseEpisode(
@@ -77,7 +79,7 @@ export async function runNetworkDefenseEpisode(
   aiMode: 'rules' | 'rl',
   model?: NetworkDefenseRlSave,
   evaluation = false,
-): Promise<RunResult> {
+): Promise<NetworkDefenseEpisodeResult> {
   const originalRandom = Math.random;
   Math.random = seededRandom(seed ^ 0x9e3779b9);
   const setup = buildSetup(seed);
@@ -205,6 +207,8 @@ export async function runNetworkDefenseEpisode(
     trainingSteps: rlController?.trainingSteps ?? 0,
     knownStates: rlController?.knownStates ?? 0,
     model: rlController?.serialize(),
+    terminated: game.gameOver,
+    truncated: !game.gameOver,
   };
   Math.random = originalRandom;
   return result;

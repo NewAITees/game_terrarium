@@ -9,6 +9,7 @@ import { type XpOrb } from './gunship_pickups.js';
 import { weaponKind, weaponProfile } from './gunship_weapons.js';
 import { createGunshipEffects, emitImpact, emitKill, emitShipDamage, emitWeaponFire, stepGunshipEffects, updateCombatFeedback } from './gunship_effects.js';
 import { createGunshipCoreState, stepGunshipCore, type GunshipCoreState } from './gunship_core.js';
+import { isCompatibleModelManifest, type ModelManifest } from '../../shared/rl/model_manifest.js';
 
 const canvas = document.querySelector<HTMLCanvasElement>('#gunship');
 if (!canvas) throw new Error('Missing gunship canvas');
@@ -17,7 +18,8 @@ if (!ctx) throw new Error('Canvas 2D unavailable');
 const $ = <T extends HTMLElement>(id: string): T => { const node = document.getElementById(id); if (!node) throw new Error(`Missing #${id}`); return node as T; };
 const ui = { hp: $('hp'), hpText: $('hp-text'), wave: $('wave'), encounter: $('encounter'), episode: $('episode'), action: $('action'), margin: $('margin'), burst: $('burst'), kills: $('kills'), reward: $('reward'), epsilon: $('epsilon'), states: $('states'), steps: $('steps'), deaths: $('deaths'), pause: $('pause'), mode: $<HTMLSelectElement>('mode'), level: $('level'), xp: $('xp'), upgrade: $('upgrade'), choices: $('upgrade-choices'), countdown: $('upgrade-countdown'), shipAccuracy: $('ship-accuracy'), airAccuracy: $('air-accuracy'), lowMargin: $('low-margin'), noseDown: $('nose-down'), cycle: $('cycle'), survival: $('survival'), data: $('data'), researchThrust: $<HTMLButtonElement>('research-thrust'), researchHull: $<HTMLButtonElement>('research-hull'), save: $<HTMLButtonElement>('save'), resetLearning: $<HTMLButtonElement>('reset-learning'), saveStatus: $('save-status'), airframe: $<HTMLSelectElement>('airframe'), frameName: $('frame-name'), frameStats: $('frame-stats'), combo: $('combo'), recovery: $('recovery'), nextTarget: $('next-target'), weapon: $('weapon'), weaponRole: $('weapon-role') };
 type MetaProgress = { data: number; thrustResearch: number; hullResearch: number };
-type LiveModelBundle = { version: 1; revision: number; models: Partial<Record<AirframeId, ReturnType<GunshipAgent['serialize']>>> };
+type LiveModelBundle = { version: 1; revision: number; manifest?: ModelManifest; models: Partial<Record<AirframeId, ReturnType<GunshipAgent['serialize']>>> };
+const liveModelCompatibility = { gameId: 'gunship', algorithm: 'tabular-q', modelVersion: 8, observationSchemaVersion: 1, rewardSchemaVersion: 1 } as const;
 let liveModels: LiveModelBundle | null = null;
 let meta: MetaProgress = { data: 0, thrustResearch: 0, hullResearch: 0 };
 
@@ -42,7 +44,10 @@ ui.researchHull.addEventListener('click', () => buyResearch('hullResearch'));
 ui.save.addEventListener('click', () => saveAgent());
 ui.resetLearning.addEventListener('click', () => { if (confirm('全機種の共有学習モデルを削除して、headless学習を最初からやり直しますか？')) void resetLearning(); });
 window.addEventListener('pagehide', saveAgent);
-void reloadLiveModel();
+document.documentElement.dataset.rlModelStatus = 'loading';
+void reloadLiveModel().finally(() => {
+  if (document.documentElement.dataset.rlModelStatus === 'loading') document.documentElement.dataset.rlModelStatus = 'fallback';
+});
 
 function frame(now: number): void { const dt = Math.min(.033, (now - previous) / 1000); previous = now; if (!paused) update(dt); resize(); renderGunship(ctx, canvas.width, canvas.height, core.ship, currentAction, airframe.id, core.enemies, core.enemyShots, core.bullets, core.orbs, effects, core.wave); updateUi(); requestAnimationFrame(frame); }
 let currentAction = agent.decide(core.ship, core.enemies, core.enemyShots, core.orbs, { weapon: weaponKind(core.run), recoveryDelay: core.combat.recoveryDelay }, 0, 0).action;
@@ -100,8 +105,8 @@ function refreshAirframeOptions(): void {
   }
 }
 function loadAgentFor(id: AirframeId): GunshipAgent { const next = new GunshipAgent(); const raw = localStorage.getItem(agentKey(id)) ?? (id === 'interceptor' ? localStorage.getItem('gravity-gunship-q-v1') : null); if (raw) { try { next.restore(JSON.parse(raw)); } catch { /* Corrupt local data is optional. */ } } next.setEvaluationMode(true); return next; }
-async function reloadLiveModel(): Promise<void> { try { const response = await fetch('/api/gunship/live-models', { cache: 'no-store' }); const bundle = await response.json() as LiveModelBundle; liveModels = bundle; const save = bundle.models?.[airframe.id]; if (!save) { refreshAirframeOptions(); return; } const next = new GunshipAgent(); next.restore(save); next.setEvaluationMode(true); agent = next; currentAction = agent.decide(core.ship, core.enemies, core.enemyShots, core.orbs, { weapon: weaponKind(core.run), recoveryDelay: core.combat.recoveryDelay }, 0, 0).action; ui.saveStatus.textContent = `LIVE MODEL r${bundle.revision}`; refreshAirframeOptions(); } catch { /* Keep the last complete policy. */ } }
-async function resetLearning(): Promise<void> { try { const response = await fetch('/api/gunship/live-models/reset', { method: 'POST' }); if (!response.ok) throw new Error('reset rejected'); for (const frame of AIRFRAMES) localStorage.removeItem(agentKey(frame.id)); localStorage.removeItem('gravity-gunship-q-v1'); liveModels = null; agent = loadAgentFor(airframe.id); currentAction = agent.decide(core.ship, core.enemies, core.enemyShots, core.orbs, { weapon: weaponKind(core.run), recoveryDelay: core.combat.recoveryDelay }, 0, 0).action; ui.saveStatus.textContent = 'LEARNING RESET'; refreshAirframeOptions(); } catch { ui.saveStatus.textContent = 'RESET FAILED'; } }
+async function reloadLiveModel(): Promise<void> { try { const response = await fetch('/api/rl/models/gunship', { cache: 'no-store' }); if (!response.ok) { document.documentElement.dataset.rlModelStatus = 'unavailable'; return; } const bundle = await response.json() as LiveModelBundle; if (bundle.manifest && !isCompatibleModelManifest(bundle.manifest, liveModelCompatibility)) { document.documentElement.dataset.rlModelStatus = 'incompatible'; return; } liveModels = bundle; const save = bundle.models?.[airframe.id]; if (!save) { document.documentElement.dataset.rlModelStatus = 'fallback'; refreshAirframeOptions(); return; } const next = new GunshipAgent(); next.restore(save); next.setEvaluationMode(true); agent = next; document.documentElement.dataset.rlModelStatus = 'compatible'; currentAction = agent.decide(core.ship, core.enemies, core.enemyShots, core.orbs, { weapon: weaponKind(core.run), recoveryDelay: core.combat.recoveryDelay }, 0, 0).action; ui.saveStatus.textContent = `INFERENCE r${bundle.revision}`; refreshAirframeOptions(); } catch { document.documentElement.dataset.rlModelStatus = 'unavailable'; /* Keep the last complete policy. */ } }
+async function resetLearning(): Promise<void> { try { const response = await fetch('/api/rl/models/gunship/reset', { method: 'POST' }); if (!response.ok) throw new Error('reset rejected'); for (const frame of AIRFRAMES) localStorage.removeItem(agentKey(frame.id)); localStorage.removeItem('gravity-gunship-q-v1'); liveModels = null; agent = loadAgentFor(airframe.id); currentAction = agent.decide(core.ship, core.enemies, core.enemyShots, core.orbs, { weapon: weaponKind(core.run), recoveryDelay: core.combat.recoveryDelay }, 0, 0).action; ui.saveStatus.textContent = 'LEARNING RESET'; refreshAirframeOptions(); } catch { ui.saveStatus.textContent = 'RESET FAILED'; } }
 function loadSelection(): 'random' | AirframeId { const raw = localStorage.getItem('gravity-gunship-frame-v1'); if (raw === 'random' || AIRFRAMES.some((frame) => frame.id === raw)) return raw as 'random' | AirframeId; return 'interceptor'; }
 function switchAirframe(next: 'random' | AirframeId): void {
   saveAgent(); selection = next;
