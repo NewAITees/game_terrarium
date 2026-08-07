@@ -76,14 +76,14 @@ test('airframes change how strongly railgun recoil disrupts flight', () => {
   assert.ok(Math.abs(light.vx) > Math.abs(heavy.vx));
 });
 
-test('flight policy v7 separates weapon and recovery context', () => {
+test('flight policy separates weapon and recovery context', () => {
   const agent = new GunshipAgent();
   const ship = { x: 1800, y: 260, vx: 0, vy: 0, angle: 0, hp: 100, maxHp: 100, fireCooldown: 0, thrust: 408, turn: 2.9, thrustTurnK: .6, drag: .64 };
   agent.decide(ship, [], [], [], { weapon: 'cannon', recoveryDelay: 0 }, .2, 0);
   const cannonStates = agent.knownStates;
   agent.decide(ship, [], [], [], { weapon: 'railgun', recoveryDelay: 1.8 }, .2, 0);
   assert.ok(agent.knownStates > cannonStates);
-  assert.equal(agent.serialize().version, 7);
+  assert.equal(agent.serialize().version, 8);
 });
 
 test('only capital kills trigger hit stop and a destruction banner', () => {

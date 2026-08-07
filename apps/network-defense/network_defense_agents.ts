@@ -1,6 +1,4 @@
-import { Mesh,MeshBasicMaterial,OctahedronGeometry,SphereGeometry,Vector3, } from 'three';
-import { edgeKey } from '../../shared/network-core.js';
-import { AGENT_COSTS, AGENT_RANKS, RANK_PROFILE, actionStats } from './network_defense_config.js';
+import { AGENT_COSTS, RANK_PROFILE, actionStats } from './network_defense_config.js';
 
 export function safeRoute(context: any, from: any, to: any) {
   const { adj, isFriendlyPassable } = context;
@@ -42,27 +40,16 @@ export function safeStagingNode(context: any, target: any, from = context.topo.s
 }
 
 export function createPacket(context: any, color: number, radius: number) {
-  const mesh = new Mesh(
-    new SphereGeometry(radius, 9, 9),
-    new MeshBasicMaterial({ color })
-  );
-  context.scene.add(mesh);
-  return mesh;
+  return context.visuals.createPacket(color, radius);
 }
 
 export function agentHomePosition(context: any, index = 1) {
   const { topo } = context;
-  return new Vector3(topo.server.x + index * 2.6 - 2.6, topo.server.y + 8, topo.server.z);
+  return { x: topo.server.x + index * 2.6 - 2.6, y: topo.server.y + 8, z: topo.server.z };
 }
 
 export function createAgent(context: any, rank: any, index = context.agents.length) {
-  const spec = AGENT_RANKS[rank];
-  const mesh = new Mesh(
-    new OctahedronGeometry(spec.size, 0),
-    new MeshBasicMaterial({ color: spec.color })
-  );
-  mesh.position.copy(agentHomePosition(context, index));
-  context.scene.add(mesh);
+  const mesh = context.visuals.createAgent(rank, agentHomePosition(context, index));
   return {
     mesh,
     index,
@@ -128,7 +115,7 @@ export function idleAtSpot(context: any, agent: any) {
 }
 
 export function teleportHome(context: any, agent: any) {
-  agent.mesh.position.copy(agentHomePosition(context, agent.index));
+  context.visuals.move(agent.mesh, agentHomePosition(context, agent.index));
   agent.currentNode = context.topo.server;
   agent.state = 'idle';
   agent.cooldown = 0.5 + context.rng.next() * 0.3;
@@ -169,8 +156,7 @@ export function updateAgents(context: any, dt: number, now: number) {
   } = context;
   for (const agent of agents) {
     agent.cooldown -= dt;
-    agent.mesh.rotation.y += dt * 2.4;
-    agent.mesh.rotation.z += dt * 1.7;
+    context.visuals.rotateAgent(agent.mesh, dt, false);
 
     if (agent.state === 'idle') {
       if (agent.cooldown <= 0) assignAgent(agent);
@@ -179,8 +165,7 @@ export function updateAgents(context: any, dt: number, now: number) {
 
     if (agent.state === 'working') {
       agent.workTimer -= dt;
-      agent.mesh.rotation.y += dt * 4.8;
-      agent.mesh.rotation.z += dt * 3.5;
+      context.visuals.rotateAgent(agent.mesh, dt, true);
       if (agent.workTimer <= 0) {
         applyAgentArrival(agent, null, now);
         idleAtSpotFn(agent);
@@ -216,7 +201,7 @@ export function updateAgents(context: any, dt: number, now: number) {
       }
     }
 
-    agent.mesh.position.copy(edge.curve.getPoint(edge.an === from ? agent.t : 1 - agent.t));
+    context.visuals.move(agent.mesh, edge.curve.getPoint(edge.an === from ? agent.t : 1 - agent.t));
     edge.activeUntil = Math.max(edge.activeUntil, now + 0.5);
   }
 }

@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Sorting Terrarium</title>
+  <style>
+    :root { color-scheme:dark; --cream:#f3dfa4; --mint:#83d6bd; --brick:#b56d6a; --ink:#17252d; --panel:rgba(29,40,48,.9); }
+    * { box-sizing:border-box; }
+    html,body { width:100%; height:100%; margin:0; overflow:hidden; background:#1a2730; color:#f5edcf; font-family:"SFMono-Regular",Consolas,monospace; }
+    body { image-rendering:pixelated; background:radial-gradient(circle at 50% 46%,#3c5660 0,#263b45 48%,#18262f 100%); }
+    body:after { content:""; position:fixed; inset:0; pointer-events:none; opacity:.1; background:repeating-linear-gradient(0deg,transparent 0 3px,#000 4px); }
+    #app { position:relative; width:100%; height:100%; padding:20px; display:grid; grid-template-rows:auto 1fr auto; gap:13px; }
+    .pixel-panel { border:4px solid #111d24; outline:2px solid #936861; box-shadow:8px 8px 0 rgba(7,13,17,.5); background:var(--panel); }
+    header { min-height:74px; display:flex; align-items:center; gap:30px; padding:11px 18px; }
+    .brand { min-width:275px; } .brand b { display:block; color:var(--cream); font-size:18px; letter-spacing:.13em; text-shadow:3px 3px 0 #5e4448; } .brand span,.label { color:#91aaa8; font-size:9px; letter-spacing:.13em; }
+    .metric { display:grid; gap:4px; min-width:100px; } .metric strong { font-size:16px; color:#fff8da; } .metric small { color:#8da5a5; font-size:9px; }
+    .progress-wrap { flex:1; min-width:180px; } .progress-track { height:15px; border:3px solid #15242b; background:#101b21; box-shadow:inset 0 0 0 2px #30424a; } #progress-fill { height:100%; width:0; background:linear-gradient(90deg,#cc776d,#e4c66f,#72c9ad); transition:width .25s steps(8); }
+    #stage { position:relative; min-height:0; display:grid; grid-template-columns:260px minmax(480px,1fr) 210px; gap:14px; width:min(1540px,100%); margin:auto; }
+    #warehouse-shell { position:relative; min-width:0; height:min(720px,calc(100vh - 205px)); min-height:420px; }
+    #warehouse-canvas { display:block; width:100%; height:100%; }
+    #robot-bubble { position:absolute; left:22px; top:20px; max-width:250px; padding:9px 12px; border:3px solid #18262e; background:#f2e6bd; color:#273941; box-shadow:4px 4px 0 #724d51; font-size:11px; } #robot-bubble:after { content:""; position:absolute; left:28px; bottom:-10px; border:5px solid transparent; border-top-color:#f2e6bd; }
+    #shake-notice { position:absolute; left:50%; top:24px; transform:translateX(-50%) scale(.85); padding:8px 16px; color:#fff3bd; background:#a94e55; border:3px solid #532d38; box-shadow:4px 4px 0 rgba(0,0,0,.4); font-size:12px; letter-spacing:.15em; opacity:0; transition:.15s; }
+    #shake-notice[data-active="true"] { opacity:1; transform:translateX(-50%) scale(1); }
+    #round-count { position:absolute; right:24px; top:22px; color:#d7c38f; font-size:11px; letter-spacing:.14em; }
+    #program-panel,#buckets-panel { padding:13px; min-height:0; overflow:hidden; }
+    .panel-title { color:var(--cream); font-size:11px; letter-spacing:.13em; margin-bottom:10px; }
+    .program { display:none; margin:0 0 12px; padding:0; list-style:none; color:#789095; font-size:10px; line-height:1.65; }
+    .program[data-visible="true"] { display:block; }
+    .program li { padding:2px 5px 2px 21px; position:relative; white-space:nowrap; }
+    .program li:before { content:attr(data-number); position:absolute; left:3px; color:#566a70; }
+    .program li[data-active="true"] { color:#fff4bd; background:#704f4b; box-shadow:inset 3px 0 #ffd36f; }
+    .program li[data-active="true"]:after { content:"▶"; position:absolute; left:-10px; color:#ffd36f; }
+    #interrupt-program { display:block; border-top:2px solid #63474b; padding-top:8px; color:#9b7777; }
+    .variables { border-top:2px solid #4b393f; padding-top:9px; display:grid; gap:5px; }
+    .variable { display:flex; justify-content:space-between; color:#71898d; font-size:9px; } .variable b { color:#e9dcaf; }
+    #pile-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:5px; align-content:start; max-height:calc(100% - 30px); overflow:hidden; }
+    .pile-monitor { min-height:31px; border:2px solid #17252d; background:#2a353c; padding:3px 5px; display:grid; grid-template-columns:1fr auto; color:#789095; font-size:8px; }
+    .pile-monitor b { color:#f1d897; font-size:11px; } .pile-monitor small { grid-column:1/3; color:#5e7479; }
+    .pile-monitor[data-active="true"] { outline:2px solid #74dced; background:#35545a; }
+    .pile-monitor[data-selected="true"] { outline-color:#ffe17c; background:#70504d; }
+    footer { min-height:64px; padding:10px 14px; display:flex; align-items:center; justify-content:center; gap:10px; }
+    button { min-width:105px; padding:9px 12px; border:3px solid #15242c; outline:1px solid #80605c; background:#324b54; color:#f3e9c7; font:10px inherit; letter-spacing:.06em; cursor:pointer; box-shadow:3px 3px 0 #111a20; } button:hover { background:#42636a; transform:translateY(-1px); } button:active { transform:translate(2px,2px); box-shadow:1px 1px 0 #111a20; }
+    button[data-shake="small"] { background:#48645e; } button[data-shake="medium"] { background:#85664e; } button[data-shake="large"] { background:#8f4e55; }
+    .divider { width:2px; height:30px; background:#614a4b; margin:0 5px; }
+    @media(max-width:1100px) { #app{padding:9px}.brand{min-width:210px}.metric:nth-of-type(n+3){display:none}#stage{grid-template-columns:210px minmax(420px,1fr) 170px}.label{display:none} }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <header class="pixel-panel">
+      <div class="brand"><b>SORTING TERRARIUM</b><span>AUTONOMOUS TOY WAREHOUSE // OBSERVER MODE</span></div>
+      <div class="progress-wrap"><span class="label">SORTING PROGRESS</span><div class="progress-track"><div id="progress-fill"></div></div></div>
+      <div class="metric"><small>ORDER</small><strong id="progress-text">0%</strong></div>
+      <div class="metric"><small>SORTED</small><strong id="sorted-count">0 / 300</strong></div>
+      <div class="metric"><small>REMAINING</small><strong id="remaining-count">300</strong></div>
+      <div class="metric"><small>WORK TIME</small><strong id="timer">00:00</strong></div>
+    </header>
+    <main id="stage">
+      <aside id="program-panel" class="pixel-panel">
+        <div class="panel-title">ALGORITHM // CPU</div>
+        <ol class="program" data-visible="true" data-phase-program="build-piles">
+          <li data-number="01" data-program="build-piles" data-program-line="0">TAKE next value</li>
+          <li data-number="02" data-program="build-piles" data-program-line="1">PREFETCH cargo &lt; 3</li>
+          <li data-number="03" data-program="build-piles" data-program-line="2">BINARY SEARCH tops</li>
+          <li data-number="04" data-program="build-piles" data-program-line="3">IF top &gt;= value</li>
+          <li data-number="05" data-program="build-piles" data-program-line="4">PLACE on pile</li>
+          <li data-number="06" data-program="build-piles" data-program-line="5">ELSE CREATE pile</li>
+          <li data-number="07" data-program="build-piles" data-program-line="6">GOTO 01</li>
+        </ol>
+        <ol class="program" data-visible="true" data-phase-program="merge-piles">
+          <li data-number="01" data-program="merge-piles" data-program-line="0">FIND minimum top</li>
+          <li data-number="02" data-program="merge-piles" data-program-line="1">SELECT pile</li>
+          <li data-number="03" data-program="merge-piles" data-program-line="2">EXTRACT top</li>
+          <li data-number="04" data-program="merge-piles" data-program-line="3">APPEND output</li>
+          <li data-number="05" data-program="merge-piles" data-program-line="5">HALT sorted</li>
+        </ol>
+        <ol id="interrupt-program" class="program">
+          <li data-number="I0" data-program="interrupt" data-program-line="0">SAVE current task</li>
+          <li data-number="I1" data-program="interrupt" data-program-line="1">BRACE cargo</li>
+          <li data-number="I2" data-program="interrupt" data-program-line="2">WAIT impact</li>
+          <li data-number="I3" data-program="interrupt" data-program-line="3">RESCAN debris</li>
+        </ol>
+        <div class="variables">
+          <div class="variable"><span>PHASE</span><b id="phase-value">DISTRIBUTE</b></div>
+          <div class="variable"><span>CURSOR</span><b id="cursor-value">0 / 300</b></div>
+          <div class="variable"><span>CARGO</span><b id="cargo-value">0 / 3</b></div>
+          <div class="variable"><span>VISIBLE INPUT</span><b id="board-value">300</b></div>
+        </div>
+      </aside>
+      <section id="warehouse-shell" class="pixel-panel">
+        <canvas id="warehouse-canvas" aria-label="右側の仮置き棚と3個荷台を使って300個のおもちゃ箱を整理する自律ロボット"></canvas>
+        <div id="robot-bubble"><span class="label">ROBOT LOG</span><br><strong id="robot-task">起動中…</strong></div>
+        <div id="shake-notice" data-active="false"></div>
+        <div id="round-count">ROUND 01</div>
+      </section>
+      <aside id="buckets-panel" class="pixel-panel">
+        <div class="panel-title">PILE TOP MONITOR</div>
+        <div id="pile-grid"></div>
+      </aside>
+    </main>
+    <footer class="pixel-panel">
+      <span class="label">SIMULATED COMMENTS</span>
+      <button data-shake="small">COMMENT +1</button>
+      <button data-shake="medium">COMMENT BURST</button>
+      <button data-shake="large">CHAT STORM</button>
+      <div class="divider"></div>
+      <button id="speed-button">SPEED ×1</button>
+      <button id="pause-button">PAUSE</button>
+      <button id="new-round">NEW ROUND</button>
+    </footer>
+  </div>
+  <script type="module" src="./sorting_warehouse.js"></script>
+</body>
+</html>

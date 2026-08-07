@@ -30,12 +30,18 @@ export function spawnWave(wave: number, id: number): Enemy[] {
   return enemies;
 }
 
-export function stepEnemies(enemies: Enemy[], shots: EnemyShot[], ship: GunshipBody, dt: number): void {
+export function stepEnemies(
+  enemies: Enemy[],
+  shots: EnemyShot[],
+  ship: GunshipBody,
+  dt: number,
+  simulationTime = performance.now() * .001,
+): void {
   for (const enemy of enemies) {
     enemy.cooldown -= dt;
     if (['destroyer', 'cruiser', 'carrier', 'battleship'].includes(enemy.kind)) { enemy.x += enemy.vx * dt; if (enemy.x > 3540 - enemy.radius || enemy.x < enemy.radius) enemy.vx *= -1; }
     else if (enemy.kind === 'diver') { enemy.x += enemy.vx * dt; enemy.y += Math.max(-40, Math.min(110, (ship.y - enemy.y) * .18)) * dt; if (enemy.x > 3480 || enemy.x < 120) enemy.vx *= -1; enemy.y = Math.max(45, Math.min(360, enemy.y)); }
-    else if (enemy.kind === 'mine') { enemy.x += enemy.vx * dt; enemy.y += Math.sin((enemy.id + performance.now() * .001) * .7) * 13 * dt; if (enemy.x > 3420 || enemy.x < 180) enemy.vx *= -1; if (Math.hypot(enemy.x - ship.x, enemy.y - ship.y) < 82) { ship.hp -= 16 * dt; } }
+    else if (enemy.kind === 'mine') { enemy.x += enemy.vx * dt; enemy.y += Math.sin((enemy.id + simulationTime) * .7) * 13 * dt; if (enemy.x > 3420 || enemy.x < 180) enemy.vx *= -1; if (Math.hypot(enemy.x - ship.x, enemy.y - ship.y) < 82) { ship.hp -= 16 * dt; } }
     else if (enemy.kind === 'submarine') { enemy.x += enemy.vx * dt; if (enemy.x > 3420 || enemy.x < 180) enemy.vx *= -1; enemy.phase = (enemy.phase ?? 0) - dt; if (enemy.phase <= 0) { enemy.surfaced = !enemy.surfaced; enemy.phase = enemy.surfaced ? 1.7 : 3.4; } enemy.y += ((enemy.surfaced ? 748 : 816) - enemy.y) * Math.min(1, dt * 3.2); }
     else { const toX = ship.x - enemy.x; const toY = ship.y - enemy.y; const dist = Math.max(1, Math.hypot(toX, toY)); const speed = Math.min(120, dist * 4); enemy.x += (toX / dist) * speed * dt; enemy.y += (toY / dist) * speed * dt; }
     // A submerged submarine cannot fire — it is only a threat, and only killable, in its brief surfaced window.

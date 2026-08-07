@@ -40,6 +40,7 @@ export class QLearningAgent {
   };
   private decisionTimer = 0;
   private readonly upgradeBandit = new ValueBandit<string>();
+  private evaluationMode = false;
 
   get learningRate(): number {
     return this.learner.learningRate;
@@ -62,7 +63,7 @@ export class QLearningAgent {
   }
 
   decide(observation: ArenaObservation, dt: number, reward: number): AgentDecision {
-    this.upgradeBandit.addReward(reward);
+    if (!this.evaluationMode) this.upgradeBandit.addReward(reward);
     this.learner.observe(observation, reward);
     this.decisionTimer -= dt;
     if (this.decisionTimer > 0) return this.decision;
@@ -72,13 +73,9 @@ export class QLearningAgent {
   }
 
   finishEpisode(finalReward: number): void {
-    this.upgradeBandit.finish(finalReward, this.learningRate, 20);
+    if (!this.evaluationMode) this.upgradeBandit.finish(finalReward, this.learningRate, 20);
     this.learner.finishEpisode(finalReward);
     this.decisionTimer = 0;
-  }
-
-  setEvaluationMode(enabled: boolean): void {
-    this.learner.setEvaluationMode(enabled);
   }
 
   serialize(): QLearningAgentSave {
@@ -105,14 +102,22 @@ export class QLearningAgent {
     if (!choices.length) throw new Error('upgrade choices are required');
     const waveBand = Math.min(4, Math.floor((wave - 1) / 5));
     const keys = choices.map((choice) => `${craftType}:${waveBand}:${choice.id}`);
-    const exploratory = Math.random() < this.epsilon;
-    const selectedKey = this.upgradeBandit.choose(keys, exploratory);
+    const exploratory = !this.evaluationMode && Math.random() < this.epsilon;
+    const selectedKey = this.evaluationMode
+      ? this.upgradeBandit.best(keys)
+      : this.upgradeBandit.choose(keys, exploratory);
     const selectedIndex = keys.indexOf(selectedKey);
     return {
       choice: choices[selectedIndex],
       exploratory,
       value: this.upgradeBandit.value(selectedKey),
     };
+  }
+
+  setEvaluationMode(enabled: boolean): void {
+    this.evaluationMode = enabled;
+    this.learner.setEvaluationMode(enabled);
+    this.decisionTimer = 0;
   }
 
 }

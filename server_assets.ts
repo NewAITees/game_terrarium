@@ -61,6 +61,7 @@ export async function mountBrowserAssetRoutes(app: express.Express, projectRoot:
     '/zombie_survivor.js': 'build/apps/zombie-survivor/zombie_survivor.js',
     '/one_line_rpg.js': 'build/apps/one-line-rpg/one_line_rpg.js',
     '/gunship.js': 'build/apps/gunship/gunship.js',
+    '/sorting_warehouse.js': 'build/apps/sorting-warehouse/sorting_warehouse.js',
     '/network-core.js': 'build/shared/network-core.js',
   });
   app.use(express.static(path.join(projectRoot, 'public')));
@@ -94,6 +95,7 @@ export async function mountBrowserAssetRoutes(app: express.Express, projectRoot:
     '/zombie_survivor.html': 'apps/zombie-survivor/zombie_survivor.html',
     '/one_line_rpg.html': 'apps/one-line-rpg/one_line_rpg.html',
     '/gunship.html': 'apps/gunship/gunship.html',
+    '/sorting_warehouse.html': 'apps/sorting-warehouse/sorting_warehouse.html',
     '/network-defense/network-core.js': 'build/shared/network-core.js',
     '/network-ecosystem/network-core.js': 'build/shared/network-core.js',
     '/telemetry-client.js': 'shared/telemetry-client.js',

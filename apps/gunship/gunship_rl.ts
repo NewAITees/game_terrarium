@@ -80,6 +80,7 @@ export class GunshipAgent {
   episodes = 0;
   private timer = 0;
   private current = ACTIONS[0];
+  private evaluationMode = false;
 
   private pendingReward = 0;
   decide(ship: GunshipBody, targets: GunshipTarget[], hazards: GunshipHazard[], orbs: readonly GunshipOrb[], tactical: GunshipTacticalContext, dt: number, reward: number): { action: GunshipAction; exploratory: boolean } {
@@ -97,7 +98,7 @@ export class GunshipAgent {
 
   // Called when a level-up window resolves. `reward` is the return earned since the previous pick; returns the chosen slot.
   decideUpgrade(context: UpgradeContext, reward: number): number { this.upgradeLearner.observe(context, reward); return this.upgradeLearner.decide(context).actionIndex; }
-  finishEpisode(finalReward: number): void { this.learner.finishEpisode(finalReward); this.upgradeLearner.finishEpisode(finalReward); this.episodes++; this.timer = 0; }
+  finishEpisode(finalReward: number): void { this.learner.finishEpisode(finalReward); this.upgradeLearner.finishEpisode(finalReward); if (!this.evaluationMode) this.episodes++; this.timer = 0; this.pendingReward = 0; }
   serialize(): GunshipAgentSave { return { version: 8, learner: this.learner.serialize(), upgrade: this.upgradeLearner.serialize(), episodes: this.episodes }; }
   restore(save: GunshipAgentSave): void {
     // v8 drops the AIM_UNREACHABLE sentinel now that the craft can turn and thrust through a full
@@ -117,7 +118,7 @@ export class GunshipAgent {
   // Greedy playback of what the policy actually knows, with exploration and
   // learning switched off. Training medians include random actions and therefore
   // understate the learned behaviour.
-  setEvaluationMode(enabled: boolean): void { this.learner.setEvaluationMode(enabled); this.upgradeLearner.setEvaluationMode(enabled); this.timer = 0; }
+  setEvaluationMode(enabled: boolean): void { this.evaluationMode = enabled; this.learner.setEvaluationMode(enabled); this.upgradeLearner.setEvaluationMode(enabled); this.timer = 0; this.pendingReward = 0; }
   get epsilon(): number { return this.learner.epsilon; }
   get steps(): number { return this.learner.trainingSteps; }
   get knownStates(): number { return this.learner.knownStates; }

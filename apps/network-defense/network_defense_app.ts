@@ -24,9 +24,16 @@ import { createNetworkDefenseRuntime } from './network_defense_runtime.js';
 import { createNetworkDefenseUiRuntime } from './network_defense_ui_runtime.js';
 import { initializeNetworkDefenseSetup } from './network_defense_setup.js';
 import { createNetworkDefenseAppHelpers } from './network_defense_app_helpers.js';
-import { NetworkDefenseRlController } from './network_defense_rl.js';
+import { NetworkDefenseRlController, type NetworkDefenseRlSave } from './network_defense_rl.js';
+import { isCompatibleModelManifest, type ModelManifest } from '../../shared/rl/model_manifest.js';
 
-const NETWORK_DEFENSE_RL_STORAGE_KEY = 'network-defense-rl-v1';
+const NETWORK_DEFENSE_MODEL_COMPATIBILITY = {
+  gameId: 'network-defense',
+  algorithm: 'ranked-tabular-q',
+  modelVersion: 1,
+  observationSchemaVersion: 1,
+  rewardSchemaVersion: 1,
+} as const;
 
 export function startNetworkDefenseApp({ observerMode = false }: { observerMode?: boolean } = {}): void {
 const rlMode = !observerMode && new URLSearchParams(location.search).get('ai') !== 'rules';
@@ -46,6 +53,7 @@ const {
   scanPackets,
   terms,
   triggerFlash,
+  visuals,
 } = initializeNetworkDefenseSetup(observerMode);
 const {
   scene,
@@ -113,6 +121,7 @@ const {
   rankPersonalities,
   rng,
   scene,
+  visuals,
   terms,
   topo,
 });
@@ -163,13 +172,12 @@ const rlController = rlMode
       executeAction: (agent, action, snapshot) => execAction(agent, action, snapshot),
     })
   : null;
+let activeModelRevision = 0;
 if (rlController) {
-  try {
-    const raw = localStorage.getItem(NETWORK_DEFENSE_RL_STORAGE_KEY);
-    if (raw) rlController.restore(JSON.parse(raw));
-  } catch {
-    // A corrupt learning checkpoint starts a fresh model.
-  }
+  rlController.setEvaluationMode(true);
+  void loadPublishedNetworkDefenseModel(rlController).then((revision) => {
+    activeModelRevision = revision;
+  });
 }
 const assignAgent = rlController
   ? (agent: any) => rlController.assignAgent(agent)
@@ -212,6 +220,7 @@ const runtime = createNetworkDefenseRuntime({
   setMessage: (text: string, alert = false) => setMessage(text, alert),
   topo,
   triggerFlash,
+  visuals,
   winWave: WIN_WAVE,
   assignAgent,
   triggerRuleUpdate: rlMode ? async () => {} : triggerRuleUpdate,
@@ -289,12 +298,10 @@ startNetworkDefenseLoop({
   onUpdateFirewalls: updateFirewalls,
   onUpdateNodes: updateNodes,
   onUpdateLearning: (() => {
-    let saveCooldown = 5;
     let hudCooldown = 0;
     let restartScheduled = false;
     return (dt: number) => {
       if (!rlController) return;
-      saveCooldown -= dt;
       hudCooldown -= dt;
       if (hudCooldown <= 0) {
         const status = document.getElementById('rules-status');
@@ -303,17 +310,12 @@ startNetworkDefenseLoop({
           status.textContent = [
             'RL',
             decision?.action ?? 'WAIT',
-            decision?.exploratory ? 'EXPLORE' : 'POLICY',
-            `ε ${(rlController.epsilon * 100).toFixed(1)}%`,
+            `MODEL r${activeModelRevision}`,
+            'EVAL',
             `${rlController.knownStates} states`,
           ].join(' · ');
         }
         hudCooldown = 0.25;
-      }
-      if (saveCooldown <= 0 || game.gameOver) {
-        if (game.gameOver) rlController.finishEpisode(Boolean(game.victory));
-        localStorage.setItem(NETWORK_DEFENSE_RL_STORAGE_KEY, JSON.stringify(rlController.serialize()));
-        saveCooldown = 5;
       }
       if (game.gameOver && !restartScheduled) {
         restartScheduled = true;
@@ -324,4 +326,21 @@ startNetworkDefenseLoop({
   onUpdateHud: updateHud,
   onReportTelemetry: reportTelemetry,
 });
+}
+
+async function loadPublishedNetworkDefenseModel(controller: NetworkDefenseRlController): Promise<number> {
+  try {
+    const response = await fetch('/api/rl/models/network-defense', { cache: 'no-store' });
+    if (!response.ok) return 0;
+    const bundle = await response.json() as {
+      manifest?: ModelManifest;
+      model?: NetworkDefenseRlSave;
+    };
+    if (!bundle.model || !isCompatibleModelManifest(bundle.manifest, NETWORK_DEFENSE_MODEL_COMPATIBILITY)) return 0;
+    controller.restore(bundle.model);
+    controller.setEvaluationMode(true);
+    return bundle.manifest.revision;
+  } catch {
+    return 0;
+  }
 }

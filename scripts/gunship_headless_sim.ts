@@ -1,25 +1,26 @@
 import { GunshipAgent } from '../apps/gunship/gunship_rl.js';
-import { AIRFRAMES, airframeById, configureShip, type AirframeId } from '../apps/gunship/gunship_airframes.js';
-import { altitudeMargin, ceilingMargin, SEA_Y, stepPhysics, type GunshipBody } from '../apps/gunship/gunship_physics.js';
-import { spawnWave, stepEnemies, type Enemy, type EnemyShot } from '../apps/gunship/gunship_enemies.js';
-import { addXp, applyUpgrade, choicesFor, createRunProgress, type GunshipRunProgress } from '../apps/gunship/gunship_progression.js';
-import { comboMultiplier, createCombatState, registerKill, stepCombatState } from '../apps/gunship/gunship_combat.js';
-import { collectOrbs, spawnOrb, stepOrbs, type XpOrb } from '../apps/gunship/gunship_pickups.js';
-import { applyWeaponRecoil, weaponCooldown, weaponDamage, weaponKind, weaponProfile } from '../apps/gunship/gunship_weapons.js';
+import { AIRFRAMES, airframeById, type AirframeId } from '../apps/gunship/gunship_airframes.js';
+import type { GunshipBody } from '../apps/gunship/gunship_physics.js';
+import { spawnWave, type Enemy } from '../apps/gunship/gunship_enemies.js';
+import { applyUpgrade, choicesFor, createRunProgress } from '../apps/gunship/gunship_progression.js';
+import { weaponKind } from '../apps/gunship/gunship_weapons.js';
+import {
+  createGunshipCoreState,
+  stepGunshipCore,
+  type GunshipCoreState,
+  type GunshipRewardWeights,
+} from '../apps/gunship/gunship_core.js';
 
 /**
- * Headless mirror of the update loop in apps/gunship/gunship.ts, without the
- * canvas or the HUD. It exists to answer "is this thing actually learning?"
- * with a number instead of an impression, and to make hyperparameter changes
- * testable before they are shipped to a save file people are watching.
- *
- * Anything that changes reward, termination or the decision cadence in
- * gunship.ts must be mirrored here, or the numbers stop meaning anything.
+ * Headless driver for the same gunship_core used by the Electron player. It owns training cadence
+ * and experiment knobs (density, cap, reward weights), but every rule that decides what happens on
+ * a tick — physics, weapons, wave timing, rewards — lives in gunship_core and is never reimplemented
+ * here. Anything that changes those rules changes both the live game and this trainer for free.
  */
 
 const DT = 1 / 60;
 // Reward weights are the thing under test, so they are knobs rather than literals.
-// Defaults mirror apps/gunship/gunship.ts exactly.
+// Defaults mirror apps/gunship/gunship_core.ts's DEFAULT_GUNSHIP_REWARD_WEIGHTS exactly.
 const W = { hp: 1, fireRate: 1, maxChasers: 0, survival: .6, ceiling: .09, death: -16, hpDeath: -9, kill: 1, hit: -1.5, wave: 8 };
 // The craft can only shoot within +/-90 degrees of straight ahead, so with a
 // near-empty sky most of its life is spent with nothing it can legally aim at.
@@ -50,26 +51,7 @@ function slowFire(enemies: Enemy[]): Enemy[] {
   return enemies;
 }
 
-const SURFACE_KINDS = ['destroyer', 'cruiser', 'carrier', 'battleship', 'submarine'];
-
 type EpisodeResult = { seconds: number; kills: number; wave: number; fell: boolean; reward: number };
-
-// Mirrors moveShots() in apps/gunship/gunship.ts, which is not exported.
-function moveShots(shots: EnemyShot[], dt: number, enemies: Enemy[]): void {
-  for (const shot of shots) {
-    if (shot.weapon === 'missile') {
-      const target = enemies.slice().sort((a, b) => Math.hypot(a.x - shot.x, a.y - shot.y) - Math.hypot(b.x - shot.x, b.y - shot.y))[0];
-      if (target) {
-        const dx = target.x - shot.x; const dy = target.y - shot.y;
-        const length = Math.max(1, Math.hypot(dx, dy));
-        shot.vx += (dx / length * 390 - shot.vx) * Math.min(1, dt * 4);
-        shot.vy += (dy / length * 390 - shot.vy) * Math.min(1, dt * 4);
-      }
-    }
-    shot.x += shot.vx * dt; shot.y += shot.vy * dt; shot.life -= dt;
-  }
-  for (let index = shots.length - 1; index >= 0; index -= 1) if (shots[index].life <= 0) shots.splice(index, 1);
-}
 
 function freshShip(maxHp: number): GunshipBody {
   return { x: 1800, y: 260, vx: 0, vy: 0, angle: Math.PI / 2, hp: maxHp, maxHp, fireCooldown: 0, thrust: 0, turn: 0, thrustTurnK: 0, drag: 0 };
@@ -77,133 +59,55 @@ function freshShip(maxHp: number): GunshipBody {
 
 export function runEpisode(agent: GunshipAgent, airframeId: AirframeId, capSeconds: number, density: number): EpisodeResult {
   const airframe = airframeById(airframeId);
-  const run = createRunProgress();
-  const ship = freshShip(Math.round(airframe.maxHp * W.hp));
-  const WAVE_INTERVAL = 25;
-  let wave = 1;
-  let waveTimer = WAVE_INTERVAL;
-  const waveRewardGiven = new Set<number>();
-  let nextId = 50;
-  let enemies: Enemy[] = slowFire(capChasers(densify(spawnWave(wave, nextId), density, wave)));
-  nextId += enemies.length;
-  let enemyShots: EnemyShot[] = [];
-  let bullets: EnemyShot[] = [];
-  let orbs: XpOrb[] = [];
+  const nextId = 50;
+  const initialEnemies = slowFire(capChasers(densify(spawnWave(1, nextId), density, 1)));
+  const state: GunshipCoreState = createGunshipCoreState(
+    freshShip(Math.round(airframe.maxHp * W.hp)),
+    createRunProgress(),
+    airframe,
+    nextId + initialEnemies.length,
+    initialEnemies,
+  );
   let episodeReward = 0;
   let lastReward = 0;
   let kills = 0;
-  let elapsed = 0;
   let upgradeRewardMark = 0;
-  const combat = createCombatState();
+  const rewards: GunshipRewardWeights = {
+    survival: W.survival,
+    ceiling: W.ceiling,
+    death: W.death,
+    hpDeath: W.hpDeath,
+    kill: W.kill,
+    hit: W.hit,
+    wave: W.wave,
+  };
+  const createWave = (wave: number, id: number): Enemy[] => (
+    slowFire(capChasers(densify(spawnWave(wave, id), density, wave)))
+  );
 
-  // Mirrors fireMainWeapon()/fireCannon()/.../fireRailgun() in apps/gunship/gunship.ts.
-  function fireMainWeapon(run: GunshipRunProgress): void {
-    switch (run.weaponFamily) {
-      case 'laser': fireLaser(run); break;
-      case 'missile': fireMissile(run); break;
-      case 'flak': fireFlak(run); break;
-      case 'explosive': fireExplosive(run); break;
-      case 'railgun': fireRailgun(run); break;
-      default: fireCannon(run); break;
-    }
-    applyWeaponRecoil(ship, run, airframe.recoilScale);
-  }
-  function fireCannon(run: GunshipRunProgress): void { bullets.push({ x: ship.x + Math.cos(ship.angle) * 28, y: ship.y - Math.sin(ship.angle) * 28, vx: Math.cos(ship.angle) * 610, vy: -Math.sin(ship.angle) * 610, life: 2.2, weapon: 'cannon' }); ship.fireCooldown = weaponCooldown(run); }
-  function fireLaser(run: GunshipRunProgress): void { const target = enemies.find((enemy) => Math.abs(Math.atan2(-(enemy.y - ship.y), enemy.x - ship.x) - ship.angle) < .13 && Math.hypot(enemy.x - ship.x, enemy.y - ship.y) < 950); if (target) { const damage = 11 * 1.2 ** run.damage * 1.15 ** (run.laser - 1); target.hp -= damage; if (target.kind === 'battleship') episodeReward += damage * .03 * comboMultiplier(combat.combo); bullets.push({ x: target.x, y: target.y, vx: 0, vy: 0, life: .18, weapon: 'laser', originX: ship.x, originY: ship.y }); } ship.fireCooldown = weaponCooldown(run); }
-  function fireMissile(run: GunshipRunProgress): void { const target = enemies.slice().sort((a, b) => Math.hypot(a.x - ship.x, a.y - ship.y) - Math.hypot(b.x - ship.x, b.y - ship.y))[0]; if (target) { const dx = target.x - ship.x; const dy = target.y - ship.y; const length = Math.max(1, Math.hypot(dx, dy)); bullets.push({ x: ship.x, y: ship.y, vx: dx / length * 300, vy: dy / length * 300, life: 3.2, weapon: 'missile' }); } ship.fireCooldown = weaponCooldown(run); }
-  function fireFlak(run: GunshipRunProgress): void { const pellets = 5; for (let index = 0; index < pellets; index++) { const angle = ship.angle + (index - (pellets - 1) / 2) * .09; bullets.push({ x: ship.x + Math.cos(ship.angle) * 28, y: ship.y - Math.sin(ship.angle) * 28, vx: Math.cos(angle) * 560, vy: -Math.sin(angle) * 560, life: .35, weapon: 'flak' }); } ship.fireCooldown = weaponCooldown(run); }
-  function fireExplosive(run: GunshipRunProgress): void { bullets.push({ x: ship.x + Math.cos(ship.angle) * 28, y: ship.y - Math.sin(ship.angle) * 28, vx: Math.cos(ship.angle) * 500, vy: -Math.sin(ship.angle) * 500, life: 2.4, weapon: 'explosive' }); ship.fireCooldown = weaponCooldown(run); }
-  function fireRailgun(run: GunshipRunProgress): void {
-    const cone = .1;
-    const hits = enemies.filter((enemy) => Math.abs(Math.atan2(-(enemy.y - ship.y), enemy.x - ship.x) - ship.angle) < cone && Math.hypot(enemy.x - ship.x, enemy.y - ship.y) < 1400 && !(enemy.kind === 'submarine' && !enemy.surfaced));
-    const damage = 30 * 1.2 ** run.damage * 1.15 ** (run.railgun - 1);
-    for (const target of hits) { target.hp -= damage; if (target.kind === 'battleship') episodeReward += damage * .03 * comboMultiplier(combat.combo); bullets.push({ x: target.x, y: target.y, vx: 0, vy: 0, life: .15, weapon: 'railgun', originX: ship.x, originY: ship.y }); }
-    ship.fireCooldown = weaponCooldown(run);
-  }
-  function resolveKill(target: Enemy, surface: boolean): void {
-    if (target.hp > 0) return;
-    const index = enemies.indexOf(target);
-    if (index < 0) return;
-    enemies.splice(index, 1);
-    kills += 1;
-    const xp = target.kind === 'battleship' ? 12 : target.kind === 'carrier' ? 7 : surface ? 3 : 1;
-    const killReward = target.kind === 'battleship' ? 18 : target.kind === 'carrier' ? 10 : surface ? 5 : 2;
-    episodeReward += killReward * W.kill * comboMultiplier(combat.combo);
-    orbs.push(spawnOrb(target.x, target.y, Math.ceil(xp * comboMultiplier(combat.combo))));
-    registerKill(combat);
-    if (!waveRewardGiven.has(target.wave) && !enemies.some((enemy) => enemy.wave === target.wave)) { waveRewardGiven.add(target.wave); episodeReward += W.wave; }
-  }
-
-  while (elapsed < capSeconds) {
+  while (state.elapsed < capSeconds) {
     // Level-up resolves immediately here; the game gives a human 5s to override.
-    if (run.pending > 0) {
-      const offer = choicesFor(run);
-      const slot = agent.decideUpgrade({ offer: offer.map((choice) => choice.id), level: run.level }, episodeReward - upgradeRewardMark);
+    if (state.run.pending > 0) {
+      const offer = choicesFor(state.run);
+      const slot = agent.decideUpgrade({ offer: offer.map((choice) => choice.id), level: state.run.level }, episodeReward - upgradeRewardMark);
       upgradeRewardMark = episodeReward;
-      applyUpgrade(run, offer[Math.min(offer.length - 1, slot)]);
+      applyUpgrade(state.run, offer[Math.min(offer.length - 1, slot)]);
       continue;
     }
-    const rewardStart = episodeReward;
-    elapsed += DT;
-    configureShip(ship, run, airframe, 0);
-    const action = agent.decide(ship, enemies, enemyShots, orbs, { weapon: weaponKind(run), recoveryDelay: combat.recoveryDelay }, DT, lastReward).action;
-    stepPhysics(ship, action, DT);
-    if (action.fire && ship.fireCooldown <= 0) fireMainWeapon(run);
-    stepEnemies(enemies, enemyShots, ship, DT);
-    moveShots(enemyShots, DT, enemies);
-    moveShots(bullets, DT, enemies);
-
-    for (let index = bullets.length - 1; index >= 0; index -= 1) {
-      const bullet = bullets[index];
-      const target = enemies.find((enemy) => Math.hypot(enemy.x - bullet.x, enemy.y - bullet.y) < enemy.radius + 4 && !(enemy.kind === 'submarine' && !enemy.surfaced));
-      if (!target) continue;
-      const surface = SURFACE_KINDS.includes(target.kind);
-      if (bullet.weapon !== 'laser' && bullet.weapon !== 'railgun') {
-        const damage = weaponDamage(run, bullet.weapon, surface);
-        target.hp -= damage;
-        if (target.kind === 'battleship') episodeReward += damage * .03 * comboMultiplier(combat.combo);
-      }
-      const impactX = bullet.x; const impactY = bullet.y; const wasExplosive = bullet.weapon === 'explosive';
-      bullets.splice(index, 1);
-      resolveKill(target, surface);
-      if (wasExplosive) {
-        const splashDamage = 12 * 1.2 ** run.damage * 1.15 ** (run.explosive - 1);
-        for (const other of enemies.slice()) {
-          if (other === target || Math.hypot(other.x - impactX, other.y - impactY) >= 60) continue;
-          other.hp -= splashDamage;
-          if (other.kind === 'battleship') episodeReward += splashDamage * .03 * comboMultiplier(combat.combo);
-          resolveKill(other, SURFACE_KINDS.includes(other.kind));
-        }
-      }
+    const tactical = { weapon: weaponKind(state.run), recoveryDelay: state.combat.recoveryDelay };
+    const action = agent.decide(state.ship, state.enemies, state.enemyShots, state.orbs, tactical, DT, lastReward).action;
+    const result = stepGunshipCore(state, action, DT, { rewards, createWave, simulationTime: state.elapsed });
+    episodeReward += result.reward;
+    kills += result.kills;
+    if (result.finalReward !== null) {
+      agent.finishEpisode(result.finalReward);
+      return { seconds: state.elapsed, kills, wave: state.wave, fell: result.fell, reward: episodeReward };
     }
-    for (let index = enemyShots.length - 1; index >= 0; index -= 1) {
-      if (Math.hypot(enemyShots[index].x - ship.x, enemyShots[index].y - ship.y) >= 20) continue;
-      ship.hp -= 10;
-      enemyShots.splice(index, 1);
-      episodeReward += W.hit;
-    }
-
-    stepCombatState(combat, ship, enemies, action.fire, DT, weaponProfile(run).recoveryDelay);
-    stepOrbs(orbs, DT);
-    const collected = collectOrbs(orbs, ship.x, ship.y);
-    if (collected > 0) addXp(run, collected);
-    episodeReward += DT * W.survival;
-    if (ceilingMargin(ship) < 70) episodeReward -= DT * W.ceiling;
-    waveTimer -= DT;
-    if (waveTimer <= 0) { wave += 1; waveTimer = WAVE_INTERVAL; const spawned = slowFire(capChasers(densify(spawnWave(wave, nextId), density, wave))); nextId += spawned.length; enemies.push(...spawned); }
-
-    if (ship.y >= SEA_Y || ship.hp <= 0) {
-      const fell = ship.y >= SEA_Y;
-      const finalReward = fell ? W.death : W.hpDeath;
-      episodeReward += finalReward;
-      agent.finishEpisode(finalReward);
-      return { seconds: elapsed, kills, wave, fell, reward: episodeReward };
-    }
-    lastReward = episodeReward - rewardStart;
+    lastReward = result.reward;
   }
   // Timed out rather than died: treat as a neutral cut so the cap cannot be farmed.
   agent.finishEpisode(0);
-  return { seconds: elapsed, kills, wave, fell: false, reward: episodeReward };
+  return { seconds: state.elapsed, kills, wave: state.wave, fell: false, reward: episodeReward };
 }
 
 function mean(values: number[]): number {
@@ -249,7 +153,6 @@ function main(): void {
       for (let episode = 0; episode < episodes; episode += 1) single.push(runEpisode(agent, airframeId, capSeconds, density));
       runs.push(single);
     }
-    const results = runs[0];
     const blockMedian = (start: number): number => mean(runs.map((run) => median(run.slice(start, start + bucket).map((entry) => entry.seconds))));
     const blockKills = (start: number): number => mean(runs.map((run) => mean(run.slice(start, start + bucket).map((entry) => entry.kills))));
     const blockFalls = (start: number): number => mean(runs.map((run) => run.slice(start, start + bucket).filter((entry) => entry.fell).length / Math.min(bucket, run.length - start)));
