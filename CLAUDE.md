@@ -2,27 +2,14 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Commands
+## Rules for new browser-side code
 
-```bash
-# Build TypeScript-generated browser modules into `build/`
-npm run build
-
-# Run TypeScript checks without emitting JS
-npm run typecheck
-
-# Start the Electron app (also starts the Express server on port 3000)
-npm start
-```
-
-Browser apps are bundled by **Vite** (`vite.config.ts`) into `build/`. Shared vendor chunks (Three.js etc.) go to `build/_vendor/` and are served by Express under `/_vendor/`. The Node.js side (`main.ts`, `server.ts`) is compiled separately by `tsc -p tsconfig.node.json` into `build-node/`.
-
-**Rules for new browser-side code:**
 - All new source files must be TypeScript (`.ts`). Do not create `.js` files under `apps/` or `shared/`.
-- Add new app entry points to `vite.config.ts` `rollupOptions.input`.
-- Add new app entry points to `tsconfig.json` `include` (for type checking).
+- Add new app entry points to **both** `vite.config.ts` `rollupOptions.input` (bundling) and `tsconfig.json` `include` (type checking). Missing either one fails silently in a different way.
 - Use **named imports** from Three.js (`import { Mesh, Scene } from 'three'`) — never `import * as THREE`. Named imports enable tree-shaking.
 - Use `import type` for type-only imports.
+
+The Node.js side (`main.ts`, `server.ts`) is compiled separately from the browser bundles — `tsc -p tsconfig.node.json` into `build-node/`, while Vite builds `apps/` into `build/`.
 
 ## Rule: no hand-authored policy. Behaviour is learned.
 
@@ -38,128 +25,41 @@ The legitimate levers are the environment and the reward: observation design, ac
 
 **Always measure before and after.** `npm run sim:gunship --episodes=6000 --repeats=4`. `--repeats` averages independent agents; a single run's curve is noise and must not be used to justify a change. Reward weights are overridable from the CLI (`--survival`, `--ceiling`, `--kill`, `--density`).
 
+**The automated search: `npm run research -- --candidates=N --episodes=N --repeats=N`.** `scripts/rl/auto_research.ts` proposes configurations, runs them one-per-process across cores, and appends every result to `logs/rl-research/<game>.jsonl`. The ledger is append-only and is the only record a champion is recomputed from; a restart resumes from it. Budget is counted in **episodes, never wall time** — a configuration that survives longer takes longer to evaluate (the best gunship variant costs 6× the wall clock of the worst), so time-based halving prunes exactly what it should find. Promotion requires the challenger's bootstrap lower bound to clear the champion's median, so a tie goes to the incumbent.
+
+**The outer loop: `npm run research:advise -- --backend=command --command="codex exec -"`.** `scripts/rl/research_advisor.ts` digests the ledger — champion, per-variant results, the overfitting gap, untried combinations — and asks a model what to try next. Ollama (`--backend=ollama --model=…`) or any coding CLI on stdin. Everything it returns passes `parseProposals` first: a proposal is rebuilt from the champion's spec field by field, so it cannot invent a knob, an encoding, or a larger budget. Proposals **inside** the declared space are queued to `<game>.queue.jsonl` and run unattended by `npm run research`; proposals **outside** it are code changes and are written to `<game>.extensions.md` for review, never applied — an unattended loop that edits its own scoring path has no way left to notice it has broken itself. The proposer generates hypotheses; the hold-out comparison remains the only judge.
+
+**What may be edited to widen the search, and what may not.** `scripts/rl/research_contract.ts` names both surfaces and, more importantly, checks the invariants that make results comparable — it runs before every search and a violation aborts the run rather than writing rows that quietly mean nothing. New hypotheses go in the variant tables (`OBSERVATION_FIELDS`, `ACTION_SETS`), the reward channels, and the search-space declaration. The seed split, the promotion statistics, the ledger and the runner's train-then-evaluate ordering are off-limits: changing any of them makes old rows incomparable with new ones, which is worse than a wrong result because it is invisible.
+
+**The search space is declared by the game, not by the searcher.** `shared/rl/experiment_spec.ts` defines `ExperimentSpec` / `RlGameAdapter`; `scripts/rl/gunship_experiment.ts` is the first implementation. A game declares which observation encodings, action sets, reward weights and difficulty knobs may be varied, and nothing outside that declaration can be proposed. `specHash` deliberately excludes the budget — the same spec trained longer is the same spec with more evidence, which is exactly the case that must not be mistaken for a new one. Varying the observation or action set changes the Q-table's key shape or width, so `GunshipAgentSave` v9 records both and refuses to restore a table built under a different spec. From the CLI: `--observation=full|no-xp|minimal`, `--actions=full|coarse|climb-only`.
+
+**Scoring is separated from the reward on purpose.** `shared/rl/seed_plan.ts` splits training seeds from hold-out seeds (hold-out starts at 1,000,000, and the ranges cannot overlap by construction); `--evaluate` only ever runs hold-out seeds. `stepGunshipCore` returns a `RewardBreakdown` whose `task` channel is the objective and whose other channels are shaping. A change is judged on the hold-out task outcome — never on the shaped return, because every weight in it is a knob the change itself may have turned. The sim prints a `shaping share` for that reason: a rising share means the agent is being paid more for proxies than for the task.
+
 Pre-existing exceptions, not a precedent: `agent_rules/` (network-defense) and `faction_rules/` (colony) are older JSON rule engines that predate the RL work. Do not extend the pattern to new work.
 
 ## Architecture
 
-This is an **Electron desktop app** (`main.js`) that hosts an always-on-top window with switchable visualization pages, plus an Express+WebSocket game server.
+An **Electron desktop app** (`main.ts`) hosting an always-on-top window with switchable visualization pages, plus an Express + WebSocket game server (`server.ts`, port 3000).
 
-### Entry points
-
-| File | Role |
-|---|---|
-| `main.js` | Electron main process; manages the BrowserWindow and page switching |
-| `server.js` | Express server (port 3000) + WebSocket; started by main.js |
-| `game/engine.ts` | Roguelike dungeon GameEngine class (server-side, Node.js) |
-| `shared/network-core.ts` | Shared ES module for Three.js network topology — imported by network visualization pages |
-| `shared/telemetry-client.ts` | Thin client-side shim; sets `window.Telemetry.report()`, POSTs to `/telemetry/<page>` |
-| `apps/network-defense/network_defense.js` | Network defense game core logic |
-| `apps/network-defense/network_defense_ui.js` | UI rendering helpers |
-| `apps/network-defense/network_defense_events.js` | Input/event handling |
-| `apps/network-defense/network_defense_personality.js` | Agent personality logic |
-| `apps/network-defense/network_defense_observer.js` | Observer-mode page logic |
-| `apps/colony/colony.js` | Colony sandbox game logic |
-| `apps/planet-strategy/planet_strategy.js` | Planet strategy game core |
-| `apps/planet-strategy/planet_strategy_render.js` | 3D render helpers |
-| `apps/planet-strategy/planet_strategy_ui.js` | UI helpers |
-| `apps/planet-strategy/planet_strategy_telemetry.js` | Telemetry integration |
-| `apps/planet-strategy/planet_strategy_ai_*.js` | AI faction strategies (industrialist, raider, expansionist, fortifier) |
-| `apps/network-ecosystem/network_ecosystem.ts` | Network ecosystem visualization logic |
-
-### Directory layout
-
-- `apps/` — browser-served experiences grouped by feature (`colony`, `network-defense`, `network-ecosystem`, `planet-strategy`)
-- `pages/` — standalone Electron-loaded HTML pages (`city`, `moss`, `network_sw`, submarine views)
-- `shared/` — shared browser-side modules
-- `game/` — server-side roguelike engine
-- `public/` — WebSocket dungeon game client (`index.html`)
-- `agent_rules/` — JSON rule files for network-defense agents (`senior.json`, `mid.json`, `junior.json`)
-- `faction_rules/` — JSON rule files for colony faction behaviors (`builder.json`, `hoarder.json`, `raider.json`)
-- `assets/` — 3D model assets (`ships/`, `structures/`, `kenney_space_kit/`)
-- `docs/` — planning and design notes
-- `scripts/` — helper scripts for manual testing
+Browser apps are bundled by Vite into `build/`. Shared vendor chunks (Three.js etc.) go to `build/_vendor/` and are served by Express under `/_vendor/`.
 
 ### Page switching
 
-`shared/page_registry.ts` is the single source of truth for every page (key, label, accelerator, URL). `main.ts` reads it to build the menus, shortcuts and the switcher. Add new experiences there and every switching route picks them up automatically.
+`shared/page_registry.ts` is the single source of truth for every page (key, label, accelerator, URL). Add new experiences there and every switching route — command palette, tray menu, app menu, keyboard shortcuts, and `POST /electron/action` — picks them up automatically.
 
-There are four ways to switch:
+The Ctrl+K command palette lives in `preload.ts` and is injected into every page by the main process, so **pages carry no navigation code of their own**. It talks to main over the `terrarium:pages` / `terrarium:switch-page` IPC channels.
 
-| Route | How |
-|---|---|
-| **Command palette** | **Ctrl+K (Cmd+K) from any page.** Type to filter, ↑↓ + Enter, Esc to close |
-| Tray menu | Menu-bar icon → pick a page. Works without focusing the window |
-| App menu | View menu, radio-checked to the current page |
-| Keyboard | Ctrl+0–9 and Ctrl+Shift+0–5 (registered both globally and per-window) |
-| HTTP | `POST /electron/action` with `{ type: "switch_page", page: "<key>" }` |
+Set `ELECTRON_DISABLE_TRAY=1` to skip the tray. Ctrl+Shift+T toggles always-on-top.
 
-The palette lives in `preload.ts`, injected into every page by the main process — pages carry no navigation code of their own. It talks to main over the `terrarium:pages` / `terrarium:switch-page` IPC channels. Set `ELECTRON_DISABLE_TRAY=1` to skip the tray.
+### Rule-driven subsystems
 
-Ctrl+Shift+T toggles always-on-top.
+- `agent_rules/` — JSON rules for network-defense agents, hot-reloaded at runtime. See `apps/network-defense/CLAUDE.md`.
+- `faction_rules/` — JSON rules for colony faction behaviour, served as static files under `/faction_rules/`.
 
-### Game API (roguelike dungeon)
+### Roguelike dungeon engine
 
-The `GameEngine` exposes two state views:
-- `getAIState()` — no map coordinates, intended for AI callers
-- `getFullState()` — includes full map grid, entity positions; used by the WebSocket broadcast to `public/index.html`
-
-REST endpoints on `server.js`:
-
-| Endpoint | Description |
-|---|---|
-| `GET /state` | Returns `getAIState()` |
-| `POST /action` | `{ action, ...params }` — processes a game action and broadcasts new state |
-| `POST /reset` | Resets the game |
-
-Actions: `move` (dir), `attack` (dir), `pickup`, `use_item` (item), `equip` (item), `descend`. Directions: `north`, `south`, `east`, `west`.
-
-### Network Defense game (`apps/network-defense/`) — Ctrl+7
-
-Served via `http://localhost:3000/` (not file://) because `fetch('./agent_rules/...')` requires HTTP context.
-
-Files: `network_defense.html` (main), `network_defense_observer.html` (spectator view), plus modules `network_defense.js`, `network_defense_ui.js`, `network_defense_events.js`, `network_defense_personality.js`, `network_defense_observer.js`.
-
-A wave-based Three.js network defense game where AI agents patrol and defend a hierarchical network topology (layers: `core → dist → acc → term`, with one terminal node designated as the server).
-
-**Agent rule engine** — behavior is driven by JSON files in `agent_rules/` (`senior.json`, `mid.json`, `junior.json`), hot-reloaded every 5 seconds via `loadAgentRules()`. Each rule has an optional `when` condition (string JS expression or object dict) and an `action`. Rules are evaluated in order; first match wins. The `_when_format` block in each JSON documents available variables and examples.
-
-`when` can be a **string expression** evaluated with `new Function(...)`:
-```json
-"when": "hottestInfection > 0.3 || serverNeighborMaxInfection > 0.2"
-```
-or an **object dict** (legacy format):
-```json
-"when": { "serverNeighborInfection": 0.5, "enemyCount": 1 }
-```
-
-Available actions (any rank can execute any action — rank only affects speed/cost/effect multipliers via `RANK_PROFILE`):
-`containServerNeighbor`, `interceptEnemy`, `suppressHottest`, `repairWeakest`, `deployFirewallGuard`, `hardenNode`, `rebootNode`, `patrol`, `idle`, `recruitMid`, `recruitJunior`, `clearPathTo`
-
-`callLLM()` in `network_defense.js` calls `POST /api/strategy` on the Express server, which proxies to Ollama (`http://192.168.10.182:11436/api/generate`). The Ollama URL and model are defined as `OLLAMA_URL` / `OLLAMA_MODEL` constants at the top of `server.js`. On timeout or error it falls back to a local heuristic. The response sets `game.rule` (`balanced` / `containment` / `firewall-first` / `patrol`) which `evalCondition` exposes to rules as `gameRule`.
-
-### Colony Sandbox (`apps/colony/`) — Ctrl+9
-
-Served via `http://localhost:3000/colony.html`. Files: `colony.html`, `colony.js`.
-
-Faction behavior is driven by JSON files in `faction_rules/` (`builder.json`, `hoarder.json`, `raider.json`), served as static files under `/faction_rules/`.
-
-REST endpoints:
-- `GET /colony/state` — current colony telemetry snapshot
-- `POST /colony/intervention` — trigger an event (`resource_drop`, `storm`, `invader_wave`, `spawn_neutral`)
-
-### Planet Strategy (`apps/planet-strategy/`) — Ctrl+0
-
-Served via `http://localhost:3000/planet_strategy.html`. Core: `planet_strategy.js`. Supporting modules: `planet_strategy_render.js` (Three.js scene), `planet_strategy_ui.js` (HUD), `planet_strategy_telemetry.js`. AI factions each have their own file: `planet_strategy_ai_industrialist.js`, `planet_strategy_ai_raider.js`, `planet_strategy_ai_expansionist.js`, `planet_strategy_ai_fortifier.js`.
-
-3D assets served from `assets/ships/` (attacker, defender, miner, transport GLBs) and `assets/structures/` (station, factory, turret, mine_dish, asteroid, crystals GLBs).
-
-### Shared network topology (`shared/network-core.ts`)
-
-ES module (loaded via CDN Three.js import). Key exports:
-- `buildTopology(total, seed, mode, rewirePct)` — generates layered tree with optional small-world shortcuts
-- `buildScene` / `buildEdges` / `tickEdges` / `buildPackets` / `tickPackets` — Three.js scene helpers
-- `findShortestPath` / `findTreePath` — BFS pathfinding with tree fallback
+`game/engine.ts` exposes two deliberately different state views: `getAIState()` omits map coordinates and is what AI callers get, while `getFullState()` includes the map grid and entity positions and is what the WebSocket broadcast sends to `public/index.html`. Keep that split — it is the only thing preventing an AI caller from seeing through walls.
 
 ### Submarine cable data
 
-`server.js` proxies `submarinecablemap.com` API under `/submarine-data/:kind` (`cables`, `landings`, `routes`) with a 2-hour cache header.
+`server.ts` proxies `submarinecablemap.com` under `/submarine-data/:kind` with a 2-hour cache header. The upstream API is rate-limited, so do not bypass the cache.

@@ -83,7 +83,7 @@ test('flight policy separates weapon and recovery context', () => {
   const cannonStates = agent.knownStates;
   agent.decide(ship, [], [], [], { weapon: 'railgun', recoveryDelay: 1.8 }, .2, 0);
   assert.ok(agent.knownStates > cannonStates);
-  assert.equal(agent.serialize().version, 8);
+  assert.equal(agent.serialize().version, 9);
 });
 
 test('only capital kills trigger hit stop and a destruction banner', () => {

@@ -37,7 +37,8 @@ test('the shared Gunship core owns reward and terminal results', () => {
   const result = stepGunshipCore(state, actions[0], 1 / 60);
   assert.equal(result.fell, true);
   assert.equal(result.finalReward, -16);
-  assert.ok(result.reward < -15);
+  assert.ok(result.reward.total < -15);
+  assert.ok(result.reward.task < -15, 'the death penalty belongs to the task channel, not to shaping');
 });
 
 test('Gunship evaluation mode never changes its serialized training model', () => {

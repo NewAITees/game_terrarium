@@ -19,7 +19,7 @@ const $ = <T extends HTMLElement>(id: string): T => { const node = document.getE
 const ui = { hp: $('hp'), hpText: $('hp-text'), wave: $('wave'), encounter: $('encounter'), episode: $('episode'), action: $('action'), margin: $('margin'), burst: $('burst'), kills: $('kills'), reward: $('reward'), epsilon: $('epsilon'), states: $('states'), steps: $('steps'), deaths: $('deaths'), pause: $('pause'), mode: $<HTMLSelectElement>('mode'), level: $('level'), xp: $('xp'), upgrade: $('upgrade'), choices: $('upgrade-choices'), countdown: $('upgrade-countdown'), shipAccuracy: $('ship-accuracy'), airAccuracy: $('air-accuracy'), lowMargin: $('low-margin'), noseDown: $('nose-down'), cycle: $('cycle'), survival: $('survival'), data: $('data'), researchThrust: $<HTMLButtonElement>('research-thrust'), researchHull: $<HTMLButtonElement>('research-hull'), save: $<HTMLButtonElement>('save'), resetLearning: $<HTMLButtonElement>('reset-learning'), saveStatus: $('save-status'), airframe: $<HTMLSelectElement>('airframe'), frameName: $('frame-name'), frameStats: $('frame-stats'), combo: $('combo'), recovery: $('recovery'), nextTarget: $('next-target'), weapon: $('weapon'), weaponRole: $('weapon-role') };
 type MetaProgress = { data: number; thrustResearch: number; hullResearch: number };
 type LiveModelBundle = { version: 1; revision: number; manifest?: ModelManifest; models: Partial<Record<AirframeId, ReturnType<GunshipAgent['serialize']>>> };
-const liveModelCompatibility = { gameId: 'gunship', algorithm: 'tabular-q', modelVersion: 8, observationSchemaVersion: 1, rewardSchemaVersion: 1 } as const;
+const liveModelCompatibility = { gameId: 'gunship', algorithm: 'tabular-q', modelVersion: 9, observationSchemaVersion: 1, rewardSchemaVersion: 1 } as const;
 let liveModels: LiveModelBundle | null = null;
 let meta: MetaProgress = { data: 0, thrustResearch: 0, hullResearch: 0 };
 
@@ -64,7 +64,7 @@ function update(dt: number): void {
   else if (descentStarted >= 0) { cycleTotal += episodeElapsed - descentStarted; cycleCount++; descentStarted = -1; }
   currentAction = manual ? manualAction() : agent.decide(core.ship, core.enemies, core.enemyShots, core.orbs, { weapon: weaponKind(core.run), recoveryDelay: core.combat.recoveryDelay }, dt, lastReward).action;
   const result = stepGunshipCore(core, currentAction, dt, { thrustResearch: meta.thrustResearch });
-  episodeReward += result.reward;
+  episodeReward += result.reward.total;
   kills += result.kills;
   shots += result.shots;
   shipHits += result.shipHits;
@@ -75,7 +75,7 @@ function update(dt: number): void {
   if (result.shipDamaged) emitShipDamage(effects, core.ship);
   updateCombatFeedback(effects, core.combat.combo, core.combat.recovering);
   if (result.finalReward !== null) finishEpisode(result.fell, result.finalReward);
-  lastReward = result.reward;
+  lastReward = result.reward.total;
   saveTimer += dt;
   if (saveTimer > 8) { saveTimer = 0; saveAgent(); }
 }

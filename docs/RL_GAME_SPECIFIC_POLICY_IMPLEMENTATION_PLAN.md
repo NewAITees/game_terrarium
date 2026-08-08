@@ -384,9 +384,9 @@ DQNまたはPPOへの昇格は、次をすべて満たした場合に行う。
 
 ### P2 — Championモデル管理
 
-- [ ] Training、Candidate、Championのsnapshotを分離する。
-- [ ] Candidateを固定seedで評価し、採用条件を満たした場合だけChampionへ昇格する。
-- [ ] Playerは学習途中のsnapshotではなくChampion revisionだけを購読する。
+- [x] Training、Candidate、Championのsnapshotを分離する。共通`ModelLifecycleStore`を追加し、まずGunshipへ接続した。
+- [x] Candidateを固定seedで評価し、採用条件を満たした場合だけChampionへ昇格する。Gunshipではhold-out評価の95%下限が現Champion中央値を超えることを条件にする。
+- [x] Playerは学習途中のsnapshotではなくChampion revisionだけを購読する。既存のunsuffixed model APIをChampion専用として維持する。
 - [ ] reset時にmodelだけを対象とし、表示設定とメタ進行を保持する回帰テストを追加する。
 
 ### P3 — Watchabilityと共通HUD

@@ -5,6 +5,7 @@ import { addXp, type GunshipRunProgress } from './gunship_progression.js';
 import { collectOrbs, spawnOrb, stepOrbs, type XpOrb } from './gunship_pickups.js';
 import { applyWeaponRecoil, weaponCooldown, weaponDamage, weaponKind, weaponProfile, type WeaponKind } from './gunship_weapons.js';
 import { comboMultiplier, createCombatState, registerKill, stepCombatState, type CombatState } from './gunship_combat.js';
+import { rewardBreakdown, type RewardBreakdown } from '../../shared/rl/runtime_types.js';
 
 const SURFACE_KINDS = ['destroyer', 'cruiser', 'carrier', 'battleship', 'submarine'];
 // WAVE progression is time-based so an unbeaten battleship can't strand the run forever; enemies
@@ -66,7 +67,14 @@ export type GunshipCoreOptions = {
 };
 
 export type GunshipCoreStepResult = {
-  reward: number;
+  /**
+   * The learning signal, split by channel. `task` is the objective itself (staying alive,
+   * dying), the rest is shaping. Automated reward search may tune every channel, but a
+   * configuration is only ever *scored* on the episode's task outcome — otherwise the
+   * cheapest way to beat the champion is to raise a shaping weight and re-mark its own
+   * homework. Keeping the split at the source is what makes that rule enforceable.
+   */
+  reward: RewardBreakdown;
   finalReward: number | null;
   fell: boolean;
   kills: number;
@@ -91,7 +99,7 @@ export function stepGunshipCore(
 ): GunshipCoreStepResult {
   const rewards = options.rewards ?? DEFAULT_GUNSHIP_REWARD_WEIGHTS;
   const createWave = options.createWave ?? spawnWave;
-  let reward = 0;
+  const parts = { task: 0, progress: 0, safety: 0, behavior: 0 };
   let kills = 0;
   let shots = 0;
   let shipHits = 0;
@@ -109,7 +117,7 @@ export function stepGunshipCore(
 
   if (action.fire && state.ship.fireCooldown <= 0) {
     const fired = fireWeapon(state);
-    reward += fired.reward;
+    parts.progress += fired.reward;
     shots += fired.shots;
     firedWeapon = weaponKind(state.run);
     applyWeaponRecoil(state.ship, state.run, state.airframe.recoilScale);
@@ -131,21 +139,21 @@ export function stepGunshipCore(
     if (bullet.weapon !== 'laser' && bullet.weapon !== 'railgun') {
       const damage = weaponDamage(state.run, bullet.weapon, surface);
       target.hp -= damage;
-      if (target.kind === 'battleship') reward += damage * .03 * comboMultiplier(state.combat.combo);
+      if (target.kind === 'battleship') parts.progress += damage * .03 * comboMultiplier(state.combat.combo);
     }
     const impactX = bullet.x; const impactY = bullet.y; const wasExplosive = bullet.weapon === 'explosive';
     impacts.push({ x: impactX, y: impactY, weapon: bullet.weapon ?? 'cannon' });
     state.bullets.splice(index, 1);
     const primary = resolveKill(state, target, surface, rewards);
-    reward += primary.reward; kills += primary.kills; if (primary.killed) killedEnemies.push(primary.killed);
+    parts.progress += primary.reward; kills += primary.kills; if (primary.killed) killedEnemies.push(primary.killed);
     if (wasExplosive) {
       const splashDamage = 12 * 1.2 ** state.run.damage * 1.15 ** (state.run.explosive - 1);
       for (const other of state.enemies.slice()) {
         if (other === target || Math.hypot(other.x - impactX, other.y - impactY) >= 60) continue;
         other.hp -= splashDamage;
-        if (other.kind === 'battleship') reward += splashDamage * .03 * comboMultiplier(state.combat.combo);
+        if (other.kind === 'battleship') parts.progress += splashDamage * .03 * comboMultiplier(state.combat.combo);
         const splash = resolveKill(state, other, SURFACE_KINDS.includes(other.kind), rewards);
-        reward += splash.reward; kills += splash.kills; if (splash.killed) killedEnemies.push(splash.killed);
+        parts.progress += splash.reward; kills += splash.kills; if (splash.killed) killedEnemies.push(splash.killed);
       }
     }
   }
@@ -155,7 +163,7 @@ export function stepGunshipCore(
     state.ship.hp -= 10;
     shipDamaged = true;
     state.enemyShots.splice(index, 1);
-    reward += rewards.hit;
+    parts.safety += rewards.hit;
   }
 
   stepCombatState(state.combat, state.ship, state.enemies, action.fire, dt, weaponProfile(state.run).recoveryDelay);
@@ -163,8 +171,8 @@ export function stepGunshipCore(
   const collected = collectOrbs(state.orbs, state.ship.x, state.ship.y);
   if (collected > 0) { addXp(state.run, collected); xpCollected = collected; }
 
-  reward += dt * rewards.survival;
-  if (ceilingMargin(state.ship) < 70) reward -= dt * rewards.ceiling;
+  parts.task += dt * rewards.survival;
+  if (ceilingMargin(state.ship) < 70) parts.safety -= dt * rewards.ceiling;
 
   state.waveTimer -= dt;
   if (state.waveTimer <= 0) {
@@ -178,8 +186,8 @@ export function stepGunshipCore(
 
   const fell = state.ship.y >= SEA_Y;
   const finalReward = fell ? rewards.death : state.ship.hp <= 0 ? rewards.hpDeath : null;
-  if (finalReward !== null) reward += finalReward;
-  return { reward, finalReward, fell, kills, shots, shipHits, airHits, waveAdvanced, xpCollected, firedWeapon, impacts, killedEnemies, shipDamaged };
+  if (finalReward !== null) parts.task += finalReward;
+  return { reward: rewardBreakdown(parts), finalReward, fell, kills, shots, shipHits, airHits, waveAdvanced, xpCollected, firedWeapon, impacts, killedEnemies, shipDamaged };
 }
 
 // Weapon families are mutually exclusive once run.weaponFamily locks in (see gunship_progression.ts);

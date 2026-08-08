@@ -9,9 +9,10 @@ import { GunshipAgent, type GunshipAgentSave } from '../apps/gunship/gunship_rl.
 import type { NetworkDefenseRlSave } from '../apps/network-defense/network_defense_rl.js';
 import type { ModelManifest } from '../shared/rl/model_manifest.js';
 import type { EpisodeMetrics } from '../shared/rl/runtime_types.js';
-import { runEpisode } from './gunship_headless_sim.js';
+import { DEFAULT_GUNSHIP_ENVIRONMENT, runEpisode } from './gunship_headless_sim.js';
 import { runNetworkDefenseEpisode } from './network_defense_headless_sim.js';
 import { runEvaluation, saveEvaluationReport, type EvaluationAdapter } from './rl/evaluation_runner.js';
+import { createSeedPlan, isHoldoutSeed } from '../shared/rl/seed_plan.js';
 
 type ModelBundle<Model> = {
   revision?: number;
@@ -30,9 +31,16 @@ const args = new Map(process.argv.slice(2).map((token) => {
 const modelRoot = resolve(args.get('model-root') || process.env.RL_MODEL_ROOT || process.cwd());
 const outputRoot = resolve(args.get('output') || 'logs/rl-baselines');
 const capSeconds = Math.max(1, Number(args.get('cap') || 120));
-const seeds = parseSeeds(args.get('seeds') || '101,211,307,401,503,601,701,809');
+// Baselines are scored on the hold-out range only. The old literal seeds (101, 211, …) sat inside
+// the trainers' own range, so a published model was being graded on episodes it had trained on.
+const seeds = parseSeeds(args.get('seeds') || createSeedPlan(1, 8).holdout.join(','));
 
 async function main(): Promise<void> {
+  const trained = seeds.filter((seed) => !isHoldoutSeed(seed));
+  if (trained.length) {
+    console.warn(`warning: ${trained.length} evaluation seed(s) are inside the training range (${trained.join(', ')});`
+      + ' these results are not a clean measure of generalisation');
+  }
   const adapters = await createAdapters();
   for (const adapter of adapters) {
     const report = await runEvaluation(adapter, seeds);
@@ -104,10 +112,10 @@ function gunshipAdapter(bundle: GunshipBundle, airframeId: AirframeId): Evaluati
       const save = bundle.models?.[airframeId];
       if (save) agent.restore(save);
       agent.setEvaluationMode(true);
-      const result = runEpisode(agent, airframeId, capSeconds, 1, seed);
+      const result = runEpisode(agent, airframeId, { ...DEFAULT_GUNSHIP_ENVIRONMENT, capSeconds }, seed);
       return metric(episode, seed, result.seconds, result.terminated, result.truncated,
-        result.truncated ? 'timeout' : 'failure', result.reward, result.reward,
-        { wave: result.wave, kills: result.kills, score: result.reward, fell: result.fell ? 1 : 0, trainingSteps: bundle.manifest?.trainingSteps ?? agent.steps },
+        result.truncated ? 'timeout' : 'failure', result.taskReturn, result.channels.total,
+        { wave: result.wave, kills: result.kills, score: result.channels.total, fell: result.fell ? 1 : 0, trainingSteps: bundle.manifest?.trainingSteps ?? agent.steps },
         Math.ceil(result.seconds / 0.12));
     },
   };

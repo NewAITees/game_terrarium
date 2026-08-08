@@ -1,4 +1,4 @@
-import { GunshipAgent } from '../apps/gunship/gunship_rl.js';
+import { GunshipAgent, type GunshipActionVariant, type GunshipObservationVariant } from '../apps/gunship/gunship_rl.js';
 import { AIRFRAMES, airframeById, type AirframeId } from '../apps/gunship/gunship_airframes.js';
 import type { GunshipBody } from '../apps/gunship/gunship_physics.js';
 import { spawnWave, type Enemy } from '../apps/gunship/gunship_enemies.js';
@@ -10,6 +10,9 @@ import {
   type GunshipCoreState,
   type GunshipRewardWeights,
 } from '../apps/gunship/gunship_core.js';
+import { createSeedPlan, holdoutSeed, trainingSeed } from '../shared/rl/seed_plan.js';
+import { rewardBreakdown, type RewardBreakdown } from '../shared/rl/runtime_types.js';
+import { mulberry32 } from '../shared/rl/random.js';
 
 /**
  * Headless driver for the same gunship_core used by the Electron player. It owns training cadence
@@ -19,9 +22,31 @@ import {
  */
 
 const DT = 1 / 60;
-// Reward weights are the thing under test, so they are knobs rather than literals.
+
+/**
+ * Everything about the episode that is not the policy. Passed per call rather than held in a
+ * module global, because an automated search runs many configurations and a shared mutable knob
+ * would silently leak one experiment's difficulty into another's.
+ */
+export type GunshipEnvironmentSpec = {
+  capSeconds: number;
+  density: number;
+  hp: number;
+  fireRate: number;
+  maxChasers: number;
+  rewards: GunshipRewardWeights;
+};
+
 // Defaults mirror apps/gunship/gunship_core.ts's DEFAULT_GUNSHIP_REWARD_WEIGHTS exactly.
-const W = { hp: 1, fireRate: 1, maxChasers: 0, survival: .6, ceiling: .09, death: -16, hpDeath: -9, kill: 1, hit: -1.5, wave: 8 };
+export const DEFAULT_GUNSHIP_ENVIRONMENT: GunshipEnvironmentSpec = {
+  capSeconds: 120,
+  density: 1,
+  hp: 1,
+  fireRate: 1,
+  maxChasers: 0,
+  rewards: { survival: .6, ceiling: .09, death: -16, hpDeath: -9, kill: 1, hit: -1.5, wave: 8 },
+};
+
 // The craft can only shoot within +/-90 degrees of straight ahead, so with a
 // near-empty sky most of its life is spent with nothing it can legally aim at.
 // --density=N multiplies the airborne opposition to test that balance lever.
@@ -39,16 +64,32 @@ function densify(enemies: Enemy[], density: number, seed: number): Enemy[] {
 
 // spawnWave now fields 7-16 chasers so the craft always has something aimable.
 // --maxChasers isolates how much of the survival ceiling that density costs.
-function capChasers(enemies: Enemy[]): Enemy[] {
-  if (W.maxChasers <= 0) return enemies;
+function capChasers(enemies: Enemy[], maxChasers: number): Enemy[] {
+  if (maxChasers <= 0) return enemies;
   let kept = 0;
-  return enemies.filter((enemy) => enemy.kind !== 'chaser' || ++kept <= W.maxChasers);
+  return enemies.filter((enemy) => enemy.kind !== 'chaser' || ++kept <= maxChasers);
 }
 
-function slowFire(enemies: Enemy[]): Enemy[] {
-  if (W.fireRate === 1) return enemies;
-  for (const enemy of enemies) enemy.cooldown /= W.fireRate;
+function slowFire(enemies: Enemy[], fireRate: number): Enemy[] {
+  if (fireRate === 1) return enemies;
+  for (const enemy of enemies) enemy.cooldown /= fireRate;
   return enemies;
+}
+
+function shapeWave(enemies: Enemy[], environment: GunshipEnvironmentSpec, seed: number): Enemy[] {
+  const random = mulberry32(seed);
+  const shaped = slowFire(capChasers(densify(enemies, environment.density, seed), environment.maxChasers), environment.fireRate);
+  // Enemy ids are identity only; spawnWave positions do not otherwise consume them. Apply a small,
+  // deterministic layout permutation here so train/hold-out seeds describe genuinely different
+  // episodes without changing enemy counts or difficulty.
+  for (const enemy of shaped) {
+    enemy.x = 120 + ((enemy.x - 120 + Math.floor(random() * 3180)) % 3300);
+    if (!['destroyer', 'cruiser', 'carrier', 'battleship', 'submarine'].includes(enemy.kind)) {
+      enemy.y = Math.max(55, Math.min(650, enemy.y + (random() * 2 - 1) * 90));
+    }
+    enemy.cooldown *= .8 + random() * .4;
+  }
+  return shaped;
 }
 
 export type GunshipEpisodeResult = {
@@ -57,42 +98,80 @@ export type GunshipEpisodeResult = {
   kills: number;
   wave: number;
   fell: boolean;
-  reward: number;
+  /** What the learner was paid, by channel. Every weight here is tunable, so none of it can score a run. */
+  channels: RewardBreakdown;
+  /**
+   * The score. Seconds survived — no weight, no knob, nothing an experiment can turn up.
+   * A reward search is compared on this and never on `channels`.
+   */
+  taskReturn: number;
   terminated: boolean;
   truncated: boolean;
 };
 
-function freshShip(maxHp: number): GunshipBody {
-  return { x: 1800, y: 260, vx: 0, vy: 0, angle: Math.PI / 2, hp: maxHp, maxHp, fireCooldown: 0, thrust: 0, turn: 0, thrustTurnK: 0, drag: 0 };
+function freshShip(maxHp: number, seed: number): GunshipBody {
+  const random = mulberry32(seed ^ 0xa511e9b3);
+  return {
+    x: 1350 + random() * 900,
+    y: 235 + random() * 50,
+    vx: (random() * 2 - 1) * 18,
+    vy: (random() * 2 - 1) * 12,
+    angle: Math.PI / 2 + (random() * 2 - 1) * .1,
+    hp: maxHp,
+    maxHp,
+    fireCooldown: 0,
+    thrust: 0,
+    turn: 0,
+    thrustTurnK: 0,
+    drag: 0,
+  };
 }
 
-export function runEpisode(agent: GunshipAgent, airframeId: AirframeId, capSeconds: number, density: number, seed = 1): GunshipEpisodeResult {
+/**
+ * The world a seed produces, before anything acts in it. Shared by `runEpisode` and the contract's
+ * environment fingerprint so the two can never drift: a check that builds its own copy of the
+ * starting state would keep passing after the real one stopped varying.
+ */
+export function episodeStart(airframeId: AirframeId, environment: GunshipEnvironmentSpec, seed: number): { nextId: number; ship: GunshipBody; enemies: Enemy[] } {
   const airframe = airframeById(airframeId);
   const nextId = 50 + seed * 1000;
-  const initialEnemies = slowFire(capChasers(densify(spawnWave(1, nextId), density, seed)));
+  return {
+    nextId,
+    ship: freshShip(Math.round(airframe.maxHp * environment.hp), seed),
+    enemies: shapeWave(spawnWave(1, nextId), environment, seed),
+  };
+}
+
+/** A stable summary of that world: positions and timings, with the identity-only ids left out. */
+export function fingerprintEpisodeStart(airframeId: AirframeId, environment: GunshipEnvironmentSpec, seed: number): string {
+  const { ship, enemies } = episodeStart(airframeId, environment, seed);
+  const round = (value: number): number => Math.round(value * 100) / 100;
+  return JSON.stringify([
+    [round(ship.x), round(ship.y), round(ship.vx), round(ship.vy), round(ship.angle)],
+    enemies.map((enemy) => [enemy.kind, round(enemy.x), round(enemy.y), round(enemy.cooldown)]),
+  ]);
+}
+
+// `seed` is deliberately required: defaulting it is how every episode silently ran the same
+// wave layout, which trains and scores on one map and calls the result a learning curve.
+export function runEpisode(agent: GunshipAgent, airframeId: AirframeId, environment: GunshipEnvironmentSpec, seed: number): GunshipEpisodeResult {
+  const { capSeconds } = environment;
+  const airframe = airframeById(airframeId);
+  const { nextId, ship, enemies: initialEnemies } = episodeStart(airframeId, environment, seed);
   const state: GunshipCoreState = createGunshipCoreState(
-    freshShip(Math.round(airframe.maxHp * W.hp)),
+    ship,
     createRunProgress(),
     airframe,
     nextId + initialEnemies.length,
     initialEnemies,
   );
+  const totals = { task: 0, progress: 0, safety: 0, behavior: 0 };
   let episodeReward = 0;
   let lastReward = 0;
   let kills = 0;
   let upgradeRewardMark = 0;
-  const rewards: GunshipRewardWeights = {
-    survival: W.survival,
-    ceiling: W.ceiling,
-    death: W.death,
-    hpDeath: W.hpDeath,
-    kill: W.kill,
-    hit: W.hit,
-    wave: W.wave,
-  };
-  const createWave = (wave: number, id: number): Enemy[] => (
-    slowFire(capChasers(densify(spawnWave(wave, id), density, wave)))
-  );
+  const rewards = environment.rewards;
+  const createWave = (wave: number, id: number): Enemy[] => shapeWave(spawnWave(wave, id), environment, seed ^ Math.imul(wave, 0x9e3779b1));
 
   while (state.elapsed < capSeconds) {
     // Level-up resolves immediately here; the game gives a human 5s to override.
@@ -106,17 +185,21 @@ export function runEpisode(agent: GunshipAgent, airframeId: AirframeId, capSecon
     const tactical = { weapon: weaponKind(state.run), recoveryDelay: state.combat.recoveryDelay };
     const action = agent.decide(state.ship, state.enemies, state.enemyShots, state.orbs, tactical, DT, lastReward).action;
     const result = stepGunshipCore(state, action, DT, { rewards, createWave, simulationTime: state.elapsed });
-    episodeReward += result.reward;
+    totals.task += result.reward.task;
+    totals.progress += result.reward.progress;
+    totals.safety += result.reward.safety;
+    totals.behavior += result.reward.behavior;
+    episodeReward += result.reward.total;
     kills += result.kills;
     if (result.finalReward !== null) {
       agent.finishEpisode(result.finalReward);
-      return { seed, seconds: state.elapsed, kills, wave: state.wave, fell: result.fell, reward: episodeReward, terminated: true, truncated: false };
+      return { seed, seconds: state.elapsed, kills, wave: state.wave, fell: result.fell, channels: rewardBreakdown(totals), taskReturn: state.elapsed, terminated: true, truncated: false };
     }
-    lastReward = result.reward;
+    lastReward = result.reward.total;
   }
   // Timed out rather than died: treat as a neutral cut so the cap cannot be farmed.
   agent.finishEpisode(0);
-  return { seed, seconds: state.elapsed, kills, wave: state.wave, fell: false, reward: episodeReward, terminated: false, truncated: true };
+  return { seed, seconds: state.elapsed, kills, wave: state.wave, fell: false, channels: rewardBreakdown(totals), taskReturn: state.elapsed, terminated: false, truncated: true };
 }
 
 function mean(values: number[]): number {
@@ -136,19 +219,41 @@ function main(): void {
     return [key, value];
   }));
   const episodes = Number(args.get('episodes') ?? 400);
-  const capSeconds = Number(args.get('cap') ?? 120);
   const bucket = Number(args.get('bucket') ?? 50);
-  const density = Number(args.get('density') ?? 1);
-  for (const key of Object.keys(W) as (keyof typeof W)[]) {
+  const number = (key: string, fallback: number): number => {
     const override = args.get(key);
-    if (override !== undefined && override !== '') W[key] = Number(override);
-  }
+    return override === undefined || override === '' ? fallback : Number(override);
+  };
+  const base = DEFAULT_GUNSHIP_ENVIRONMENT;
+  const environment: GunshipEnvironmentSpec = {
+    capSeconds: number('cap', base.capSeconds),
+    density: number('density', base.density),
+    hp: number('hp', base.hp),
+    fireRate: number('fireRate', base.fireRate),
+    maxChasers: number('maxChasers', base.maxChasers),
+    rewards: {
+      survival: number('survival', base.rewards.survival),
+      ceiling: number('ceiling', base.rewards.ceiling),
+      death: number('death', base.rewards.death),
+      hpDeath: number('hpDeath', base.rewards.hpDeath),
+      kill: number('kill', base.rewards.kill),
+      hit: number('hit', base.rewards.hit),
+      wave: number('wave', base.rewards.wave),
+    },
+  };
+  const policy = {
+    observation: (args.get('observation') || 'full') as GunshipObservationVariant,
+    actions: (args.get('actions') || 'full') as GunshipActionVariant,
+  };
   const requested = args.get('airframe');
   const airframes: AirframeId[] = requested
     ? [requested as AirframeId]
     : AIRFRAMES.map((frame) => frame.id);
 
   const repeats = Number(args.get('repeats') ?? 1);
+  // Training cycles --trainSeeds distinct layouts; greedy evaluation only ever sees the
+  // hold-out range, so a reward tweak cannot be scored on the maps it was fitted to.
+  const seeds = createSeedPlan(Number(args.get('trainSeeds') ?? 64), Number(args.get('holdoutSeeds') ?? 32));
 
   for (const airframeId of airframes) {
     // One agent's curve is mostly noise at this episode count, so average the
@@ -156,17 +261,19 @@ function main(): void {
     const runs: GunshipEpisodeResult[][] = [];
     const agents: GunshipAgent[] = [];
     for (let repeat = 0; repeat < repeats; repeat += 1) {
-      const agent = new GunshipAgent();
+      const agent = new GunshipAgent(policy);
       agents.push(agent);
       const single: GunshipEpisodeResult[] = [];
-      for (let episode = 0; episode < episodes; episode += 1) single.push(runEpisode(agent, airframeId, capSeconds, density));
+      for (let episode = 0; episode < episodes; episode += 1) {
+        single.push(runEpisode(agent, airframeId, environment, trainingSeed(seeds, episode)));
+      }
       runs.push(single);
     }
     const blockMedian = (start: number): number => mean(runs.map((run) => median(run.slice(start, start + bucket).map((entry) => entry.seconds))));
     const blockKills = (start: number): number => mean(runs.map((run) => mean(run.slice(start, start + bucket).map((entry) => entry.kills))));
     const blockFalls = (start: number): number => mean(runs.map((run) => run.slice(start, start + bucket).filter((entry) => entry.fell).length / Math.min(bucket, run.length - start)));
 
-    console.log(`\n=== ${airframeId} (${episodes} episodes x ${repeats} agents) ===`);
+    console.log(`\n=== ${airframeId} (${episodes} episodes x ${repeats} agents, obs=${policy.observation} actions=${policy.actions}) ===`);
     console.log('  block          median   falls   kills/ep');
     const starts: number[] = [];
     for (let start = 0; start < episodes; start += bucket) starts.push(start);
@@ -178,6 +285,19 @@ function main(): void {
         + `${blockKills(start).toFixed(2).padStart(11)}`,
       );
     }
+    // How much of the learner's pay is shaping rather than the objective. A reward search that
+    // drifts towards a high shaping share is buying its numbers, not learning the task.
+    const finalBlock = runs.flatMap((run) => run.slice(starts[starts.length - 1]));
+    const channel = (pick: (entry: GunshipEpisodeResult) => number): number => mean(finalBlock.map(pick));
+    const task = channel((entry) => entry.channels.task);
+    const progress = channel((entry) => entry.channels.progress);
+    const safety = channel((entry) => entry.channels.safety);
+    const behavior = channel((entry) => entry.channels.behavior);
+    const magnitude = Math.abs(task) + Math.abs(progress) + Math.abs(safety) + Math.abs(behavior);
+    console.log(`  reward mix (final block): task ${task.toFixed(1)}  progress ${progress.toFixed(1)}`
+      + `  safety ${safety.toFixed(1)}  behavior ${behavior.toFixed(1)}`
+      + `  shaping share ${magnitude ? ((magnitude - Math.abs(task)) / magnitude * 100).toFixed(0) : '0'}%`);
+
     const evaluate = Number(args.get('evaluate') ?? 0);
     if (evaluate > 0) {
       const evalSeconds: number[] = [];
@@ -185,13 +305,13 @@ function main(): void {
       for (const agent of agents) {
         agent.setEvaluationMode(true);
         for (let episode = 0; episode < evaluate; episode += 1) {
-          const outcome = runEpisode(agent, airframeId, capSeconds, density);
-          evalSeconds.push(outcome.seconds);
+          const outcome = runEpisode(agent, airframeId, environment, holdoutSeed(seeds, episode));
+          evalSeconds.push(outcome.taskReturn);
           evalKills += outcome.kills;
         }
         agent.setEvaluationMode(false);
       }
-      console.log(`  greedy evaluation (${evaluate} eps x ${agents.length} agents, no exploration):`
+      console.log(`  greedy evaluation on ${seeds.holdout.length} held-out seeds (${evaluate} eps x ${agents.length} agents, no exploration):`
         + ` median ${median(evalSeconds).toFixed(1)}s  mean ${mean(evalSeconds).toFixed(1)}s`
         + `  best ${Math.max(...evalSeconds).toFixed(1)}s`
         + `  >=120s ${(evalSeconds.filter((v) => v >= 120).length / evalSeconds.length * 100).toFixed(0)}%`

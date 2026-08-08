@@ -19,12 +19,32 @@ export type GunshipAgentSave =
   | { version: 5; learner: TabularQSave; upgrade: TabularQSave; episodes: number }
   | { version: 6; learner: TabularQSave; upgrade: TabularQSave; episodes: number }
   | { version: 7; learner: TabularQSave; upgrade: TabularQSave; episodes: number }
-  | { version: 8; learner: TabularQSave; upgrade: TabularQSave; episodes: number };
+  | { version: 8; learner: TabularQSave; upgrade: TabularQSave; episodes: number }
+  | { version: 9; learner: TabularQSave; upgrade: TabularQSave; episodes: number; observation: string; actions: string };
 
 // Sentinel buckets for "no orb currently exists" — distinct from any real banded value,
 // so the agent can tell "nothing to collect" apart from "there is one, but it's far/behind".
 const NO_ORB_AIM = 5;
 const NO_ORB_DIST = 3;
+
+/**
+ * Observation variants. These are not cosmetic: the encoded key *is* the Q-table's index, so
+ * dropping fields does not simplify a learned policy, it defines a different one over a smaller
+ * state space. Fewer fields means fewer states to visit and faster learning per episode, at the
+ * cost of distinctions the agent can no longer make — which is precisely the trade an automated
+ * search should be measuring rather than a human guessing at.
+ */
+export const GUNSHIP_OBSERVATIONS = ['full', 'no-xp', 'minimal'] as const;
+export type GunshipObservationVariant = (typeof GUNSHIP_OBSERVATIONS)[number];
+
+const OBSERVATION_FIELDS: Record<GunshipObservationVariant, readonly (keyof Observation)[]> = {
+  full: ['altitude', 'ceiling', 'fall', 'lift', 'aim', 'target', 'threat', 'danger', 'xpAim', 'xpDist', 'weapon', 'recovery'],
+  // The xp orbs are a collection sub-game layered on the flying one; this asks whether carrying
+  // them in the state pays for the states they cost.
+  'no-xp': ['altitude', 'ceiling', 'fall', 'lift', 'aim', 'target', 'threat', 'danger', 'weapon', 'recovery'],
+  // Flight and aim only. The smallest encoding that can still express "am I about to hit the sea".
+  minimal: ['altitude', 'fall', 'lift', 'aim', 'target'],
+};
 
 // 0.12s beat 0.2 / 0.3 / 0.45 in a 6000-episode sweep: a longer hold also holds
 // each exploratory mistake longer, and in a gravity game that is fatal.
@@ -43,43 +63,99 @@ const ACTIONS: readonly GunshipAction[] = [
   { turn: -1, thrust: false, fire: true, label: 'BURST / TRACK' },
 ] as const;
 
+/**
+ * Action variants. Each one changes the Q-table's width, so a table learned under one is
+ * meaningless under another — `GunshipPolicySpec` is stored with the model for that reason.
+ */
+export const GUNSHIP_ACTION_SETS = ['full', 'coarse', 'climb-only'] as const;
+export type GunshipActionVariant = (typeof GUNSHIP_ACTION_SETS)[number];
+
+const ACTION_SETS: Record<GunshipActionVariant, readonly GunshipAction[]> = {
+  full: ACTIONS,
+  // Firing costs nothing but the recoil, so treating it as a free axis doubles the table for a
+  // decision the agent may not need to make. Here the guns are always live and only flight is chosen.
+  coarse: ACTIONS.filter((action) => action.fire),
+  // Thrust always on: halves the table and removes the ballistic-coast option entirely.
+  'climb-only': ACTIONS.filter((action) => action.thrust),
+};
+
+export type GunshipPolicySpec = {
+  observation: GunshipObservationVariant;
+  actions: GunshipActionVariant;
+  learner: Partial<GunshipLearnerOverrides>;
+  /** Exploration stream. Seeding it is what makes a research-ledger row replayable. */
+  random?: () => number;
+};
+
+export type GunshipLearnerOverrides = {
+  learningRate: number;
+  discount: number;
+  initialEpsilon: number;
+  minimumEpsilon: number;
+  maximumEpsilon: number;
+  epsilonDecay: number;
+  episodeEpsilonBoost: number;
+  episodeMaximumEpsilon: number;
+  terminalBlame: number;
+  maximumStates: number;
+};
+
+export const DEFAULT_GUNSHIP_POLICY_SPEC: GunshipPolicySpec = { observation: 'full', actions: 'full', learner: {} };
+
 export class GunshipAgent {
-  private readonly learner = new TabularQAgent<Observation, GunshipAction>({
-    actions: ACTIONS,
-    encodeState: encode,
-    learningRate: .13,
-    discount: .94,
-    initialEpsilon: .18,
-    minimumEpsilon: .035,
-    maximumEpsilon: .3,
-    epsilonDecay: .9994,
-    // Episodes here are short (~46 decisions), so decay only sheds about .005 of
-    // epsilon per episode. A boost any larger than that outruns it and pins
-    // exploration at the ceiling forever — which reads on screen as a pilot that
-    // never stops randomly flying into the sea.
-    episodeEpsilonBoost: .002,
-    episodeMaximumEpsilon: .2,
-    terminalBlame: 0.7,
-  });
-  // Level-up is its own learned policy: pick one of the three offered upgrades. Reward is the run performance earned
-  // between consecutive picks, so the agent learns which builds pay off — not a fixed "always take slot 0".
-  private readonly upgradeLearner = new TabularQAgent<UpgradeContext, number>({
-    actions: [0, 1, 2],
-    encodeState: encodeUpgrade,
-    learningRate: .22,
-    discount: .9,
-    initialEpsilon: .3,
-    minimumEpsilon: .05,
-    maximumEpsilon: .45,
-    epsilonDecay: .997,
-    // Upgrade picks happen a handful of times per episode, so this learner decays
-    // even more slowly than the flight one and needs a correspondingly smaller boost.
-    episodeEpsilonBoost: .004,
-    episodeMaximumEpsilon: .35,
-  });
+  readonly spec: GunshipPolicySpec;
+  private readonly actions: readonly GunshipAction[];
+  private readonly learner: TabularQAgent<Observation, GunshipAction>;
+  private current: GunshipAction;
+
+  constructor(spec: Partial<GunshipPolicySpec> = {}) {
+    this.spec = { ...DEFAULT_GUNSHIP_POLICY_SPEC, ...spec, learner: spec.learner ?? {} };
+    const fields = OBSERVATION_FIELDS[this.spec.observation];
+    this.actions = ACTION_SETS[this.spec.actions];
+    this.current = this.actions[0];
+    this.learner = new TabularQAgent<Observation, GunshipAction>({
+      actions: this.actions,
+      encodeState: (observation) => encode(observation, fields),
+      learningRate: .13,
+      discount: .94,
+      initialEpsilon: .18,
+      minimumEpsilon: .035,
+      maximumEpsilon: .3,
+      epsilonDecay: .9994,
+      // Episodes here are short (~46 decisions), so decay only sheds about .005 of
+      // epsilon per episode. A boost any larger than that outruns it and pins
+      // exploration at the ceiling forever — which reads on screen as a pilot that
+      // never stops randomly flying into the sea.
+      episodeEpsilonBoost: .002,
+      episodeMaximumEpsilon: .2,
+      terminalBlame: 0.7,
+      // Spread last so a search can override any of the above; anything it leaves out keeps the
+      // shipped value, which makes the default spec exactly today's agent.
+      ...this.spec.learner,
+      random: this.spec.random,
+    });
+    this.upgradeLearner = new TabularQAgent<UpgradeContext, number>({
+      actions: [0, 1, 2],
+      encodeState: encodeUpgrade,
+      learningRate: .22,
+      discount: .9,
+      initialEpsilon: .3,
+      minimumEpsilon: .05,
+      maximumEpsilon: .45,
+      epsilonDecay: .997,
+      // Upgrade picks happen a handful of times per episode, so this learner decays
+      // even more slowly than the flight one and needs a correspondingly smaller boost.
+      episodeEpsilonBoost: .004,
+      episodeMaximumEpsilon: .35,
+      random: this.spec.random,
+    });
+  }
+  // Level-up is its own learned policy: pick one of the three offered upgrades. Reward is the run
+  // performance earned between consecutive picks, so the agent learns which builds pay off — not a
+  // fixed "always take slot 0". Built in the constructor so it shares the seeded exploration stream.
+  private readonly upgradeLearner: TabularQAgent<UpgradeContext, number>;
   episodes = 0;
   private timer = 0;
-  private current = ACTIONS[0];
   private evaluationMode = false;
 
   private pendingReward = 0;
@@ -99,7 +175,16 @@ export class GunshipAgent {
   // Called when a level-up window resolves. `reward` is the return earned since the previous pick; returns the chosen slot.
   decideUpgrade(context: UpgradeContext, reward: number): number { this.upgradeLearner.observe(context, reward); return this.upgradeLearner.decide(context).actionIndex; }
   finishEpisode(finalReward: number): void { this.learner.finishEpisode(finalReward); this.upgradeLearner.finishEpisode(finalReward); if (!this.evaluationMode) this.episodes++; this.timer = 0; this.pendingReward = 0; }
-  serialize(): GunshipAgentSave { return { version: 8, learner: this.learner.serialize(), upgrade: this.upgradeLearner.serialize(), episodes: this.episodes }; }
+  serialize(): GunshipAgentSave {
+    return {
+      version: 9,
+      learner: this.learner.serialize(),
+      upgrade: this.upgradeLearner.serialize(),
+      episodes: this.episodes,
+      observation: this.spec.observation,
+      actions: this.spec.actions,
+    };
+  }
   restore(save: GunshipAgentSave): void {
     // v8 drops the AIM_UNREACHABLE sentinel now that the craft can turn and thrust through a full
     // 360° (see stepPhysics) — a target to world-left is no longer categorically unreachable, so the
@@ -110,7 +195,12 @@ export class GunshipAgent {
     // aim bands gained an unreachable bucket, band() stopped wrapping its top bucket).
     // Older tables use the same key shape for different situations, so replaying
     // them would poison the new policy rather than give it a head start.
-    if (!save || save.version !== 8) return;
+    // v9 records which observation and action variant the table was built under. Without it, a
+    // search that varies either one would silently load a table whose keys mean something else and
+    // whose columns point at different actions — the same class of error as a stale version, but
+    // one that produces a plausible-looking agent instead of an obviously broken one.
+    if (!save || save.version !== 9) return;
+    if (save.observation !== this.spec.observation || save.actions !== this.spec.actions) return;
     this.learner.restore(save.learner);
     if (save.upgrade) this.upgradeLearner.restore(save.upgrade);
     this.episodes = Math.max(0, save.episodes || 0);
@@ -192,7 +282,11 @@ function incomingDanger(ship: GunshipBody, hazards: GunshipHazard[]): number {
   }
   return thresholdBand(nearest, [90, 220]);
 }
-function encode(o: Observation): string { return `${o.altitude}|${o.ceiling}|${o.fall}|${o.lift}|${o.aim}|${o.target}|${o.threat}|${o.danger}|${o.xpAim}|${o.xpDist}|${o.weapon}|${o.recovery}`; }
+function encode(o: Observation, fields: readonly (keyof Observation)[]): string {
+  let key = '';
+  for (const field of fields) key += `${o[field]}|`;
+  return key;
+}
 function encodeUpgrade(context: UpgradeContext): string { return `${context.offer.join(',')}|${Math.min(9, context.level >> 1)}`; }
 // findIndex returns -1 for values above every cut, so the previous `+ 1` form
 // labelled the topmost bucket 0 — the same label as the bottom-most one in every
