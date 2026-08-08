@@ -31,6 +31,11 @@ export type ResearchRow = {
   trainingSteps: number;
   knownStates: number;
   wallSeconds: number;
+  /**
+   * Path, relative to the ledger, of the trained model this row scored. Absent on failed rows and on
+   * rows written before models were kept.
+   */
+  modelFile?: string;
   /** Set when the run failed; `holdout` is meaningless in that case. */
   error?: string;
 };

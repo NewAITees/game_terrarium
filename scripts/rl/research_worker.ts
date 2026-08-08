@@ -15,8 +15,8 @@ type WorkerRequest = { spec: ExperimentSpec; parent: string | null; evaluationEp
 process.on('message', (message: WorkerRequest) => {
   try {
     const adapter = resolveAdapter(message.spec.gameId);
-    const row = runSpec(adapter, message.spec, message.parent, { evaluationEpisodes: message.evaluationEpisodes });
-    process.send?.({ ok: true, row });
+    const result = runSpec(adapter, message.spec, message.parent, { evaluationEpisodes: message.evaluationEpisodes });
+    process.send?.({ ok: true, row: result.row, model: result.model });
   } catch (error) {
     process.send?.({ ok: false, error: error instanceof Error ? error.message : String(error) });
   }

@@ -12,6 +12,18 @@ import { describe, mean } from './research_stats.js';
  * reach the model, and nothing the model trained on is allowed to reach the score.
  */
 
+export type RunResult = {
+  row: ResearchRow;
+  /**
+   * The trained model from the predetermined first repeat.
+   *
+   * Hold-out seeds judge the configuration, never select which stochastic training run ships. Using
+   * the best hold-out repeat here would spend the hold-out set twice and publish an optimistically
+   * selected model. Repeat zero is fixed before any outcome exists, so it remains auditable.
+   */
+  model: unknown;
+};
+
 export type RunOptions = {
   /** Hold-out episodes per repeat. */
   evaluationEpisodes?: number;
@@ -24,7 +36,7 @@ export function runSpec(
   spec: ExperimentSpec,
   parent: string | null,
   options: RunOptions = {},
-): ResearchRow {
+): RunResult {
   validateSpec(spec, adapter.searchSpace);
   const id = specHash(spec);
   const evaluationEpisodes = options.evaluationEpisodes ?? 24;
@@ -37,6 +49,7 @@ export function runSpec(
   let channelEpisodes = 0;
   let trainingSteps = 0;
   let knownStates = 0;
+  let publicationModel: unknown = null;
 
   for (let repeat = 0; repeat < spec.budget.repeats; repeat += 1) {
     // Independent agents, but a stream derived from (spec, repeat) rather than Math.random, so this
@@ -55,9 +68,12 @@ export function runSpec(
         channelEpisodes += 1;
       }
     }
+    const repeatReturns: number[] = [];
     for (let episode = 0; episode < evaluationEpisodes; episode += 1) {
-      holdoutReturns.push(session.evaluate(holdoutSeed(seeds, episode)).taskReturn);
+      repeatReturns.push(session.evaluate(holdoutSeed(seeds, episode)).taskReturn);
     }
+    holdoutReturns.push(...repeatReturns);
+    if (repeat === 0) publicationModel = session.serialize();
     trainingSteps += session.trainingSteps;
     knownStates += session.knownStates;
     options.onRepeat?.(repeat + 1, spec.budget.repeats);
@@ -72,6 +88,8 @@ export function runSpec(
   const magnitude = Math.abs(channels.task) + Math.abs(channels.progress) + Math.abs(channels.safety) + Math.abs(channels.behavior);
 
   return {
+    model: publicationModel,
+    row: {
     schemaVersion: 1,
     id,
     parent,
@@ -84,5 +102,6 @@ export function runSpec(
     trainingSteps,
     knownStates: Math.round(mean([knownStates / Math.max(1, spec.budget.repeats)])),
     wallSeconds: (performance.now() - startedAt) / 1000,
+    },
   };
 }

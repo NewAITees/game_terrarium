@@ -22,6 +22,7 @@ import {
   type RlGameAdapter,
   type RlSearchSpace,
 } from '../../shared/rl/experiment_spec.js';
+import { createModelManifest } from '../../shared/rl/model_manifest.js';
 
 /**
  * Drone Bastion's declaration of what an automated search may vary.
@@ -58,6 +59,23 @@ export function createDroneBastionAdapter(): RlGameAdapter {
     environmentFingerprint(spec, seed) {
       validateSpec(spec, DRONE_BASTION_SEARCH_SPACE);
       return fingerprintDroneBastionStart(seed, resolveDroneBastionRewards(spec));
+    },
+    livePublication: {
+      stem: 'drone-bastion-live-model',
+      liveObservation: 'shipped',
+      liveActions: 'full',
+      bundle(model, revision, metadata) {
+        return {
+          version: 1,
+          revision,
+          publishedAt: metadata.publishedAt,
+          manifest: createModelManifest({
+            gameId: 'drone-bastion', algorithm: 'tabular-q', modelVersion: 2,
+            observationSchemaVersion: 1, rewardSchemaVersion: 1,
+          }, { revision, trainingSteps: metadata.trainingSteps, publishedAt: metadata.publishedAt }),
+          model,
+        };
+      },
     },
   };
 }
@@ -123,6 +141,8 @@ class DroneBastionSession implements RlExperimentSession {
       this.agent.setEvaluationMode(false);
     }
   }
+
+  serialize(): unknown { return this.agent.serialize(); }
 
   get trainingSteps(): number { return this.agent.trainingSteps; }
   get knownStates(): number { return this.agent.knownStates; }

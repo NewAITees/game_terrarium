@@ -31,6 +31,7 @@
     "research": "tsc -p tsconfig.node.json && node build-node/scripts/rl/auto_research.js",
     "research:advise": "tsc -p tsconfig.node.json && node build-node/scripts/rl/research_advisor.js",
     "research:seal": "tsc -p tsconfig.node.json && node build-node/scripts/rl/seal_protected_surface.js",
+    "research:publish": "tsc -p tsconfig.node.json && node build-node/scripts/rl/publish_champion.js",
     "eval:drone-dqn": "tsc -p tsconfig.node.json && node build-node/scripts/drone_bastion_dqn_comparison.js",
     "sim:all": "npm run sim:escort-td && npm run sim:roguelike && npm run sim:colony && npm run sim:planet-strategy && npm run sim:network-defense",
     "test:escort-td": "npm run build && node --test build-node/scripts/escort_td_rules.test.js",

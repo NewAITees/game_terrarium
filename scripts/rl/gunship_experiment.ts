@@ -8,6 +8,7 @@ import {
 } from '../../apps/gunship/gunship_rl.js';
 import { validateSpec, type EpisodeOutcome, type ExperimentSpec, type RlExperimentSession, type RlGameAdapter, type RlSearchSpace } from '../../shared/rl/experiment_spec.js';
 import { DEFAULT_GUNSHIP_ENVIRONMENT, fingerprintEpisodeStart, runEpisode, type GunshipEnvironmentSpec, type GunshipEpisodeResult } from '../gunship_headless_sim.js';
+import { createModelManifest } from '../../shared/rl/model_manifest.js';
 
 /**
  * Gunship's declaration of what an automated search may vary, and how to run one configuration.
@@ -44,6 +45,26 @@ export function createGunshipAdapter(airframeId: AirframeId = 'interceptor'): Rl
     environmentFingerprint(spec, seed) {
       validateSpec(spec, GUNSHIP_SEARCH_SPACE);
       return fingerprintEpisodeStart(airframeId, environmentFor(spec), seed);
+    },
+    livePublication: {
+      stem: 'gunship-live-models',
+      // apps/gunship/gunship.ts builds its agent with the default spec, so only a champion trained
+      // under that encoding is restorable by the running page.
+      liveObservation: 'full',
+      liveActions: 'full',
+      bundle(model, revision, metadata, existing) {
+        const previous = existing as { models?: Record<string, unknown> } | null;
+        return {
+          version: 1,
+          revision,
+          publishedAt: metadata.publishedAt,
+          manifest: createModelManifest({
+            gameId: 'gunship', algorithm: 'tabular-q', modelVersion: 9,
+            observationSchemaVersion: 1, rewardSchemaVersion: 1,
+          }, { revision, trainingSteps: metadata.trainingSteps, publishedAt: metadata.publishedAt }),
+          models: { ...(previous?.models ?? {}), [airframeId]: model },
+        };
+      },
     },
   };
 }
@@ -99,6 +120,8 @@ class GunshipSession implements RlExperimentSession {
       this.agent.setEvaluationMode(false);
     }
   }
+
+  serialize(): unknown { return this.agent.serialize(); }
 
   get trainingSteps(): number { return this.agent.steps; }
   get knownStates(): number { return this.agent.knownStates; }

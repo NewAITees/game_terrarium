@@ -1,7 +1,7 @@
 import { fork, type ChildProcess } from 'node:child_process';
-import { readFile, rm } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { cpus } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { mulberry32 } from '../../shared/rl/random.js';
 import { specHash, validateSpec, type ExperimentSpec, type RlSearchSpace } from '../../shared/rl/experiment_spec.js';
 import { proposeCandidate } from './candidate_sampler.js';
@@ -10,6 +10,7 @@ import { resolveAdapter } from './research_adapters.js';
 import { ResearchLedger, type ResearchRow } from './research_ledger.js';
 import { verifyContract } from './research_contract.js';
 import { beats } from './research_stats.js';
+import { modelArtifactName } from './model_artifact.js';
 
 /**
  * The search loop: propose configurations, run them in parallel, record everything, keep the
@@ -90,7 +91,8 @@ async function main(): Promise<void> {
 
   let completed = 0;
   await pool(queue, concurrency, async (entry) => {
-    const row = await runInWorker(entry.spec, entry.parent);
+    const produced = await runInWorker(entry.spec, entry.parent);
+    const row = await storeModel(produced.row, produced.model);
     await ledger.append(row);
     completed += 1;
     report(row, completed, queue.length, champion);
@@ -167,16 +169,34 @@ function withBudget(spec: ExperimentSpec): ExperimentSpec {
   };
 }
 
-function runInWorker(spec: ExperimentSpec, parent: string | null): Promise<ResearchRow> {
+const modelRoot = resolve(dirname(ledgerPath), 'models');
+
+/**
+ * Stores the trained model beside its ledger row. A row that records only a score obliges anyone
+ * acting on it to retrain and hope for the same outcome; the model is what actually ships.
+ */
+async function storeModel(row: ResearchRow, model: unknown): Promise<ResearchRow> {
+  if (row.error || model === null || model === undefined) return row;
+  const file = resolve(modelRoot, modelArtifactName(row));
+  const temporary = `${file}.${process.pid}.tmp`;
+  await mkdir(modelRoot, { recursive: true });
+  await writeFile(temporary, JSON.stringify(model), 'utf8');
+  await rename(temporary, file);
+  return { ...row, modelFile: relative(dirname(ledgerPath), file) };
+}
+
+function runInWorker(spec: ExperimentSpec, parent: string | null): Promise<{ row: ResearchRow; model: unknown }> {
   return new Promise((settle) => {
     const child: ChildProcess = fork(workerPath, [], { stdio: 'inherit' });
     const fail = (message: string): void => {
       child.kill();
-      settle(errorRow(spec, parent, message));
+      settle({ row: errorRow(spec, parent, message), model: null });
     };
-    child.on('message', (result: { ok: boolean; row?: ResearchRow; error?: string }) => {
+    child.on('message', (result: { ok: boolean; row?: ResearchRow; model?: unknown; error?: string }) => {
       child.kill();
-      settle(result.ok && result.row ? result.row : errorRow(spec, parent, result.error ?? 'worker returned no row'));
+      settle(result.ok && result.row
+        ? { row: result.row, model: result.model ?? null }
+        : { row: errorRow(spec, parent, result.error ?? 'worker returned no row'), model: null });
     });
     child.on('error', (error) => fail(error.message));
     child.on('exit', (code) => { if (code) fail(`worker exited with code ${code}`); });

@@ -22,6 +22,7 @@ import {
   type RlGameAdapter,
   type RlSearchSpace,
 } from '../../shared/rl/experiment_spec.js';
+import { createModelManifest } from '../../shared/rl/model_manifest.js';
 
 /**
  * Arena Shooter's declaration of what an automated search may vary.
@@ -62,6 +63,23 @@ export function createArenaShooterAdapter(): RlGameAdapter {
     environmentFingerprint(spec, seed) {
       validateSpec(spec, ARENA_SEARCH_SPACE);
       return fingerprintArenaStart(seed, rewardsFor(spec));
+    },
+    livePublication: {
+      stem: 'arena-shooter-live-model',
+      liveObservation: 'full',
+      liveActions: 'full',
+      bundle(model, revision, metadata) {
+        return {
+          version: 1,
+          revision,
+          publishedAt: metadata.publishedAt,
+          manifest: createModelManifest({
+            gameId: 'arena-shooter', algorithm: 'tabular-q', modelVersion: 3,
+            observationSchemaVersion: 1, rewardSchemaVersion: 1,
+          }, { revision, trainingSteps: metadata.trainingSteps, publishedAt: metadata.publishedAt }),
+          model,
+        };
+      },
     },
   };
 }
@@ -111,6 +129,8 @@ class ArenaSession implements RlExperimentSession {
       this.agent.setEvaluationMode(false);
     }
   }
+
+  serialize(): unknown { return this.agent.serialize(); }
 
   get trainingSteps(): number { return this.agent.trainingSteps; }
   get knownStates(): number { return this.agent.knownStates; }

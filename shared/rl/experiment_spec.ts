@@ -86,6 +86,14 @@ export type EpisodeOutcome = {
 };
 
 export interface RlExperimentSession {
+  /**
+   * The trained model, in whatever shape the game's own agent restores.
+   *
+   * A ledger row records what a configuration scored; without the model that produced it, acting on
+   * a champion means retraining and hoping to land in the same place. The searcher stores this
+   * beside the row so the winning agent is the thing that ships, not a recipe for one.
+   */
+  serialize(): unknown;
   /** One learning episode on a training seed. */
   train(seed: number): EpisodeOutcome;
   /** One greedy episode on a hold-out seed, with learning and exploration off. */
@@ -116,6 +124,25 @@ export interface RlGameAdapter {
    * after the real environment has stopped varying.
    */
   environmentFingerprint(spec: ExperimentSpec, seed: number): string;
+  /**
+   * How a champion reaches the running game, when the game has a live player at all.
+   *
+   * `stem` is the model file the player reads. `bundle` wraps a trained model in whatever envelope
+   * that file expects. Publication is refused when the champion's observation or action variant is
+   * not the one the live player constructs — the player would reject the table and fall back to an
+   * untrained agent, which looks like a bad champion rather than a mismatched one.
+   */
+  readonly livePublication?: {
+    stem: string;
+    liveObservation: string;
+    liveActions: string;
+    bundle(
+      model: unknown,
+      revision: number,
+      metadata: { publishedAt: string; trainingSteps: number },
+      existing: unknown,
+    ): unknown;
+  };
 }
 
 export function validateSpec(spec: ExperimentSpec, space: RlSearchSpace): void {

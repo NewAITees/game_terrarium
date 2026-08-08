@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { specHash } from '../shared/rl/experiment_spec.js';
-import { verifyContract } from './rl/research_contract.js';
+import { PROTECTED_SURFACE, verifyContract } from './rl/research_contract.js';
+import { compareSeal, SEALED_FILES } from './rl/protected_surface.js';
 import { createGunshipAdapter, defaultGunshipSpec } from './rl/gunship_experiment.js';
 import { proposeCandidate } from './rl/candidate_sampler.js';
 import { mulberry32 } from '../shared/rl/random.js';
@@ -57,4 +58,14 @@ test('a resumed search recognises work it has already done', () => {
   const spec = defaultGunshipSpec();
   const cheaper = { ...spec, budget: { ...spec.budget, episodes: 100 } };
   assert.equal(specHash(cheaper), specHash(spec), 'budget is not identity');
+});
+
+test('the protected surface is sealed by content, not merely listed', () => {
+  const { sealed, drift } = compareSeal();
+  assert.equal(sealed, true, 'no seal on record — run `npm run research:seal`');
+  assert.deepEqual(drift, [], 'a protected file changed without the seal being renewed');
+  // Every file named as protected must actually be covered by the seal, or the list drifts into
+  // being decoration again.
+  const named = PROTECTED_SURFACE.flatMap((entry) => ('file' in entry ? [entry.file] : []));
+  for (const file of named) assert.ok(SEALED_FILES.includes(file as (typeof SEALED_FILES)[number]), `${file} is listed as protected but not sealed`);
 });

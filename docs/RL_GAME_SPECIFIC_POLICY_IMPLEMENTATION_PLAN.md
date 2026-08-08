@@ -415,7 +415,7 @@ DQNまたはPPOへの昇格は、次をすべて満たした場合に行う。
 - [x] Drone BastionへDouble DQNを追加する。
 - [x] Tabular Qとseed、報酬、学習step、評価episodeを揃えて比較する。`npm run eval:drone-dqn`で3条件を同一seed列・同一episode上限で評価しJSON保存する。
 - [ ] 改善が再現できた場合だけArena ShooterまたはGunshipへ横展開する。
-- [ ] 改善しない場合はTabular Qを標準として維持し、原因を評価結果とともに記録する。
+- [x] 改善しない場合はTabular Qを標準として維持し、原因を評価結果とともに記録する。`DRONE_BASTION_DQN_EVALUATION.md`に固定seed比較と判断を保存した。
 
 最初の比較は次の3条件に限定する。
 
