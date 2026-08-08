@@ -5,6 +5,7 @@ import {
   encodeNetworkDefenseObservation,
   observeNetworkDefense,
 } from '../apps/network-defense/network_defense_rl';
+import { runNetworkDefenseEpisode } from './network_defense_headless_sim';
 
 function createContext() {
   const server = { id: 'server', isServer: true, hp: 90, maxHp: 120, infection: 0 };
@@ -47,6 +48,54 @@ test('encodes a compact Network Defense observation', () => {
   assert.ok(observation.infectionBand > 0);
   assert.ok(observation.enemyBand > 0);
   assert.equal(encodeNetworkDefenseObservation(observation).split(':').length, 10);
+  assert.equal(encodeNetworkDefenseObservation(observation, 'minimal').split(':').length, 6);
+});
+
+test('rejects a saved table built for another observation or reward contract', () => {
+  const trainedFixture = createContext();
+  const trained = new NetworkDefenseRlController(trainedFixture.context);
+  trained.assignAgent(trainedFixture.agent);
+  const checkpoint = trained.serialize();
+
+  for (const spec of [{ observation: 'minimal' as const }, { rewardMode: 'sparse' as const }]) {
+    const fixture = createContext();
+    const controller = new NetworkDefenseRlController(fixture.context, spec);
+    controller.restore(checkpoint);
+    assert.equal(controller.trainingSteps, 0, `${JSON.stringify(spec)} must reject an incompatible table`);
+  }
+});
+
+test('sparse reward learns only from terminal task outcome', () => {
+  const shapedFixture = createContext();
+  const shaped = new NetworkDefenseRlController(shapedFixture.context, { rewardMode: 'shaped', random: () => 0.99 });
+  shaped.assignAgent(shapedFixture.agent);
+  shapedFixture.game.kills += 2;
+  shaped.assignAgent(shapedFixture.agent);
+
+  const sparseFixture = createContext();
+  const sparse = new NetworkDefenseRlController(sparseFixture.context, { rewardMode: 'sparse', random: () => 0.99 });
+  sparse.assignAgent(sparseFixture.agent);
+  sparseFixture.game.kills += 2;
+  sparse.assignAgent(sparseFixture.agent);
+
+  assert.notDeepEqual(shaped.serialize().policies, sparse.serialize().policies);
+  sparse.finishEpisode(true);
+  assert.ok(sparse.trainingSteps > 0);
+});
+
+test('headless episodes carry the selected observation and reward contract into the model', async () => {
+  const result = await runNetworkDefenseEpisode(
+    1,
+    73,
+    2,
+    'rl',
+    undefined,
+    false,
+    { observation: 'minimal', rewardMode: 'sparse', random: () => 0.99 },
+  );
+  assert.equal(result.model?.observation, 'minimal');
+  assert.equal(result.model?.rewardMode, 'sparse');
+  assert.ok(result.trainingSteps > 0);
 });
 
 test('uses the shared learner to assign actions and persist its model', () => {

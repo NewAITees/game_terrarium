@@ -1,3 +1,4 @@
+import { rewardBreakdown, type RewardBreakdown } from '../../shared/rl/runtime_types.js';
 export type Vec2 = { x: number; y: number };
 
 export type CraftType = 'interceptor' | 'strafer' | 'turret';
@@ -156,10 +157,56 @@ export type ArenaState = {
   ricochetLevel: number;
   trailLevel: number;
   rngState: number;
+  rewards: ArenaRewardWeights;
+};
+
+/**
+ * Every payment the learner can receive, as a knob rather than a literal.
+ *
+ * These were twenty numbers spread through `stepArena`, which meant the automated search could not
+ * reach the reward at all — the one lever the no-hand-authored-policy rule actually encourages
+ * moving. All of them are tunable, so none may score a run.
+ */
+export type ArenaRewardWeights = {
+  survival: number;
+  edgeLoiter: number;
+  edgeApproach: number;
+  boundaryHit: number;
+  shotCost: number;
+  kill: number;
+  bruteKill: number;
+  beamHit: number;
+  beamIntercept: number;
+  trailTick: number;
+  projectileHit: number;
+  shotIntercept: number;
+  contactHit: number;
+  projectileTaken: number;
+};
+
+export const DEFAULT_ARENA_REWARD_WEIGHTS: ArenaRewardWeights = {
+  survival: 0.035,
+  edgeLoiter: 0.12,
+  edgeApproach: 0.02,
+  boundaryHit: 0.8,
+  shotCost: 0.006,
+  kill: 3,
+  bruteKill: 4.5,
+  beamHit: 0.12,
+  beamIntercept: 0.08,
+  trailTick: 0.01,
+  projectileHit: 0.18,
+  shotIntercept: 0.12,
+  contactHit: 2.2,
+  projectileTaken: 1.6,
 };
 
 export type ArenaStepResult = {
-  reward: number;
+  /**
+   * The learning signal by channel. `task` is staying alive; the rest is shaping. Only the task
+   * outcome scores a run — see shared/rl/experiment_spec.ts.
+   */
+  reward: RewardBreakdown;
   killedValues: number[];
   waveAdvanced: boolean;
 };
@@ -241,7 +288,11 @@ export function setCraftPreference(
   else setCraftType(state.ship, preference);
 }
 
-export function createArenaState(width = 1280, height = 720): ArenaState {
+export function createArenaState(
+  width = 1280,
+  height = 720,
+  rewards: ArenaRewardWeights = DEFAULT_ARENA_REWARD_WEIGHTS,
+): ArenaState {
   const state: ArenaState = {
     width,
     height,
@@ -290,6 +341,7 @@ export function createArenaState(width = 1280, height = 720): ArenaState {
     ricochetLevel: 0,
     trailLevel: 0,
     rngState: 0x6d2b79f5,
+    rewards,
   };
   randomizeCraft(state);
   return state;
@@ -422,6 +474,49 @@ export function observeArena(state: ArenaState): ArenaObservation {
   };
 }
 
+/**
+ * Observation variants. The encoded string is the Q-table's key, so this is not a display choice —
+ * the shipped encoding carries nineteen fields including two sixteen-way sensor rings, which is a
+ * very large state space for a tabular learner to visit. Whether it earns its size is a question
+ * for measurement, so the smaller encodings are declared and left to the search to judge.
+ */
+export const ARENA_OBSERVATIONS = ['full', 'no-sensors', 'minimal'] as const;
+export type ArenaObservationVariant = (typeof ARENA_OBSERVATIONS)[number];
+
+export function encodeObservationVariant(variant: ArenaObservationVariant, observation: ArenaObservation): string {
+  if (variant === 'full') return encodeObservation(observation);
+  if (variant === 'no-sensors') {
+    // Drops the two sensor rings and the four-way edge vector: the fields that multiply the key
+    // space fastest while describing the same situation the coarse sectors already summarise.
+    return [
+      observation.craftType,
+      observation.targetSector,
+      observation.aimSector,
+      observation.dangerSector,
+      observation.projectileDangerSector,
+      observation.projectileDistanceBand,
+      observation.velocitySector,
+      observation.speedBand,
+      observation.edgeSector,
+      observation.edgeDistanceBand,
+      observation.distanceBand,
+      observation.hpBand,
+      observation.enemyCountBand,
+      observation.hostileProjectileCountBand,
+      observation.canFire ? 1 : 0,
+    ].join(':');
+  }
+  return [
+    observation.craftType,
+    observation.targetSector,
+    observation.aimSector,
+    observation.dangerSector,
+    observation.distanceBand,
+    observation.hpBand,
+    observation.canFire ? 1 : 0,
+  ].join(':');
+}
+
 export function encodeObservation(observation: ArenaObservation): string {
   return [
     observation.craftType,
@@ -449,6 +544,7 @@ export function encodeObservation(observation: ArenaObservation): string {
 
 export function stepArena(state: ArenaState, action: ArenaAction, dt: number): ArenaStepResult {
   const ship = state.ship;
+  const parts = { task: 0, progress: 0, safety: 0, behavior: 0 };
   const killedValues: number[] = [];
   let waveAdvanced = false;
   state.elapsed += dt;
@@ -490,12 +586,13 @@ export function stepArena(state: ArenaState, action: ArenaAction, dt: number): A
   const hitBoundary = resolveArenaBoundaryCollision(ship, state.width, state.height);
   const edgeDistanceAfterMove = nearestEdgeDistance(ship, state.width, state.height);
 
-  let reward = dt * 0.035;
+  const weights = state.rewards;
+  parts.task += dt * weights.survival;
   if (edgeDistanceAfterMove < 140) {
-    reward -= dt * 0.12;
-    reward += clamp((edgeDistanceAfterMove - edgeDistanceBeforeMove) * 0.02, -0.25, 0.25);
+    parts.safety -= dt * weights.edgeLoiter;
+    parts.safety += clamp((edgeDistanceAfterMove - edgeDistanceBeforeMove) * weights.edgeApproach, -0.25, 0.25);
   }
-  if (hitBoundary) reward -= 0.8;
+  if (hitBoundary) parts.safety -= weights.boundaryHit;
   if (action.fire && ship.fireCooldown <= 0) {
     const fireAngle = attackAngle(ship);
     const projectileCount = pulseProjectileCount(state.projectileCountLevel);
@@ -518,7 +615,7 @@ export function stepArena(state: ArenaState, action: ArenaAction, dt: number): A
       });
     }
     burst(state, ship.x, ship.y, '#73f7ff', 3, 55);
-    reward -= 0.006;
+    parts.behavior -= weights.shotCost;
   }
 
   if (state.missileLevel > 0 && state.missileCooldown <= 0 && state.enemies.length) {
@@ -556,7 +653,7 @@ export function stepArena(state: ArenaState, action: ArenaAction, dt: number): A
         state.score += value;
         state.kills += 1;
         killedValues.push(value);
-        reward += enemy.kind === 'brute' ? 4.5 : 3;
+        parts.progress += enemy.kind === 'brute' ? weights.bruteKill : weights.kill;
         burst(state, enemy.x, enemy.y, '#b86cff', 18, 180);
       }
     }
@@ -610,13 +707,13 @@ export function stepArena(state: ArenaState, action: ArenaAction, dt: number): A
         const appliedDamage = ship.craftType === 'interceptor' ? damage * 0.72 : damage;
         enemy.hp -= appliedDamage;
         addDamageNumber(state, enemy.x, enemy.y, appliedDamage, true);
-        reward += 0.12;
+        parts.progress += weights.beamHit;
         if (enemy.hp <= 0) {
           const value = enemyValue(enemy);
           state.score += value;
           state.kills += 1;
           killedValues.push(value);
-          reward += enemy.kind === 'brute' ? 4.5 : 3;
+          parts.progress += enemy.kind === 'brute' ? weights.bruteKill : weights.kill;
           burst(state, enemy.x, enemy.y, '#67f4ff', 18, 180);
         }
       }
@@ -627,7 +724,7 @@ export function stepArena(state: ArenaState, action: ArenaAction, dt: number): A
           : pointPathDistance(projectile, points) <= projectile.radius + beamWidth;
         if (!hit) continue;
         projectile.life = 0;
-        reward += 0.08;
+        parts.progress += weights.beamIntercept;
         burst(state, projectile.x, projectile.y, '#9ffcff', 6, 90);
       }
     }
@@ -717,7 +814,7 @@ export function stepArena(state: ArenaState, action: ArenaAction, dt: number): A
         );
         ship.invulnerability = 0.5;
         state.shake = 7;
-        reward -= 2.2;
+        parts.safety -= weights.contactHit;
         burst(state, ship.x, ship.y, '#ff526f', 16, 150);
       }
     }
@@ -733,13 +830,13 @@ export function stepArena(state: ArenaState, action: ArenaAction, dt: number): A
       const damage = trail.damagePerSecond * 0.25;
       enemy.hp -= damage;
       addDamageNumber(state, enemy.x, enemy.y, damage, true);
-      reward += 0.01;
+      parts.progress += weights.trailTick;
       if (enemy.hp <= 0) {
         const value = enemyValue(enemy);
         state.score += value;
         state.kills += 1;
         killedValues.push(value);
-        reward += enemy.kind === 'brute' ? 4.5 : 3;
+        parts.progress += enemy.kind === 'brute' ? weights.bruteKill : weights.kill;
         burst(state, enemy.x, enemy.y, '#54e3a6', 16, 150);
       }
     }
@@ -782,7 +879,7 @@ export function stepArena(state: ArenaState, action: ArenaAction, dt: number): A
         if (!movingProjectilesCollide(shot, threat, dt, collisionRadius)) continue;
         shot.life = 0;
         threat.life = 0;
-        reward += 0.12;
+        parts.progress += weights.shotIntercept;
         burst(state, (shot.x + threat.x) / 2, (shot.y + threat.y) / 2, '#9ffcff', 8, 105);
         break;
       }
@@ -798,7 +895,7 @@ export function stepArena(state: ArenaState, action: ArenaAction, dt: number): A
         addDamageNumber(state, ship.x, ship.y, projectile.damage, false);
         ship.invulnerability = 0.28;
         state.shake = 5;
-        reward -= 1.6;
+        parts.safety -= weights.projectileTaken;
         burst(state, ship.x, ship.y, '#ff526f', 10, 120);
       }
       continue;
@@ -812,14 +909,14 @@ export function stepArena(state: ArenaState, action: ArenaAction, dt: number): A
       projectile.life = ricochetContinues ? projectile.life : 0;
       enemy.hp -= projectile.damage;
       addDamageNumber(state, enemy.x, enemy.y, projectile.damage, true);
-      reward += 0.18;
+      parts.progress += weights.projectileHit;
       burst(state, projectile.x, projectile.y, '#ffd166', 5, 80);
       if (enemy.hp <= 0) {
         const value = enemyValue(enemy);
         state.score += value;
         state.kills += 1;
         killedValues.push(value);
-        reward += enemy.kind === 'brute' ? 4.5 : 3;
+        parts.progress += enemy.kind === 'brute' ? weights.bruteKill : weights.kill;
         burst(state, enemy.x, enemy.y, enemy.kind === 'brute' ? '#ff8c42' : '#ff4d8d', 26, 210);
       }
       if (ricochetContinues) {
@@ -862,8 +959,9 @@ export function stepArena(state: ArenaState, action: ArenaAction, dt: number): A
   state.damageNumbers = state.damageNumbers.filter((number) => number.life > 0);
   for (const beam of state.beams) beam.life -= dt;
   state.beams = state.beams.filter((beam) => beam.life > 0);
-  state.lastReward = reward;
-  state.episodeReward += reward;
+  const reward = rewardBreakdown(parts);
+  state.lastReward = reward.total;
+  state.episodeReward += reward.total;
   return { reward, killedValues, waveAdvanced };
 }
 
@@ -1139,6 +1237,9 @@ function random(state: ArenaState): number {
   value ^= value + Math.imul(value ^ value >>> 7, value | 61);
   return ((value ^ value >>> 14) >>> 0) / 4294967296;
 }
+
+/** Shares the environment's seeded stream with episode-level choices such as upgrade offers. */
+export function nextArenaRandom(state: ArenaState): number { return random(state); }
 
 function burst(state: ArenaState, x: number, y: number, color: string, count: number, speed: number): void {
   for (let index = 0; index < count; index += 1) {

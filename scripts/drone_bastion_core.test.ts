@@ -239,3 +239,22 @@ test('evaluation playback cannot mutate the Drone Bastion model', () => {
   agent.finishEpisode(-30);
   assert.deepEqual(agent.serialize(), before);
 });
+
+test('Drone Bastion migrates v1 shipped saves but rejects them for another table shape', () => {
+  const source = new DroneBastionAgent();
+  const state = createDroneBastionState(1200, 760, 91);
+  source.decide(observeDroneBastion(state), .2, 0);
+  const current = source.serialize();
+  const legacy = {
+    version: 1 as const,
+    combat: current.combat,
+    upgradeValues: current.upgradeValues,
+    previousUpgrade: current.previousUpgrade,
+  };
+  const migrated = new DroneBastionAgent();
+  migrated.restore(legacy);
+  assert.equal(migrated.trainingSteps, source.trainingSteps);
+  const incompatible = new DroneBastionAgent({ observation: 'minimal' });
+  incompatible.restore(legacy);
+  assert.equal(incompatible.trainingSteps, 0);
+});

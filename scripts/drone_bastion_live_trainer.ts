@@ -14,7 +14,7 @@ type LiveModel = {
 const compatibility = {
   gameId: 'drone-bastion',
   algorithm: 'tabular-q',
-  modelVersion: 1,
+  modelVersion: 2,
   observationSchemaVersion: 1,
   rewardSchemaVersion: 1,
 } as const;

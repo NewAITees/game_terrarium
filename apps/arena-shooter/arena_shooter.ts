@@ -32,10 +32,13 @@ import { loadArenaSave, saveArenaState } from './arena_shooter_save.js';
 import { renderArena } from './arena_shooter_render.js';
 import { applyArenaProgressToState } from './arena_shooter_episode.js';
 import { isCompatibleModelManifest, type ModelManifest } from '../../shared/rl/model_manifest.js';
+import { createRlHud } from '../../shared/rl/rl_hud.js';
 
 const canvas = requireElement<HTMLCanvasElement>('arena');
 const context = canvas.getContext('2d');
 if (!context) throw new Error('Canvas 2D context is unavailable');
+const rlHud = createRlHud('ARENA SHOOTER');
+rlHud.watchTrainer('arena-shooter');
 
 const loaded = await loadArenaSave();
 const state = createArenaState(1600, 900);
@@ -44,7 +47,7 @@ setCraftPreference(state, craftPreference);
 let agent = new QLearningAgent();
 agent.setEvaluationMode(true);
 type LiveModelBundle = { version: 1; revision: number; manifest?: ModelManifest; model?: QLearningAgentSave };
-const liveModelCompatibility = { gameId: 'arena-shooter', algorithm: 'tabular-q', modelVersion: 1, observationSchemaVersion: 1, rewardSchemaVersion: 1 } as const;
+const liveModelCompatibility = { gameId: 'arena-shooter', algorithm: 'tabular-q', modelVersion: 3, observationSchemaVersion: 1, rewardSchemaVersion: 1 } as const;
 let loadedModelRevision = -1;
 let modelReady = false;
 let meta: ArenaMetaProgress = {
@@ -124,6 +127,7 @@ void reloadLiveModel().finally(() => {
   modelReady = true;
   if (loadedModelRevision < 0 && document.documentElement.dataset.rlModelStatus === 'loading') {
     document.documentElement.dataset.rlModelStatus = 'fallback';
+    rlHud.update({ modelState: 'no-model' });
     ui.agentStatus.textContent = 'INFERENCE FALLBACK';
   }
 });
@@ -152,7 +156,7 @@ function frame(now: number): void {
 
   if (!paused) {
     const result = stepArena(state, decision.action, dt);
-    accumulatedReward = result.reward;
+    accumulatedReward = result.reward.total;
     for (const value of result.killedValues) addKillProgress(run, value, state.wave);
     if (result.waveAdvanced) {
       meta.highestWave = Math.max(meta.highestWave, state.wave);
@@ -171,7 +175,7 @@ function frame(now: number): void {
   bannerTimer -= dt;
   ui.banner.dataset.open = String(bannerTimer > 0);
   renderArena(context, state, observation, decision);
-  updateHud(decision.action.label, decision.exploratory, observation);
+  updateHud(decision.action.label, decision.exploratory, decision.qValue, observation);
   updatePanelOcclusion();
   requestAnimationFrame(frame);
 }
@@ -248,10 +252,10 @@ function finishEpisode(): void {
 async function reloadLiveModel(): Promise<void> {
   try {
     const response = await fetch('/api/rl/models/arena-shooter', { cache: 'no-store' });
-    if (!response.ok) { document.documentElement.dataset.rlModelStatus = 'unavailable'; return; }
+    if (!response.ok) { document.documentElement.dataset.rlModelStatus = 'unavailable'; rlHud.update({ modelState: loadedModelRevision >= 0 ? 'last-champion' : 'no-model' }); return; }
     const bundle = await response.json() as LiveModelBundle;
-    if (bundle.manifest && !isCompatibleModelManifest(bundle.manifest, liveModelCompatibility)) { document.documentElement.dataset.rlModelStatus = 'incompatible'; return; }
-    if (!bundle.model) { document.documentElement.dataset.rlModelStatus = 'fallback'; return; }
+    if (bundle.manifest && !isCompatibleModelManifest(bundle.manifest, liveModelCompatibility)) { document.documentElement.dataset.rlModelStatus = 'incompatible'; rlHud.update({ modelState: 'incompatible' }); return; }
+    if (!bundle.model) { document.documentElement.dataset.rlModelStatus = 'fallback'; rlHud.update({ modelState: 'no-model' }); return; }
     if (bundle.revision <= loadedModelRevision) return;
     const next = new QLearningAgent();
     next.restore(bundle.model);
@@ -259,9 +263,11 @@ async function reloadLiveModel(): Promise<void> {
     agent = next;
     loadedModelRevision = bundle.revision;
     document.documentElement.dataset.rlModelStatus = 'compatible';
+    rlHud.update({ modelState: 'champion', algorithm: bundle.manifest?.algorithm ?? 'tabular-q', revision: bundle.revision, publishedAt: bundle.manifest?.publishedAt, trainingSteps: bundle.manifest?.trainingSteps ?? agent.trainingSteps });
     ui.agentStatus.textContent = `INFERENCE r${bundle.revision}`;
   } catch {
     document.documentElement.dataset.rlModelStatus = 'unavailable';
+    rlHud.update({ modelState: loadedModelRevision >= 0 ? 'last-champion' : 'no-model' });
     // Keep the last compatible inference model.
   }
 }
@@ -284,7 +290,7 @@ function showBanner(message: string, duration = 2): void {
   ui.banner.dataset.open = 'true';
 }
 
-function updateHud(actionLabel: string, exploratory: boolean, observation: ArenaObservation): void {
+function updateHud(actionLabel: string, exploratory: boolean, qValue: number, observation: ArenaObservation): void {
   const hpRatio = Math.max(0, state.ship.hp / state.ship.maxHp);
   ui.hpFill.style.width = `${hpRatio * 100}%`;
   ui.hpFill.dataset.level = hpRatio < 0.35 ? 'danger' : hpRatio < 0.65 ? 'warn' : 'safe';
@@ -315,6 +321,7 @@ function updateHud(actionLabel: string, exploratory: boolean, observation: Arena
   const speedBands = ['STOP/SLOW', 'CRUISE', 'FAST'];
   ui.edgeObservation.textContent = `${directionLabels[observation.edgeSector]} ${edgeBands[observation.edgeDistanceBand]}`;
   ui.motionObservation.textContent = `${directionLabels[observation.velocitySector]} ${speedBands[observation.speedBand]}`;
+  rlHud.update({ action: actionLabel, intent: observation.canFire ? 'ENGAGE' : 'REPOSITION', focus: `THREAT ${directionLabels[observation.dangerSector]} · TARGET ${directionLabels[observation.targetSector]}`, exploratory, qValue, mode: 'evaluation' });
   ui.episodeReward.textContent = signed(state.episodeReward);
   ui.best.textContent = String(meta.highestWave);
   ui.weaponPulse.textContent = `Mk.${run.weapons.pulse}`;

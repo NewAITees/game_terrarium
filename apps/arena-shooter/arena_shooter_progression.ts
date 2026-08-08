@@ -80,7 +80,11 @@ export function addKillProgress(
   }
 }
 
-export function getUpgradeChoices(run: ArenaRunProgress, craftType?: CraftType): UpgradeChoice[] {
+export function getUpgradeChoices(
+  run: ArenaRunProgress,
+  craftType?: CraftType,
+  random: () => number = Math.random,
+): UpgradeChoice[] {
   const pool: UpgradeChoice[] = [
     {
       id: 'pulse',
@@ -156,7 +160,7 @@ export function getUpgradeChoices(run: ArenaRunProgress, craftType?: CraftType):
     let bestIndex = 0;
     let bestRoll = -Infinity;
     for (let index = 0; index < candidates.length; index += 1) {
-      const roll = Math.random() * candidates[index].weight;
+      const roll = random() * candidates[index].weight;
       if (roll > bestRoll) {
         bestRoll = roll;
         bestIndex = index;

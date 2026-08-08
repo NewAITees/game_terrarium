@@ -1,4 +1,6 @@
 import type { RlGameAdapter } from '../../shared/rl/experiment_spec.js';
+import { createArenaShooterAdapter } from './arena_shooter_experiment.js';
+import { createDroneBastionAdapter } from './drone_bastion_experiment.js';
 import { createGunshipAdapter } from './gunship_experiment.js';
 
 /**
@@ -7,6 +9,8 @@ import { createGunshipAdapter } from './gunship_experiment.js';
  */
 export const RESEARCH_ADAPTERS: Record<string, () => RlGameAdapter> = {
   gunship: () => createGunshipAdapter(),
+  'drone-bastion': () => createDroneBastionAdapter(),
+  'arena-shooter': () => createArenaShooterAdapter(),
 };
 
 export function resolveAdapter(gameId: string): RlGameAdapter {

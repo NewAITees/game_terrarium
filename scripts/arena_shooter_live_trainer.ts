@@ -4,7 +4,7 @@ import { createModelManifest, type ModelManifest } from '../shared/rl/model_mani
 import { ModelFileStore } from './rl/model_file_store.js';
 
 type LiveModel = { version: 1; revision: number; publishedAt: string; manifest?: ModelManifest; model?: QLearningAgentSave };
-const compatibility = { gameId: 'arena-shooter', algorithm: 'tabular-q', modelVersion: 1, observationSchemaVersion: 1, rewardSchemaVersion: 1 } as const;
+const compatibility = { gameId: 'arena-shooter', algorithm: 'tabular-q', modelVersion: 3, observationSchemaVersion: 1, rewardSchemaVersion: 1 } as const;
 const store = new ModelFileStore<LiveModel>(process.env.RL_MODEL_ROOT || process.cwd(), 'arena-shooter-live-model');
 const args = new Map(process.argv.slice(2).map((token) => { const [key, value = ''] = token.replace(/^--/, '').split('='); return [key, value]; }));
 const episodesPerBatch = Math.max(1, Number(args.get('episodes') ?? 40));

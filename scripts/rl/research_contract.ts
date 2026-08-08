@@ -1,6 +1,7 @@
 import { createSeedPlan, holdoutSeed, isHoldoutSeed, trainingSeed } from '../../shared/rl/seed_plan.js';
 import { mulberry32 } from '../../shared/rl/random.js';
 import { specHash, validateSpec, type ExperimentSpec, type RlGameAdapter } from '../../shared/rl/experiment_spec.js';
+import { compareSeal } from './protected_surface.js';
 
 /**
  * The invariants that make an unattended search trustworthy, and the boundary that says who may
@@ -30,6 +31,8 @@ export const EXTENSION_SURFACE = [
  * ones, which is worse than a wrong result because it is invisible.
  */
 export const PROTECTED_SURFACE = [
+  // Listed here for readers; enforced by content hash in protected_surface.ts, because a list is
+  // documentation and an unattended loop cannot read documentation.
   { file: 'shared/rl/seed_plan.ts', why: 'the train/hold-out split is the only defence against a search scoring itself on its own training episodes' },
   { file: 'scripts/rl/research_stats.ts', why: 'weakening the promotion test lets noise ratchet the champion upward' },
   { file: 'scripts/rl/research_ledger.ts', why: 'the ledger is append-only and is the sole record a champion can be recomputed from' },
@@ -43,6 +46,21 @@ export function verifyContract(adapter: RlGameAdapter): ContractViolation[] {
   const violations: ContractViolation[] = [];
   const fail = (check: string, detail: string): void => { violations.push({ check, detail }); };
   const spec = adapter.defaultSpec();
+
+  // The rules the comparison rests on must be the rules the ledger's existing rows were measured
+  // under. A silent edit here would not change any output — it would change what every number means.
+  try {
+    const { sealed, drift } = compareSeal();
+    if (!sealed) {
+      fail('protected-surface', 'no seal on record for the protected files; run `npm run research:seal` to record one');
+    }
+    for (const entry of drift) {
+      fail('protected-surface', `${entry.file} has changed since the ledger's rows were measured`
+        + ` (sealed ${entry.expected}, now ${entry.actual}); re-read the change, then run \`npm run research:seal\` to accept it`);
+    }
+  } catch (error) {
+    fail('protected-surface', message(error));
+  }
 
   try {
     validateSpec(spec, adapter.searchSpace);

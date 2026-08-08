@@ -28,7 +28,7 @@ for (let step = 0; step < 60 * 45; step += 1) {
   const observation = observeArena(state);
   const decision = agent.decide(observation, 1 / 60, reward);
   const result = stepArena(state, decision.action, 1 / 60);
-  reward = result.reward;
+  reward = result.reward.total;
   for (const value of result.killedValues) addKillProgress(run, value, state.wave);
   while (run.pendingUpgrades > 0) {
     applyUpgrade(run, getUpgradeChoices(run)[0], () => {
@@ -165,7 +165,7 @@ assert.deepEqual(edgeObservation.edgeDistanceBands, [0, 2, 2, 2], 'all four edge
 edgeState.spawnTimer = 10;
 edgeState.ship.vx = -100;
 const boundaryResult = stepArena(edgeState, idleAction, 0.1);
-assert.ok(boundaryResult.reward < 0, 'screen-edge collision should provide a negative learning signal');
+assert.ok(boundaryResult.reward.total < 0, 'screen-edge collision should provide a negative learning signal');
 
 const parityState = createArenaState(800, 600);
 parityState.projectileCountLevel = 1;

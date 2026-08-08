@@ -7,6 +7,7 @@ import { createNetworkDefenseRuleRuntime } from '../apps/network-defense/network
 import { createNetworkDefenseRuntime } from '../apps/network-defense/network_defense_runtime';
 import {
   NetworkDefenseRlController,
+  type NetworkDefensePolicySpec,
   type NetworkDefenseRlSave,
 } from '../apps/network-defense/network_defense_rl';
 import { scanNetworkForWave } from '../apps/network-defense/network_defense_wave';
@@ -79,6 +80,7 @@ export async function runNetworkDefenseEpisode(
   aiMode: 'rules' | 'rl',
   model?: NetworkDefenseRlSave,
   evaluation = false,
+  policySpec: Partial<NetworkDefensePolicySpec> = {},
 ): Promise<NetworkDefenseEpisodeResult> {
   const originalRandom = Math.random;
   Math.random = seededRandom(seed ^ 0x9e3779b9);
@@ -137,7 +139,7 @@ export async function runNetworkDefenseEpisode(
         buildSnapshot,
         executeAction: (agent, action, snapshot) => execAction(agent, action, snapshot),
         now: () => game.elapsed,
-      })
+      }, policySpec)
     : null;
   if (rlController && model) rlController.restore(model);
   if (rlController) rlController.setEvaluationMode(evaluation);

@@ -17,6 +17,19 @@ export const NETWORK_DEFENSE_RL_ACTIONS = [
 ] as const;
 
 export type NetworkDefenseRlAction = typeof NETWORK_DEFENSE_RL_ACTIONS[number];
+export const NETWORK_DEFENSE_OBSERVATIONS = ['minimal', 'engineered'] as const;
+export type NetworkDefenseObservationVariant = (typeof NETWORK_DEFENSE_OBSERVATIONS)[number];
+export const NETWORK_DEFENSE_REWARD_MODES = ['sparse', 'shaped'] as const;
+export type NetworkDefenseRewardMode = (typeof NETWORK_DEFENSE_REWARD_MODES)[number];
+export type NetworkDefensePolicySpec = {
+  observation: NetworkDefenseObservationVariant;
+  rewardMode: NetworkDefenseRewardMode;
+  random?: () => number;
+};
+export const DEFAULT_NETWORK_DEFENSE_POLICY_SPEC: NetworkDefensePolicySpec = {
+  observation: 'engineered',
+  rewardMode: 'shaped',
+};
 type NetworkDefenseRank = 'senior' | 'mid' | 'junior';
 const NETWORK_DEFENSE_RANKS: readonly NetworkDefenseRank[] = ['senior', 'mid', 'junior'];
 
@@ -55,16 +68,26 @@ export type NetworkDefenseRlControllerContext = {
 export type NetworkDefenseRlSave = {
   version: 1;
   policies: Record<NetworkDefenseRank, TabularQSave>;
+  /** Missing on legacy saves, which used the current engineered/shaped defaults. */
+  observation?: NetworkDefenseObservationVariant;
+  rewardMode?: NetworkDefenseRewardMode;
 };
 
 export class NetworkDefenseRlController {
-  private readonly learners = createRankLearners();
+  readonly spec: NetworkDefensePolicySpec;
+  private readonly learners: Record<NetworkDefenseRank, TabularQAgent<NetworkDefenseRlObservation, NetworkDefenseRlAction>>;
   private readonly now: () => number;
   private previousRewards: Record<NetworkDefenseRank, RewardSnapshot>;
   private lastDecision: TabularDecision<NetworkDefenseRlAction> | null = null;
+  private lastIntent = { rank: '—', focus: 'SCANNING' };
   private episodeFinished = false;
 
-  constructor(private readonly context: NetworkDefenseRlControllerContext) {
+  constructor(
+    private readonly context: NetworkDefenseRlControllerContext,
+    spec: Partial<NetworkDefensePolicySpec> = {},
+  ) {
+    this.spec = { ...DEFAULT_NETWORK_DEFENSE_POLICY_SPEC, ...spec };
+    this.learners = createRankLearners(this.spec.observation, this.spec.random);
     this.now = context.now ?? (() => performance.now() / 1000);
     const initial = captureRewardSnapshot(context);
     this.previousRewards = snapshotsForRanks(initial);
@@ -81,12 +104,13 @@ export class NetworkDefenseRlController {
     learner.observe(observation, this.collectReward(observation.rank));
     const decision = learner.decide(observation);
     this.lastDecision = decision;
+    this.lastIntent = { rank: observation.rank.toUpperCase(), focus: `THREAT ${observation.serverThreatBand} · INF ${observation.infectionBand} · ENEMY ${observation.enemyBand}` };
     agent.actionKey = decision.action;
     const executed = this.context.executeAction(agent, decision.action, ruleSnapshot);
     if (!executed) {
       // Invalid spatial targets can still disappear between observation and
       // execution. Penalize the attempted action, then safely idle this agent.
-      learner.observe(observation, -0.8);
+      learner.observe(observation, this.spec.rewardMode === 'shaped' ? -0.8 : 0);
       this.context.executeAction(agent, 'idle', ruleSnapshot);
       agent.actionKey = 'idle';
     }
@@ -106,6 +130,8 @@ export class NetworkDefenseRlController {
   serialize(): NetworkDefenseRlSave {
     return {
       version: 1,
+      observation: this.spec.observation,
+      rewardMode: this.spec.rewardMode,
       policies: Object.fromEntries(
         NETWORK_DEFENSE_RANKS.map((rank) => [rank, this.learners[rank].serialize()]),
       ) as NetworkDefenseRlSave['policies'],
@@ -114,6 +140,9 @@ export class NetworkDefenseRlController {
 
   restore(save: NetworkDefenseRlSave | TabularQSave): void {
     if ('policies' in save) {
+      const savedObservation = save.observation ?? DEFAULT_NETWORK_DEFENSE_POLICY_SPEC.observation;
+      const savedRewardMode = save.rewardMode ?? DEFAULT_NETWORK_DEFENSE_POLICY_SPEC.rewardMode;
+      if (savedObservation !== this.spec.observation || savedRewardMode !== this.spec.rewardMode) return;
       for (const rank of NETWORK_DEFENSE_RANKS) {
         this.learners[rank].restore(save.policies[rank]);
       }
@@ -142,6 +171,8 @@ export class NetworkDefenseRlController {
     return this.lastDecision;
   }
 
+  get intent(): Readonly<{ rank: string; focus: string }> { return this.lastIntent; }
+
   setEvaluationMode(enabled: boolean): void {
     for (const learner of Object.values(this.learners)) learner.setEvaluationMode(enabled);
   }
@@ -153,7 +184,7 @@ export class NetworkDefenseRlController {
   private collectReward(rank: NetworkDefenseRank): number {
     const current = captureRewardSnapshot(this.context);
     const previous = this.previousRewards[rank];
-    const reward = (current.elapsed - previous.elapsed) * 0.02
+    const reward = this.spec.rewardMode === 'sparse' ? 0 : (current.elapsed - previous.elapsed) * 0.02
       + (current.kills - previous.kills) * 0.4
       + (current.serverHp - previous.serverHp) * 0.8
       - (current.infection - previous.infection) * 8
@@ -163,9 +194,12 @@ export class NetworkDefenseRlController {
   }
 }
 
-function createRankLearners(): Record<NetworkDefenseRank, TabularQAgent<NetworkDefenseRlObservation, NetworkDefenseRlAction>> {
+function createRankLearners(
+  observation: NetworkDefenseObservationVariant,
+  random?: () => number,
+): Record<NetworkDefenseRank, TabularQAgent<NetworkDefenseRlObservation, NetworkDefenseRlAction>> {
   return Object.fromEntries(
-    NETWORK_DEFENSE_RANKS.map((rank) => [rank, createNetworkDefenseLearner()]),
+    NETWORK_DEFENSE_RANKS.map((rank) => [rank, createNetworkDefenseLearner(observation, random)]),
   ) as Record<NetworkDefenseRank, TabularQAgent<NetworkDefenseRlObservation, NetworkDefenseRlAction>>;
 }
 
@@ -175,10 +209,13 @@ function snapshotsForRanks(snapshot: RewardSnapshot): Record<NetworkDefenseRank,
   ) as Record<NetworkDefenseRank, RewardSnapshot>;
 }
 
-function createNetworkDefenseLearner(): TabularQAgent<NetworkDefenseRlObservation, NetworkDefenseRlAction> {
+function createNetworkDefenseLearner(
+  observation: NetworkDefenseObservationVariant,
+  random?: () => number,
+): TabularQAgent<NetworkDefenseRlObservation, NetworkDefenseRlAction> {
   return new TabularQAgent({
     actions: NETWORK_DEFENSE_RL_ACTIONS,
-    encodeState: encodeNetworkDefenseObservation,
+    encodeState: (value) => encodeNetworkDefenseObservation(value, observation),
     allowedActionIndices: allowedNetworkDefenseActions,
     learningRate: 0.14,
     discount: 0.94,
@@ -188,6 +225,7 @@ function createNetworkDefenseLearner(): TabularQAgent<NetworkDefenseRlObservatio
     epsilonDecay: 0.9995,
     episodeEpsilonBoost: 0.03,
     episodeMaximumEpsilon: 0.28,
+    random,
   });
 }
 
@@ -219,7 +257,20 @@ export function observeNetworkDefense(
   };
 }
 
-export function encodeNetworkDefenseObservation(observation: NetworkDefenseRlObservation): string {
+export function encodeNetworkDefenseObservation(
+  observation: NetworkDefenseRlObservation,
+  variant: NetworkDefenseObservationVariant = 'engineered',
+): string {
+  if (variant === 'minimal') {
+    return [
+      observation.rank,
+      observation.serverHpBand,
+      observation.serverThreatBand,
+      observation.infectionBand,
+      observation.enemyBand,
+      observation.waveBand,
+    ].join(':');
+  }
   return [
     observation.rank,
     observation.serverHpBand,

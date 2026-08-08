@@ -387,14 +387,14 @@ DQNまたはPPOへの昇格は、次をすべて満たした場合に行う。
 - [x] Training、Candidate、Championのsnapshotを分離する。共通`ModelLifecycleStore`を追加し、まずGunshipへ接続した。
 - [x] Candidateを固定seedで評価し、採用条件を満たした場合だけChampionへ昇格する。Gunshipではhold-out評価の95%下限が現Champion中央値を超えることを条件にする。
 - [x] Playerは学習途中のsnapshotではなくChampion revisionだけを購読する。既存のunsuffixed model APIをChampion専用として維持する。
-- [ ] reset時にmodelだけを対象とし、表示設定とメタ進行を保持する回帰テストを追加する。
+- [x] reset時にmodelだけを対象とし、表示設定とメタ進行を保持する回帰テストを追加する。共通`clearStoredPolicyModels`とGunshipの保存キー回帰テストで保証する。
 
 ### P3 — Watchabilityと共通HUD
 
-- [ ] Trainer接続状態、model revision、公開時刻、training stepsを共通表示する。
-- [ ] 方策種別、training/evaluation、選択action、Q値または方策確率を表示する。
-- [ ] Trainer異常終了、互換性エラー、最後の正常Champion使用中を画面上で区別する。
-- [ ] エージェントが重視した脅威、対象、意図をゲーム別overlayへ接続する。
+- [x] Trainer接続状態、model revision、公開時刻、training stepsを共通表示する。Supervisor heartbeat、共通status API、4ゲーム共通`RlHud`で表示する。
+- [x] 方策種別、training/evaluation、選択action、Q値または方策確率を表示する。共通`RlHud`を4ゲームへ接続する。
+- [x] Trainer異常終了、互換性エラー、最後の正常Champion使用中を画面上で区別する。heartbeat失効も`FAILED`として検出する。
+- [x] エージェントが重視した脅威、対象、意図をゲーム別overlayへ接続する。4ゲームの共通HUDにゲーム固有の`INTENT`と`FOCUS`を表示する。
 
 ### P4 — 残りのcore分離
 
@@ -405,15 +405,15 @@ DQNまたはPPOへの昇格は、次をすべて満たした場合に行う。
 
 ### P5 — 観測・報酬比較
 
-- [ ] Drone BastionにMinimal／Engineered 96値の観測切り替えを追加する。
-- [ ] Network DefenseにMinimal／Engineeredの観測切り替えを追加する。
-- [ ] 両ゲームにSparse／Shaped報酬の切り替えを追加する。
+- [x] Drone BastionにMinimal／Engineered 96値の観測切り替えを追加する。
+- [x] Network DefenseにMinimal／Engineeredの観測切り替えを追加する。
+- [x] 両ゲームにSparse／Shaped報酬の切り替えを追加する。
 - [ ] TD target分散と状態aliasing候補を評価ログへ出力する。
 
 ### P6 — Double DQNパイロット
 
-- [ ] Drone BastionへDouble DQNを追加する。
-- [ ] Tabular Qとseed、報酬、学習step、評価episodeを揃えて比較する。
+- [x] Drone BastionへDouble DQNを追加する。
+- [x] Tabular Qとseed、報酬、学習step、評価episodeを揃えて比較する。`npm run eval:drone-dqn`で3条件を同一seed列・同一episode上限で評価しJSON保存する。
 - [ ] 改善が再現できた場合だけArena ShooterまたはGunshipへ横展開する。
 - [ ] 改善しない場合はTabular Qを標準として維持し、原因を評価結果とともに記録する。
 

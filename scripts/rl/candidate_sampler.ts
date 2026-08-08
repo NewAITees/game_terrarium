@@ -24,6 +24,8 @@ export type SamplerOptions = {
   observationRate?: number;
   /** Probability of switching the action set. */
   actionRate?: number;
+  /** Probability of switching between declared sparse/shaped reward formulations. */
+  rewardModeRate?: number;
   /** Probability of perturbing learner hyper-parameters. */
   learnerRate?: number;
   /** Probability that a given reward weight is dropped to zero rather than scaled. */
@@ -48,6 +50,7 @@ export function proposeCandidate(
   const observationRate = options.observationRate ?? .25;
   const actionRate = options.actionRate ?? .25;
   const learnerRate = options.learnerRate ?? .4;
+  const rewardModeRate = options.rewardModeRate ?? .15;
   const zeroRate = options.zeroRate ?? .12;
 
   const weights: Record<string, number> = { ...champion.reward.weights };
@@ -78,7 +81,10 @@ export function proposeCandidate(
     ...champion,
     observation: random() < observationRate ? pick(space.observations, random) : champion.observation,
     actions: random() < actionRate ? pick(space.actions, random) : champion.actions,
-    reward: { mode: champion.reward.mode, weights },
+    reward: {
+      mode: random() < rewardModeRate ? pick(space.rewardModes, random) : champion.reward.mode,
+      weights,
+    },
     environment,
     learner,
   };

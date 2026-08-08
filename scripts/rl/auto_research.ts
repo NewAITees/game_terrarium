@@ -86,7 +86,7 @@ async function main(): Promise<void> {
   }
 
   console.log(`auto-research ${gameId}: ${queue.length} specs, ${concurrency} workers, ledger ${ledgerPath}`);
-  if (champion) console.log(`champion ${champion.id}: hold-out median ${champion.holdout.median.toFixed(1)}s (95% ${champion.holdout.lower95.toFixed(1)}–${champion.holdout.upper95.toFixed(1)})`);
+  if (champion) console.log(`champion ${champion.id}: hold-out median ${champion.holdout.median.toFixed(1)} (95% ${champion.holdout.lower95.toFixed(1)}–${champion.holdout.upper95.toFixed(1)})`);
 
   let completed = 0;
   await pool(queue, concurrency, async (entry) => {
@@ -101,11 +101,11 @@ async function main(): Promise<void> {
   });
 
   const finalChampion = ledger.champion(gameId, baseline);
-  console.log('\n=== leaderboard (hold-out task return) ===');
+  console.log(`\n=== leaderboard (hold-out task return; units are ${gameId}'s own) ===`);
   for (const row of leaderboard(ledger)) {
     const marker = row.id === finalChampion?.id ? '*' : ' ';
     console.log(
-      `${marker} ${row.id}  ${row.holdout.median.toFixed(1).padStart(6)}s`
+      `${marker} ${row.id}  ${row.holdout.median.toFixed(1).padStart(7)}`
       + `  95% ${row.holdout.lower95.toFixed(1)}–${row.holdout.upper95.toFixed(1)}`.padEnd(20)
       + `  obs=${row.spec.observation.padEnd(8)} act=${row.spec.actions.padEnd(11)}`
       + `  shaping ${(row.shapingShare * 100).toFixed(0)}%`
@@ -129,9 +129,9 @@ function report(row: ResearchRow, completed: number, total: number, champion: Re
   const delta = champion ? row.holdout.median - champion.holdout.median : 0;
   console.log(
     `[${completed}/${total}] ${row.id}`
-    + ` hold-out ${row.holdout.median.toFixed(1)}s (95% ${row.holdout.lower95.toFixed(1)}–${row.holdout.upper95.toFixed(1)})`
-    + `${champion ? ` ${delta >= 0 ? '+' : ''}${delta.toFixed(1)}s` : ''}`
-    + ` train ${row.training.median.toFixed(1)}s  states ${row.knownStates}`
+    + ` hold-out ${row.holdout.median.toFixed(1)} (95% ${row.holdout.lower95.toFixed(1)}–${row.holdout.upper95.toFixed(1)})`
+    + `${champion ? ` ${delta >= 0 ? '+' : ''}${delta.toFixed(1)}` : ''}`
+    + ` train ${row.training.median.toFixed(1)}  states ${row.knownStates}`
     + `  obs=${row.spec.observation} act=${row.spec.actions}  ${row.wallSeconds.toFixed(0)}s`,
   );
 }

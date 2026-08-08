@@ -107,6 +107,8 @@ export class GunshipAgent {
   private readonly actions: readonly GunshipAction[];
   private readonly learner: TabularQAgent<Observation, GunshipAction>;
   private current: GunshipAction;
+  private currentQValue = 0;
+  private currentExploratory = false;
 
   constructor(spec: Partial<GunshipPolicySpec> = {}) {
     this.spec = { ...DEFAULT_GUNSHIP_POLICY_SPEC, ...spec, learner: spec.learner ?? {} };
@@ -159,17 +161,19 @@ export class GunshipAgent {
   private evaluationMode = false;
 
   private pendingReward = 0;
-  decide(ship: GunshipBody, targets: GunshipTarget[], hazards: GunshipHazard[], orbs: readonly GunshipOrb[], tactical: GunshipTacticalContext, dt: number, reward: number): { action: GunshipAction; exploratory: boolean } {
+  decide(ship: GunshipBody, targets: GunshipTarget[], hazards: GunshipHazard[], orbs: readonly GunshipOrb[], tactical: GunshipTacticalContext, dt: number, reward: number): { action: GunshipAction; exploratory: boolean; qValue: number } {
     this.pendingReward += reward;
     this.timer -= dt;
-    if (this.timer > 0) return { action: this.current, exploratory: false };
+    if (this.timer > 0) return { action: this.current, exploratory: this.currentExploratory, qValue: this.currentQValue };
     this.timer = .12;
     const observation = observe(ship, targets, hazards, orbs, tactical);
     this.learner.observe(observation, this.pendingReward);
     this.pendingReward = 0;
     const decision = this.learner.decide(observation);
     this.current = decision.action;
-    return { action: decision.action, exploratory: decision.exploratory };
+    this.currentQValue = decision.qValue;
+    this.currentExploratory = decision.exploratory;
+    return { action: decision.action, exploratory: decision.exploratory, qValue: decision.qValue };
   }
 
   // Called when a level-up window resolves. `reward` is the return earned since the previous pick; returns the chosen slot.
@@ -208,7 +212,7 @@ export class GunshipAgent {
   // Greedy playback of what the policy actually knows, with exploration and
   // learning switched off. Training medians include random actions and therefore
   // understate the learned behaviour.
-  setEvaluationMode(enabled: boolean): void { this.evaluationMode = enabled; this.learner.setEvaluationMode(enabled); this.upgradeLearner.setEvaluationMode(enabled); this.timer = 0; this.pendingReward = 0; }
+  setEvaluationMode(enabled: boolean): void { this.evaluationMode = enabled; this.learner.setEvaluationMode(enabled); this.upgradeLearner.setEvaluationMode(enabled); this.timer = 0; this.pendingReward = 0; this.currentExploratory = false; }
   get epsilon(): number { return this.learner.epsilon; }
   get steps(): number { return this.learner.trainingSteps; }
   get knownStates(): number { return this.learner.knownStates; }

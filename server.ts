@@ -14,6 +14,7 @@ import { SubmarineNetwork3DRuntime } from './game/submarine_network_3d_runtime';
 import { EscortTdRuntime } from './game/escort_td_runtime';
 import { ArenaShooterSaveStore, type ArenaSaveBundle } from './game/arena_shooter_save_store';
 import { ModelFileStore } from './scripts/rl/model_file_store';
+import { TrainerStatusStore } from './scripts/rl/trainer_status_store';
 
 const DEFAULT_PORT = Number.parseInt(process.env.GAME_TERRARIUM_PORT || process.env.PORT || '3000', 10) || 3000;
 const telemetry = new Map<string, any>();
@@ -347,6 +348,11 @@ export async function startServer(
     ? { version: 1, revision: 0, publishedAt: null }
     : emptyGunshipModels();
   const modelStoreFor = (gameId: string) => rlModelStores.get(gameId);
+
+  app.get('/api/rl/trainers/:gameId', async (req, res) => {
+    if (!modelStoreFor(req.params.gameId)) return res.status(404).json({ ok: false, error: 'unknown RL game' });
+    res.json(await new TrainerStatusStore(rlModelRoot, req.params.gameId).read());
+  });
 
   app.get('/api/rl/models/:gameId', async (req, res) => {
     const store = modelStoreFor(req.params.gameId);

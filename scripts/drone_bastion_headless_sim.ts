@@ -23,7 +23,7 @@ const episodeResults: Array<{ wave: number; seconds: number; kills: number; rewa
 for (let step = 0; step < simulatedMinutes * 60 / dt; step += 1) {
   const decision = agent.decide(observeDroneBastion(state), dt, reward);
   const result = stepDroneBastion(state, decision.action, dt);
-  reward = result.reward;
+  reward = result.reward.total;
   if (state.pendingUpgrade) {
     applyBastionUpgrade(state, agent.chooseUpgrade(state));
     upgrades += 1;

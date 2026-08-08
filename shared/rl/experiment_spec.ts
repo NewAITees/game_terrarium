@@ -66,6 +66,8 @@ export type RlSearchSpace = {
   gameId: string;
   observations: readonly string[];
   actions: readonly string[];
+  /** Reward formulations this game can execute (for example sparse versus shaped). */
+  rewardModes: readonly RewardMode[];
   /** Tunable shaping/reward weight keys. */
   rewardWeights: readonly string[];
   /** Tunable environment keys, with the range the searcher may sample from. */
@@ -103,12 +105,15 @@ export interface RlGameAdapter {
    */
   createSession(spec: ExperimentSpec, random?: () => number): RlExperimentSession;
   /**
-   * A fingerprint of the world a seed produces, before any policy acts in it.
+   * A fingerprint of the world a seed produces, sampled without a learned policy.
    *
    * The contract needs to know that hold-out seeds describe different episodes, and it cannot learn
    * that by running a policy: an untrained agent flies into the sea in five seconds without meeting
-   * an enemy, so identical outcomes prove nothing about the environment. Asking the game directly
-   * removes the policy from the question entirely.
+   * an enemy, so identical outcomes prove nothing about the environment. Each game answers in
+   * whatever way suits it — an opening layout where the seed shapes one, a short fixed-action
+   * rollout where the seed only shows up in what spawns — as long as no learned behaviour is
+   * involved. Build it from the same code the real episode uses, or the check will keep passing
+   * after the real environment has stopped varying.
    */
   environmentFingerprint(spec: ExperimentSpec, seed: number): string;
 }
@@ -120,6 +125,9 @@ export function validateSpec(spec: ExperimentSpec, space: RlSearchSpace): void {
   }
   if (!space.actions.includes(spec.actions)) {
     throw new Error(`unknown action variant '${spec.actions}' (have: ${space.actions.join(', ')})`);
+  }
+  if (!space.rewardModes.includes(spec.reward.mode)) {
+    throw new Error(`unknown reward mode '${spec.reward.mode}' (have: ${space.rewardModes.join(', ')})`);
   }
   for (const key of Object.keys(spec.reward.weights)) {
     if (!space.rewardWeights.includes(key)) throw new Error(`unknown reward weight '${key}'`);

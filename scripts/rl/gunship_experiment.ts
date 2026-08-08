@@ -20,6 +20,7 @@ export const GUNSHIP_SEARCH_SPACE: RlSearchSpace = {
   gameId: 'gunship',
   observations: GUNSHIP_OBSERVATIONS,
   actions: GUNSHIP_ACTION_SETS,
+  rewardModes: ['shaped'],
   rewardWeights: REWARD_WEIGHTS,
   // Difficulty, not reward: these change what the environment *is*, so two specs that differ here
   // are not comparable on task return and the searcher must treat them as separate ladders.

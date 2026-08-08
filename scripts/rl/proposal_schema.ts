@@ -68,12 +68,21 @@ function coerce(value: Record<string, unknown>, space: RlSearchSpace, baseline: 
     if (typeof level !== 'number' || !Number.isFinite(level)) throw new Error(`learner setting '${key}' is not a finite number`);
     learner[key] = level;
   }
+  const proposedMode = proposed.reward?.mode;
+  if (proposedMode !== undefined && !space.rewardModes.includes(proposedMode)) {
+    throw new Error(`unknown reward mode '${proposedMode}'`);
+  }
 
   const spec: ExperimentSpec = {
     ...baseline,
     observation: typeof proposed.observation === 'string' ? proposed.observation : baseline.observation,
     actions: typeof proposed.actions === 'string' ? proposed.actions : baseline.actions,
-    reward: { mode: baseline.reward.mode, weights },
+    reward: {
+      mode: proposedMode
+        ? proposedMode
+        : baseline.reward.mode,
+      weights,
+    },
     environment,
     learner,
     // The budget is the searcher's to decide, never the proposer's — otherwise "give my idea ten

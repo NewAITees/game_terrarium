@@ -1,3 +1,4 @@
+import { rewardBreakdown, type RewardBreakdown } from '../../shared/rl/runtime_types.js';
 export type DroneKind = 'pawn' | 'rook' | 'bishop' | 'knight' | 'queen';
 export type DroneMode = 'controlled' | 'braking' | 'turret' | 'disabled';
 export type DroneWeapon = 'missile' | 'mortar' | 'pierce' | 'ricochet' | 'arc';
@@ -95,6 +96,41 @@ export type BastionWall = {
   maxHp: number;
 };
 
+/**
+ * Every payment the learner can receive, as a knob rather than a literal.
+ *
+ * These are all tunable, so none of them may score a run — a configuration is compared on how long
+ * the tower survives, which no weight here can reach. Kept on the state so the deep call chain that
+ * awards damage and kills does not have to thread a weights argument through six functions.
+ */
+export type DroneBastionRewardWeights = {
+  survival: number;
+  switchCost: number;
+  chip: number;
+  kill: number;
+  bruteKill: number;
+  wallHit: number;
+  droneHit: number;
+  droneLost: number;
+  towerDamage: number;
+  wave: number;
+  defeat: number;
+};
+
+export const DEFAULT_DRONE_BASTION_REWARD_WEIGHTS: DroneBastionRewardWeights = {
+  survival: 0.018,
+  switchCost: 0.04,
+  chip: 0.16,
+  kill: 2.2,
+  bruteKill: 4.5,
+  wallHit: 0.08,
+  droneHit: 0.45,
+  droneLost: 4,
+  towerDamage: 0.22,
+  wave: 8,
+  defeat: 30,
+};
+
 export type DroneBastionState = {
   width: number;
   height: number;
@@ -127,6 +163,7 @@ export type DroneBastionState = {
   lastUpgrade: string;
   lastReward: number;
   episodeReward: number;
+  rewards: DroneBastionRewardWeights;
 };
 
 export type DroneBastionObservation = {
@@ -149,7 +186,11 @@ export type DroneBastionObservation = {
 };
 
 export type DroneBastionStepResult = {
-  reward: number;
+  /**
+   * The learning signal by channel. `task` is defending the tower and staying alive; the rest is
+   * shaping. Only the task outcome scores a run — see shared/rl/experiment_spec.ts.
+   */
+  reward: RewardBreakdown;
   towerDamage: number;
   hits: number;
   kills: number;
@@ -255,6 +296,7 @@ export function createDroneBastionState(
   width = 1200,
   height = 760,
   seed = 1,
+  rewards: DroneBastionRewardWeights = DEFAULT_DRONE_BASTION_REWARD_WEIGHTS,
 ): DroneBastionState {
   const tower = { x: width / 2, y: height / 2, hp: 320, maxHp: 320, radius: 50 };
   const state: DroneBastionState = {
@@ -262,6 +304,7 @@ export function createDroneBastionState(
     height,
     seed,
     rngState: seed >>> 0,
+    rewards,
     elapsed: 0,
     episode: 1,
     episodeTime: 0,
@@ -302,12 +345,14 @@ export function stepDroneBastion(
   action: DroneAction,
   dt: number,
 ): DroneBastionStepResult {
+  const parts = { task: 0, progress: 0, safety: 0, behavior: 0 };
   if (state.gameOver || state.pendingUpgrade || dt <= 0) {
-    return { reward: 0, towerDamage: 0, hits: 0, kills: 0, waveAdvanced: false, switched: false };
+    return { reward: rewardBreakdown(parts), towerDamage: 0, hits: 0, kills: 0, waveAdvanced: false, switched: false };
   }
+  const weights = state.rewards;
   state.elapsed += dt;
   state.episodeTime += dt;
-  let reward = dt * 0.018;
+  parts.task += dt * weights.survival;
   let towerDamage = 0;
   let hits = 0;
   let kills = 0;
@@ -325,7 +370,7 @@ export function stepDroneBastion(
     }
     if (next !== state.selectedDrone && state.drones[next].mode !== 'disabled') {
       selectDrone(state, next);
-      reward -= 0.04;
+      parts.behavior -= weights.switchCost;
       switched = true;
     }
   }
@@ -344,13 +389,13 @@ export function stepDroneBastion(
         const weapon = fireDrone(state, drone);
         hits += weapon.hits;
         kills += weapon.kills;
-        reward += weapon.reward;
+        parts.progress += weapon.reward;
       }
     } else {
       const weapon = updateAutomaticDrone(state, drone, dt);
       hits += weapon.hits;
       kills += weapon.kills;
-      reward += weapon.reward;
+      parts.progress += weapon.reward;
     }
     containDrone(state, drone);
   }
@@ -378,7 +423,7 @@ export function stepDroneBastion(
       if (enemy.attackCooldown <= 0) {
         wall.hp = Math.max(0, wall.hp - enemy.damage * 0.72);
         enemy.attackCooldown = enemy.kind === 'brute' ? 0.72 : 0.92;
-        reward -= 0.08;
+        parts.safety -= weights.wallHit;
       }
     } else {
       enemy.x = nextX;
@@ -394,13 +439,13 @@ export function stepDroneBastion(
         drone.hp = Math.max(0, drone.hp - damage);
         addDamageNumber(state, drone.x, drone.y, damage, 'drone');
         enemy.attackCooldown = 0.75;
-        reward -= 0.45;
+        parts.safety -= weights.droneHit;
         if (drone.hp <= 0) {
           drone.mode = 'disabled';
           drone.respawnRemaining = respawnDuration(drone);
           drone.vx = 0;
           drone.vy = 0;
-          reward -= 4;
+          parts.safety -= weights.droneLost;
           ensureSelectedDrone(state);
         }
       }
@@ -413,7 +458,7 @@ export function stepDroneBastion(
         addDamageNumber(state, state.tower.x, state.tower.y, damage, 'tower');
         towerDamage += damage;
         enemy.attackCooldown = 0.68;
-        reward -= damage * 0.22;
+        parts.task -= damage * weights.towerDamage;
       }
     }
   }
@@ -452,7 +497,7 @@ export function stepDroneBastion(
         const result = damageEnemy(state, enemyIndex, projectile.damage);
         hits += 1;
         kills += result.killed;
-        reward += result.reward;
+        parts.progress += result.reward;
       }
       state.projectiles.splice(projectileIndex, 1);
       continue;
@@ -466,7 +511,7 @@ export function stepDroneBastion(
       const result = damageEnemy(state, enemyIndex, projectile.damage);
       hits += 1;
       kills += result.killed;
-      reward += result.reward;
+      parts.progress += result.reward;
       if (projectile.kind === 'pierce') {
         projectile.pierceRemaining -= 1;
         consumed = projectile.pierceRemaining < 0;
@@ -502,14 +547,15 @@ export function stepDroneBastion(
     state.pendingUpgrade = true;
     state.waveCooldown = 1.2;
     waveAdvanced = true;
-    reward += 8;
+    parts.progress += weights.wave;
   }
   if (state.tower.hp <= 0) {
     state.gameOver = true;
-    reward -= 30;
+    parts.task -= weights.defeat;
   }
-  state.lastReward = reward;
-  state.episodeReward += reward;
+  const reward = rewardBreakdown(parts);
+  state.lastReward = reward.total;
+  state.episodeReward += reward.total;
   return { reward, towerDamage, hits, kills, waveAdvanced, switched };
 }
 
@@ -542,7 +588,7 @@ export function applyBastionUpgrade(state: DroneBastionState, choice: 'deploy' |
 }
 
 export function resetDroneBastionEpisode(state: DroneBastionState): void {
-  const next = createDroneBastionState(state.width, state.height, state.seed + state.episode);
+  const next = createDroneBastionState(state.width, state.height, state.seed + state.episode, state.rewards);
   next.episode = state.episode + 1;
   Object.assign(state, next);
 }
@@ -972,11 +1018,11 @@ function damageEnemy(
   const appliedDamage = Math.min(enemy.hp, damage);
   enemy.hp -= appliedDamage;
   addDamageNumber(state, enemy.x, enemy.y, appliedDamage, 'enemy');
-  if (enemy.hp > 0) return { killed: 0, reward: 0.16 };
+  if (enemy.hp > 0) return { killed: 0, reward: state.rewards.chip };
   state.enemies.splice(enemyIndex, 1);
   state.kills += 1;
   state.score += enemy.kind === 'brute' ? 220 : 70;
-  return { killed: 1, reward: enemy.kind === 'brute' ? 4.5 : 2.2 };
+  return { killed: 1, reward: enemy.kind === 'brute' ? state.rewards.bruteKill : state.rewards.kill };
 }
 
 function addDamageNumber(

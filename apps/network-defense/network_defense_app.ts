@@ -26,6 +26,7 @@ import { initializeNetworkDefenseSetup } from './network_defense_setup.js';
 import { createNetworkDefenseAppHelpers } from './network_defense_app_helpers.js';
 import { NetworkDefenseRlController, type NetworkDefenseRlSave } from './network_defense_rl.js';
 import { isCompatibleModelManifest, type ModelManifest } from '../../shared/rl/model_manifest.js';
+import { createRlHud, type RlHud } from '../../shared/rl/rl_hud.js';
 
 const NETWORK_DEFENSE_MODEL_COMPATIBILITY = {
   gameId: 'network-defense',
@@ -37,6 +38,8 @@ const NETWORK_DEFENSE_MODEL_COMPATIBILITY = {
 
 export async function startNetworkDefenseApp({ observerMode = false }: { observerMode?: boolean } = {}): Promise<void> {
 const rlMode = !observerMode && new URLSearchParams(location.search).get('ai') !== 'rules';
+const rlHud = rlMode ? createRlHud('NETWORK DEFENSE') : null;
+rlHud?.watchTrainer('network-defense');
 const {
   adj,
   agents,
@@ -176,7 +179,7 @@ let activeModelRevision = 0;
 if (rlController) {
   rlController.setEvaluationMode(true);
   document.documentElement.dataset.rlModelStatus = 'loading';
-  activeModelRevision = await loadPublishedNetworkDefenseModel(rlController);
+  activeModelRevision = await loadPublishedNetworkDefenseModel(rlController, rlHud);
 }
 const assignAgent = rlController
   ? (agent: any) => rlController.assignAgent(agent)
@@ -314,6 +317,15 @@ startNetworkDefenseLoop({
             `${rlController.knownStates} states`,
           ].join(' · ');
         }
+        rlHud?.update({
+          action: decision?.action ?? 'WAIT',
+          intent: `${rlController.intent.rank} POLICY`,
+          focus: rlController.intent.focus,
+          exploratory: decision?.exploratory ?? false,
+          qValue: decision?.qValue,
+          trainingSteps: rlController.trainingSteps,
+          mode: 'evaluation',
+        });
         hudCooldown = 0.25;
       }
       if (game.gameOver && !restartScheduled) {
@@ -327,22 +339,24 @@ startNetworkDefenseLoop({
 });
 }
 
-async function loadPublishedNetworkDefenseModel(controller: NetworkDefenseRlController): Promise<number> {
+async function loadPublishedNetworkDefenseModel(controller: NetworkDefenseRlController, hud: RlHud | null): Promise<number> {
   try {
     const response = await fetch('/api/rl/models/network-defense', { cache: 'no-store' });
-    if (!response.ok) { document.documentElement.dataset.rlModelStatus = 'unavailable'; return 0; }
+    if (!response.ok) { document.documentElement.dataset.rlModelStatus = 'unavailable'; hud?.update({ modelState: 'no-model' }); return 0; }
     const bundle = await response.json() as {
       manifest?: ModelManifest;
       model?: NetworkDefenseRlSave;
     };
-    if (bundle.manifest && !isCompatibleModelManifest(bundle.manifest, NETWORK_DEFENSE_MODEL_COMPATIBILITY)) { document.documentElement.dataset.rlModelStatus = 'incompatible'; return 0; }
-    if (!bundle.model) { document.documentElement.dataset.rlModelStatus = 'fallback'; return 0; }
+    if (bundle.manifest && !isCompatibleModelManifest(bundle.manifest, NETWORK_DEFENSE_MODEL_COMPATIBILITY)) { document.documentElement.dataset.rlModelStatus = 'incompatible'; hud?.update({ modelState: 'incompatible' }); return 0; }
+    if (!bundle.model) { document.documentElement.dataset.rlModelStatus = 'fallback'; hud?.update({ modelState: 'no-model' }); return 0; }
     controller.restore(bundle.model);
     controller.setEvaluationMode(true);
     document.documentElement.dataset.rlModelStatus = 'compatible';
+    hud?.update({ modelState: 'champion', algorithm: bundle.manifest.algorithm, revision: bundle.manifest.revision, publishedAt: bundle.manifest.publishedAt, trainingSteps: bundle.manifest.trainingSteps, mode: 'evaluation' });
     return bundle.manifest.revision;
   } catch {
     document.documentElement.dataset.rlModelStatus = 'unavailable';
+    hud?.update({ modelState: 'no-model' });
     return 0;
   }
 }

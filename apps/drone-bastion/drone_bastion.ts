@@ -11,6 +11,7 @@ import {
 } from './drone_bastion_core.js';
 import { DroneBastionScene } from './drone_bastion_scene.js';
 import { isCompatibleModelManifest, type ModelManifest } from '../../shared/rl/model_manifest.js';
+import { createRlHud } from '../../shared/rl/rl_hud.js';
 
 const STORAGE_KEY = 'drone-bastion-rl-v1';
 type LiveModelBundle = {
@@ -22,12 +23,14 @@ type LiveModelBundle = {
 const liveModelCompatibility = {
   gameId: 'drone-bastion',
   algorithm: 'tabular-q',
-  modelVersion: 1,
+  modelVersion: 2,
   observationSchemaVersion: 1,
   rewardSchemaVersion: 1,
 } as const;
 const canvas = requireElement<HTMLCanvasElement>('bastion');
 const scene3d = new DroneBastionScene(canvas);
+const rlHud = createRlHud('DRONE BASTION');
+rlHud.watchTrainer('drone-bastion');
 
 const ui = {
   towerHp: requireElement<HTMLElement>('tower-hp'),
@@ -67,6 +70,7 @@ void reloadLiveModel().finally(() => {
   modelReady = true;
   if (loadedRevision < 0 && document.documentElement.dataset.rlModelStatus === 'loading') {
     document.documentElement.dataset.rlModelStatus = 'fallback';
+    rlHud.update({ modelState: 'no-model' });
     showBanner('INFERENCE FALLBACK // NO SNAPSHOT');
   }
 });
@@ -368,6 +372,8 @@ function updateHud(): void {
   ui.steps.textContent = agent.trainingSteps.toLocaleString();
   ui.reward.textContent = signed(state.lastReward);
   ui.upgrade.textContent = state.lastUpgrade;
+  const nearest = state.enemies.reduce<typeof state.enemies[number] | undefined>((best, enemy) => !best || Math.hypot(enemy.x - state.tower.x, enemy.y - state.tower.y) < Math.hypot(best.x - state.tower.x, best.y - state.tower.y) ? enemy : best, undefined);
+  rlHud.update({ action: currentDecision.action.label, intent: selected ? `${selected.kind.toUpperCase()} ${selected.mode.toUpperCase()}` : 'FLEET RECOVERY', focus: nearest ? `${nearest.kind.toUpperCase()} → TOWER ${Math.round(Math.hypot(nearest.x - state.tower.x, nearest.y - state.tower.y))}u` : 'PERIMETER CLEAR', exploratory: currentDecision.exploratory, qValue: currentDecision.qValue, mode: 'evaluation' });
 }
 
 function showBanner(message: string): void {
@@ -403,10 +409,10 @@ function restoreAgent(): void {
 async function reloadLiveModel(): Promise<void> {
   try {
     const response = await fetch('/api/rl/models/drone-bastion', { cache: 'no-store' });
-    if (!response.ok) { document.documentElement.dataset.rlModelStatus = 'unavailable'; return; }
+    if (!response.ok) { document.documentElement.dataset.rlModelStatus = 'unavailable'; rlHud.update({ modelState: loadedRevision >= 0 ? 'last-champion' : 'no-model' }); return; }
     const bundle = await response.json() as LiveModelBundle;
-    if (bundle.manifest && !isCompatibleModelManifest(bundle.manifest, liveModelCompatibility)) { document.documentElement.dataset.rlModelStatus = 'incompatible'; return; }
-    if (!bundle.model) { document.documentElement.dataset.rlModelStatus = 'fallback'; return; }
+    if (bundle.manifest && !isCompatibleModelManifest(bundle.manifest, liveModelCompatibility)) { document.documentElement.dataset.rlModelStatus = 'incompatible'; rlHud.update({ modelState: 'incompatible' }); return; }
+    if (!bundle.model) { document.documentElement.dataset.rlModelStatus = 'fallback'; rlHud.update({ modelState: 'no-model' }); return; }
     if (bundle.revision <= loadedRevision) return;
     const next = new DroneBastionAgent();
     next.restore(bundle.model);
@@ -414,10 +420,12 @@ async function reloadLiveModel(): Promise<void> {
     agent = next;
     loadedRevision = bundle.revision;
     document.documentElement.dataset.rlModelStatus = 'compatible';
+    rlHud.update({ modelState: 'champion', algorithm: bundle.manifest?.algorithm ?? 'tabular-q', revision: bundle.revision, publishedAt: bundle.manifest?.publishedAt, trainingSteps: bundle.manifest?.trainingSteps ?? agent.trainingSteps });
     currentDecision = agent.decide(observeDroneBastion(state), 1, 0);
     showBanner(`INFERENCE MODEL r${bundle.revision}`);
   } catch {
     document.documentElement.dataset.rlModelStatus = 'unavailable';
+    rlHud.update({ modelState: loadedRevision >= 0 ? 'last-champion' : 'no-model' });
     // Training is optional; keep the last compatible model.
   }
 }
