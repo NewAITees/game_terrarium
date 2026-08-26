@@ -54,11 +54,14 @@ async function main(): Promise<void> {
 
   console.log(`champion ${champion.id}: hold-out median ${champion.holdout.median.toFixed(2)}`
     + ` (95% ${champion.holdout.lower95.toFixed(2)}–${champion.holdout.upper95.toFixed(2)})`
+    + ` learner=${champion.spec.learnerVariant}`
     + ` obs=${champion.spec.observation} act=${champion.spec.actions}`);
 
-  if (champion.spec.observation !== publication.liveObservation || champion.spec.actions !== publication.liveActions) {
+  if (champion.spec.learnerVariant !== publication.liveLearnerVariant
+    || champion.spec.observation !== publication.liveObservation || champion.spec.actions !== publication.liveActions) {
     console.error(`refusing to publish: the live ${gameId} page runs`
-      + ` obs=${publication.liveObservation} act=${publication.liveActions}, and a table built under`
+      + ` learner=${publication.liveLearnerVariant} obs=${publication.liveObservation} act=${publication.liveActions},`
+      + ` and a table built under learner=${champion.spec.learnerVariant}`
       + ` obs=${champion.spec.observation} act=${champion.spec.actions} would be rejected on load.`);
     console.error('  Adopt the variant in the page first, then publish.');
     process.exitCode = 1;

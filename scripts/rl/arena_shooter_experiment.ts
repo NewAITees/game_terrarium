@@ -23,6 +23,7 @@ import {
   type RlSearchSpace,
 } from '../../shared/rl/experiment_spec.js';
 import { createModelManifest } from '../../shared/rl/model_manifest.js';
+import { TABULAR_LEARNER_VARIANTS, type TabularLearnerVariant } from '../../shared/rl/learner_variant.js';
 
 /**
  * Arena Shooter's declaration of what an automated search may vary.
@@ -41,6 +42,7 @@ const REWARD_WEIGHTS = [
 
 export const ARENA_SEARCH_SPACE: RlSearchSpace = {
   gameId: 'arena-shooter',
+  learnerVariants: TABULAR_LEARNER_VARIANTS,
   observations: ARENA_OBSERVATIONS,
   actions: ARENA_ACTION_SETS,
   rewardWeights: REWARD_WEIGHTS,
@@ -66,6 +68,7 @@ export function createArenaShooterAdapter(): RlGameAdapter {
     },
     livePublication: {
       stem: 'arena-shooter-live-model',
+      liveLearnerVariant: 'tabular-1step',
       liveObservation: 'full',
       liveActions: 'full',
       bundle(model, revision, metadata) {
@@ -88,6 +91,7 @@ export function createArenaShooterAdapter(): RlGameAdapter {
 export function defaultArenaSpec(): ExperimentSpec {
   return {
     gameId: 'arena-shooter',
+    learnerVariant: 'tabular-1step',
     observation: 'full',
     actions: 'full',
     reward: { mode: 'shaped', weights: { ...DEFAULT_ARENA_REWARD_WEIGHTS } },
@@ -108,6 +112,7 @@ class ArenaSession implements RlExperimentSession {
 
   constructor(spec: ExperimentSpec, random?: () => number) {
     this.agent = new QLearningAgent({
+      learnerVariant: spec.learnerVariant as TabularLearnerVariant,
       observation: spec.observation as ArenaObservationVariant,
       actions: spec.actions as ArenaActionVariant,
       learner: spec.learner,

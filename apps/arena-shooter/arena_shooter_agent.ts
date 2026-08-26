@@ -1,4 +1,5 @@
 import { TabularQAgent } from '../../shared/rl/tabular_q_agent.js';
+import { nStepForVariant, type TabularLearnerVariant } from '../../shared/rl/learner_variant.js';
 import { ValueBandit } from '../../shared/rl/value_bandit.js';
 import type { TabularDecision, TabularQSave } from '../../shared/rl/rl_types.js';
 import {
@@ -26,6 +27,7 @@ const ACTION_SETS: Record<ArenaActionVariant, readonly ArenaAction[]> = {
 };
 
 export type ArenaPolicySpec = {
+  learnerVariant: TabularLearnerVariant;
   observation: ArenaObservationVariant;
   actions: ArenaActionVariant;
   learner: Partial<ArenaLearnerOverrides>;
@@ -45,7 +47,9 @@ export type ArenaLearnerOverrides = {
   maximumStates: number;
 };
 
-export const DEFAULT_ARENA_POLICY_SPEC: ArenaPolicySpec = { observation: 'full', actions: 'full', learner: {} };
+export const DEFAULT_ARENA_POLICY_SPEC: ArenaPolicySpec = {
+  learnerVariant: 'tabular-1step', observation: 'full', actions: 'full', learner: {},
+};
 export { ARENA_OBSERVATIONS };
 import type { UpgradeChoice } from './arena_shooter_progression.js';
 
@@ -60,6 +64,7 @@ export type QLearningAgentSave = TabularQSave & {
   upgradeValues?: Array<[string, number]>;
   observation?: string;
   actions?: string;
+  learnerVariant?: string;
 };
 
 export class QLearningAgent {
@@ -89,6 +94,7 @@ export class QLearningAgent {
       // Spread last so a search may override any of the above; anything omitted keeps the shipped
       // value, which makes the default spec exactly today's agent.
       ...this.spec.learner,
+      nStep: nStepForVariant(this.spec.learnerVariant),
       random: this.random,
     });
     this.decision = { action: this.actions[0], actionIndex: 0, exploratory: false, qValue: 0 };
@@ -141,15 +147,18 @@ export class QLearningAgent {
       upgradeValues: this.upgradeBandit.entries(),
       observation: this.spec.observation,
       actions: this.spec.actions,
+      learnerVariant: this.spec.learnerVariant,
     };
   }
 
   restore(save: QLearningAgentSave): void {
     if (save.policyVersion === 3) {
-      if (save.observation !== this.spec.observation || save.actions !== this.spec.actions) return;
+      if (save.observation !== this.spec.observation || save.actions !== this.spec.actions
+        || (save.learnerVariant ?? 'tabular-1step') !== this.spec.learnerVariant) return;
     } else {
       // v2 and the pre-versioned prototype were always full/full.
-      if (this.spec.observation !== 'full' || this.spec.actions !== 'full') return;
+      if (this.spec.observation !== 'full' || this.spec.actions !== 'full'
+        || this.spec.learnerVariant !== 'tabular-1step') return;
     }
     this.learner.restore(save);
     this.upgradeBandit.restore((save.upgradeValues ?? []).filter((entry): entry is [string, number] => (

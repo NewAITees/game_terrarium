@@ -43,6 +43,8 @@ export type BudgetSpec = {
 
 export type ExperimentSpec = {
   gameId: string;
+  /** Structural learning algorithm; unlike numeric learner settings this changes update semantics. */
+  learnerVariant: string;
   /** Named observation encoding — decides the Q-table's key shape. */
   observation: string;
   /** Named action set — decides the Q-table's width. */
@@ -64,6 +66,7 @@ export type ExperimentSpec = {
 /** What a game lets an experiment vary. The searcher proposes nothing outside this. */
 export type RlSearchSpace = {
   gameId: string;
+  learnerVariants: readonly string[];
   observations: readonly string[];
   actions: readonly string[];
   /** Reward formulations this game can execute (for example sparse versus shaped). */
@@ -134,6 +137,7 @@ export interface RlGameAdapter {
    */
   readonly livePublication?: {
     stem: string;
+    liveLearnerVariant: string;
     liveObservation: string;
     liveActions: string;
     bundle(
@@ -147,6 +151,9 @@ export interface RlGameAdapter {
 
 export function validateSpec(spec: ExperimentSpec, space: RlSearchSpace): void {
   if (spec.gameId !== space.gameId) throw new Error(`spec is for ${spec.gameId}, search space is for ${space.gameId}`);
+  if (!space.learnerVariants.includes(spec.learnerVariant)) {
+    throw new Error(`unknown learner variant '${spec.learnerVariant}' (have: ${space.learnerVariants.join(', ')})`);
+  }
   if (!space.observations.includes(spec.observation)) {
     throw new Error(`unknown observation variant '${spec.observation}' (have: ${space.observations.join(', ')})`);
   }
@@ -180,6 +187,7 @@ export function validateSpec(spec: ExperimentSpec, space: RlSearchSpace): void {
 export function specHash(spec: ExperimentSpec): string {
   const canonical = canonicalize({
     gameId: spec.gameId,
+    learnerVariant: spec.learnerVariant,
     observation: spec.observation,
     actions: spec.actions,
     reward: spec.reward,

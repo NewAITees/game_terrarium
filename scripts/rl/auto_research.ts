@@ -109,7 +109,8 @@ async function main(): Promise<void> {
     console.log(
       `${marker} ${row.id}  ${row.holdout.median.toFixed(1).padStart(7)}`
       + `  95% ${row.holdout.lower95.toFixed(1)}–${row.holdout.upper95.toFixed(1)}`.padEnd(20)
-      + `  obs=${row.spec.observation.padEnd(8)} act=${row.spec.actions.padEnd(11)}`
+      + `  learner=${row.spec.learnerVariant.padEnd(13)}`
+      + ` obs=${row.spec.observation.padEnd(8)} act=${row.spec.actions.padEnd(11)}`
       + `  shaping ${(row.shapingShare * 100).toFixed(0)}%`
       + `  ${row.wallSeconds.toFixed(0)}s`,
     );
@@ -134,7 +135,8 @@ function report(row: ResearchRow, completed: number, total: number, champion: Re
     + ` hold-out ${row.holdout.median.toFixed(1)} (95% ${row.holdout.lower95.toFixed(1)}–${row.holdout.upper95.toFixed(1)})`
     + `${champion ? ` ${delta >= 0 ? '+' : ''}${delta.toFixed(1)}` : ''}`
     + ` train ${row.training.median.toFixed(1)}  states ${row.knownStates}`
-    + `  obs=${row.spec.observation} act=${row.spec.actions}  ${row.wallSeconds.toFixed(0)}s`,
+    + `  learner=${row.spec.learnerVariant}`
+    + ` obs=${row.spec.observation} act=${row.spec.actions}  ${row.wallSeconds.toFixed(0)}s`,
   );
 }
 

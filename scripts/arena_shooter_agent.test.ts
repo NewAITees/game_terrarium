@@ -27,4 +27,7 @@ test('Arena migrates the legacy full-policy save but rejects it for another tabl
   const incompatible = new QLearningAgent({ observation: 'minimal' });
   incompatible.restore(legacy);
   assert.equal(incompatible.trainingSteps, 0);
+  const incompatibleLearner = new QLearningAgent({ learnerVariant: 'tabular-3step' });
+  incompatibleLearner.restore(legacy);
+  assert.equal(incompatibleLearner.trainingSteps, 0);
 });

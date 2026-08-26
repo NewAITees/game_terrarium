@@ -25,6 +25,7 @@ test('spec hash separates incompatible models but not the same spec trained long
   assert.notEqual(specHash({ ...spec, budget: { ...spec.budget, capSeconds: spec.budget.capSeconds / 2 } }), specHash(spec));
   assert.notEqual(specHash({ ...spec, observation: 'minimal' }), specHash(spec));
   assert.notEqual(specHash({ ...spec, actions: 'coarse' }), specHash(spec));
+  assert.notEqual(specHash({ ...spec, learnerVariant: 'tabular-3step' }), specHash(spec));
   assert.notEqual(specHash({ ...spec, diagnostic: true }), specHash(spec));
   assert.notEqual(specHash({ ...spec, reward: { mode: 'shaped', weights: { ...spec.reward.weights, kill: 2 } } }), specHash(spec));
   // Key order is an artefact of how a spec was assembled, not a difference between experiments.
@@ -41,7 +42,11 @@ test('a model never restores into an agent whose table has a different shape', (
   sameSpec.restore(save);
   assert.equal(sameSpec.episodes, trained.episodes);
 
-  for (const mismatch of [{ observation: 'minimal' as const }, { actions: 'coarse' as const }]) {
+  for (const mismatch of [
+    { observation: 'minimal' as const },
+    { actions: 'coarse' as const },
+    { learnerVariant: 'tabular-3step' as const },
+  ]) {
     const other = new GunshipAgent(mismatch);
     other.restore(save);
     assert.equal(other.episodes, 0, `${JSON.stringify(mismatch)} must reject a table built under another spec`);

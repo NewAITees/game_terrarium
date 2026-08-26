@@ -75,6 +75,7 @@ function coerce(value: Record<string, unknown>, space: RlSearchSpace, baseline: 
 
   const spec: ExperimentSpec = {
     ...baseline,
+    learnerVariant: typeof proposed.learnerVariant === 'string' ? proposed.learnerVariant : baseline.learnerVariant,
     observation: typeof proposed.observation === 'string' ? proposed.observation : baseline.observation,
     actions: typeof proposed.actions === 'string' ? proposed.actions : baseline.actions,
     reward: {

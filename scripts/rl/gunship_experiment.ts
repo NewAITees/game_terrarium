@@ -6,6 +6,7 @@ import {
   type GunshipActionVariant,
   type GunshipObservationVariant,
 } from '../../apps/gunship/gunship_rl.js';
+import { TABULAR_LEARNER_VARIANTS, type TabularLearnerVariant } from '../../shared/rl/learner_variant.js';
 import { validateSpec, type EpisodeOutcome, type ExperimentSpec, type RlExperimentSession, type RlGameAdapter, type RlSearchSpace } from '../../shared/rl/experiment_spec.js';
 import { DEFAULT_GUNSHIP_ENVIRONMENT, fingerprintEpisodeStart, runEpisode, type GunshipEnvironmentSpec, type GunshipEpisodeResult } from '../gunship_headless_sim.js';
 import { createModelManifest } from '../../shared/rl/model_manifest.js';
@@ -19,6 +20,7 @@ const REWARD_WEIGHTS = ['survival', 'ceiling', 'death', 'hpDeath', 'kill', 'hit'
 
 export const GUNSHIP_SEARCH_SPACE: RlSearchSpace = {
   gameId: 'gunship',
+  learnerVariants: TABULAR_LEARNER_VARIANTS,
   observations: GUNSHIP_OBSERVATIONS,
   actions: GUNSHIP_ACTION_SETS,
   rewardModes: ['shaped'],
@@ -48,6 +50,7 @@ export function createGunshipAdapter(airframeId: AirframeId = 'interceptor'): Rl
     },
     livePublication: {
       stem: 'gunship-live-models',
+      liveLearnerVariant: 'tabular-1step',
       // apps/gunship/gunship.ts builds its agent with the default spec, so only a champion trained
       // under that encoding is restorable by the running page.
       liveObservation: 'full',
@@ -85,6 +88,7 @@ export function defaultGunshipSpec(): ExperimentSpec {
   const base = DEFAULT_GUNSHIP_ENVIRONMENT;
   return {
     gameId: 'gunship',
+    learnerVariant: 'tabular-1step',
     observation: 'full',
     actions: 'full',
     reward: { mode: 'shaped', weights: { ...base.rewards } },
@@ -100,6 +104,7 @@ class GunshipSession implements RlExperimentSession {
 
   constructor(spec: ExperimentSpec, private readonly airframeId: AirframeId, random?: () => number) {
     this.agent = new GunshipAgent({
+      learnerVariant: spec.learnerVariant as TabularLearnerVariant,
       observation: spec.observation as GunshipObservationVariant,
       actions: spec.actions as GunshipActionVariant,
       learner: spec.learner,

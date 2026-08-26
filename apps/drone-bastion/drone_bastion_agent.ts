@@ -1,4 +1,5 @@
 import { TabularQAgent } from '../../shared/rl/tabular_q_agent.js';
+import { nStepForVariant, type TabularLearnerVariant } from '../../shared/rl/learner_variant.js';
 import type { TabularDecision, TabularQSave } from '../../shared/rl/rl_types.js';
 import {
   encodeDroneBastionObservation,
@@ -21,6 +22,7 @@ export const DRONE_BASTION_ACTION_SETS = ['full', 'no-switch', 'always-fire'] as
 export type DroneBastionActionVariant = (typeof DRONE_BASTION_ACTION_SETS)[number];
 
 export type DroneBastionPolicySpec = {
+  learnerVariant: TabularLearnerVariant;
   observation: DroneBastionObservationVariant;
   actions: DroneBastionActionVariant;
   learner: Partial<DroneBastionLearnerOverrides>;
@@ -41,6 +43,7 @@ export type DroneBastionLearnerOverrides = {
 };
 
 export const DEFAULT_DRONE_BASTION_POLICY_SPEC: DroneBastionPolicySpec = {
+  learnerVariant: 'tabular-1step',
   observation: 'shipped',
   actions: 'full',
   learner: {},
@@ -74,6 +77,7 @@ export type DroneBastionAgentSave = {
   previousUpgrade?: 'deploy' | 'upgrade';
   observation: string;
   actions: string;
+  learnerVariant?: string;
 };
 
 export type LegacyDroneBastionAgentSave = {
@@ -132,6 +136,7 @@ export class DroneBastionAgent {
       // Spread last so a search may override any of the above; whatever it omits keeps the shipped
       // value, which makes the default spec exactly today's agent.
       ...this.spec.learner,
+      nStep: nStepForVariant(this.spec.learnerVariant),
       random: this.random,
     });
     this.currentDecision = { action: this.actions[0], actionIndex: 0, exploratory: false, qValue: 0 };
@@ -186,14 +191,17 @@ export class DroneBastionAgent {
       previousUpgrade: this.previousUpgrade,
       observation: this.spec.observation,
       actions: this.spec.actions,
+      learnerVariant: this.spec.learnerVariant,
     };
   }
 
   restore(save: DroneBastionAgentSave | LegacyDroneBastionAgentSave): void {
     if (save.version === 1) {
       // v1 was always the shipped observation and full action set.
-      if (this.spec.observation !== 'shipped' || this.spec.actions !== 'full') return;
-    } else if (save.observation !== this.spec.observation || save.actions !== this.spec.actions) return;
+      if (this.spec.observation !== 'shipped' || this.spec.actions !== 'full'
+        || this.spec.learnerVariant !== 'tabular-1step') return;
+    } else if (save.observation !== this.spec.observation || save.actions !== this.spec.actions
+      || (save.learnerVariant ?? 'tabular-1step') !== this.spec.learnerVariant) return;
     this.learner.restore(save.combat);
     if (Number.isFinite(save.upgradeValues?.deploy)) this.upgradeValues.deploy = save.upgradeValues.deploy;
     if (Number.isFinite(save.upgradeValues?.upgrade)) this.upgradeValues.upgrade = save.upgradeValues.upgrade;

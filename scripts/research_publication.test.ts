@@ -8,7 +8,7 @@ import { createDroneBastionAdapter } from './rl/drone_bastion_experiment.js';
 import { modelArtifactName } from './rl/model_artifact.js';
 
 const spec: ExperimentSpec = {
-  gameId: 'publication-test', observation: 'minimal', actions: 'full',
+  gameId: 'publication-test', learnerVariant: 'tabular-1step', observation: 'minimal', actions: 'full',
   reward: { mode: 'shaped', weights: {} }, environment: {}, learner: {},
   budget: { episodes: 1, capSeconds: 1, trainSeeds: 1, holdoutSeeds: 1, repeats: 2 },
 };
@@ -17,7 +17,7 @@ test('publication artifact is predetermined repeat zero rather than the best hol
   let repeat = 0;
   const adapter: RlGameAdapter = {
     searchSpace: {
-      gameId: spec.gameId, observations: ['minimal'], actions: ['full'], rewardModes: ['shaped'],
+      gameId: spec.gameId, learnerVariants: ['tabular-1step'], observations: ['minimal'], actions: ['full'], rewardModes: ['shaped'],
       rewardWeights: [], environment: {},
     },
     defaultSpec: () => spec,

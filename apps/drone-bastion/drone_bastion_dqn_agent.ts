@@ -2,11 +2,14 @@ import { DoubleDqnAgent, type DoubleDqnSave } from '../../shared/rl/double_dqn_a
 import type { DoubleDqnDecision } from '../../shared/rl/double_dqn_agent.js';
 import { DRONE_BASTION_ACTIONS, allowedDroneBastionActions } from './drone_bastion_agent.js';
 import type { DroneAction, DroneBastionObservation, DroneBastionState } from './drone_bastion_core.js';
+import { dqnTuningForVariant, type DqnLearnerVariant } from '../../shared/rl/learner_variant.js';
 
 export type DroneBastionDqnObservation = 'minimal' | 'engineered';
 export type DroneBastionDqnSave = {
-  version: 1;
+  /** v2 records the learner variant: an Adam-trained, normalised network is not interchangeable. */
+  version: 2;
   observation: DroneBastionDqnObservation;
+  variant: DqnLearnerVariant;
   learner: DoubleDqnSave;
   upgradeValues: { deploy: number; upgrade: number };
 };
@@ -26,8 +29,16 @@ export class DroneBastionDqnAgent {
   private readonly random: () => number;
   readonly observation: DroneBastionDqnObservation;
 
-  constructor(observation: DroneBastionDqnObservation = 'engineered', random?: () => number) {
+  readonly variant: DqnLearnerVariant;
+
+  constructor(
+    observation: DroneBastionDqnObservation = 'engineered',
+    random?: () => number,
+    variant: DqnLearnerVariant = 'double-dqn',
+  ) {
     this.observation = observation;
+    this.variant = variant;
+    const tuning = dqnTuningForVariant(variant);
     this.random = random ?? Math.random;
     this.learner = new DoubleDqnAgent({
       actions: DRONE_BASTION_ACTIONS,
@@ -44,6 +55,8 @@ export class DroneBastionDqnAgent {
       batchSize: 16,
       warmupSteps: 128,
       targetSyncSteps: 400,
+      optimizer: tuning.optimizer,
+      normalizeObservations: tuning.normalizeObservations,
       random: this.random,
     });
   }
@@ -99,11 +112,11 @@ export class DroneBastionDqnAgent {
   get gradientSteps(): number { return this.learner.gradientSteps; }
 
   serialize(): DroneBastionDqnSave {
-    return { version: 1, observation: this.observation, learner: this.learner.serialize(), upgradeValues: { ...this.upgradeValues } };
+    return { version: 2, observation: this.observation, variant: this.variant, learner: this.learner.serialize(), upgradeValues: { ...this.upgradeValues } };
   }
 
   restore(save: DroneBastionDqnSave): void {
-    if (save.version !== 1 || save.observation !== this.observation) return;
+    if (save.version !== 2 || save.observation !== this.observation || save.variant !== this.variant) return;
     this.learner.restore(save.learner);
     if (Number.isFinite(save.upgradeValues?.deploy)) this.upgradeValues.deploy = save.upgradeValues.deploy;
     if (Number.isFinite(save.upgradeValues?.upgrade)) this.upgradeValues.upgrade = save.upgradeValues.upgrade;

@@ -28,6 +28,8 @@ export type SamplerOptions = {
   rewardModeRate?: number;
   /** Probability of perturbing learner hyper-parameters. */
   learnerRate?: number;
+  /** Probability of switching the structural learner variant. */
+  learnerVariantRate?: number;
   /** Probability that a given reward weight is dropped to zero rather than scaled. */
   zeroRate?: number;
 };
@@ -50,6 +52,7 @@ export function proposeCandidate(
   const observationRate = options.observationRate ?? .25;
   const actionRate = options.actionRate ?? .25;
   const learnerRate = options.learnerRate ?? .4;
+  const learnerVariantRate = options.learnerVariantRate ?? .2;
   const rewardModeRate = options.rewardModeRate ?? .15;
   const zeroRate = options.zeroRate ?? .12;
 
@@ -79,6 +82,7 @@ export function proposeCandidate(
 
   return {
     ...champion,
+    learnerVariant: random() < learnerVariantRate ? pick(space.learnerVariants, random) : champion.learnerVariant,
     observation: random() < observationRate ? pick(space.observations, random) : champion.observation,
     actions: random() < actionRate ? pick(space.actions, random) : champion.actions,
     reward: {

@@ -10,6 +10,14 @@ import type {
  */
 const DEFAULT_MAXIMUM_STATES = 120_000;
 const EVICTION_BATCH_RATIO = 0.1;
+type PendingTransition = {
+  state: string;
+  action: number;
+  reward: number;
+  nextState: string;
+  nextAllowed: readonly number[];
+  terminal: boolean;
+};
 
 export class TabularQAgent<Observation, Action> {
   private readonly qTable = new Map<string, number[]>();
@@ -24,10 +32,13 @@ export class TabularQAgent<Observation, Action> {
   private readonly random: () => number;
   private readonly maximumStates: number;
   private readonly terminalBlame: number;
+  private readonly nStep: number;
   private readonly touchedAt = new Map<string, number>();
   private touchClock = 0;
   private previousState: string | null = null;
   private previousAction = 0;
+  private pendingReward = 0;
+  private readonly transitions: PendingTransition[] = [];
   private evaluationMode = false;
 
   readonly learningRate: number;
@@ -53,6 +64,7 @@ export class TabularQAgent<Observation, Action> {
     this.random = config.random ?? Math.random;
     this.maximumStates = config.maximumStates ?? DEFAULT_MAXIMUM_STATES;
     this.terminalBlame = config.terminalBlame ?? 0;
+    this.nStep = config.nStep ?? 1;
     this.validateConfig();
   }
 
@@ -62,17 +74,8 @@ export class TabularQAgent<Observation, Action> {
    * deliberately keeps the same action for several frames.
    */
   observe(observation: Observation, reward: number): void {
-    const stateKey = this.encodeState(observation);
-    this.valuesFor(stateKey, observation);
     if (this.evaluationMode) return;
-    if (!this.previousState) return;
-    const previousValues = this.valuesFor(this.previousState);
-    const nextValues = this.valuesFor(stateKey, observation);
-    const allowed = this.validAllowedIndices(observation);
-    const future = nextValues[argMaxAllowed(nextValues, allowed)];
-    const current = previousValues[this.previousAction];
-    previousValues[this.previousAction] = current
-      + this.learningRate * (reward + this.discount * future - current);
+    this.pendingReward += reward;
   }
 
   /**
@@ -83,6 +86,18 @@ export class TabularQAgent<Observation, Action> {
     const stateKey = this.encodeState(observation);
     const values = this.valuesFor(stateKey, observation);
     const allowed = this.validAllowedIndices(observation);
+    if (!this.evaluationMode && this.previousState) {
+      this.transitions.push({
+        state: this.previousState,
+        action: this.previousAction,
+        reward: this.pendingReward,
+        nextState: stateKey,
+        nextAllowed: allowed,
+        terminal: false,
+      });
+      this.pendingReward = 0;
+      if (this.transitions.length >= this.nStep) this.updateOldest(false);
+    }
     const exploratory = !this.evaluationMode && this.random() < this.epsilon;
     const actionIndex = exploratory
       ? allowed[Math.min(allowed.length - 1, Math.floor(this.random() * allowed.length))]
@@ -104,33 +119,31 @@ export class TabularQAgent<Observation, Action> {
 
   finishEpisode(finalReward: number): void {
     if (this.evaluationMode) {
-      this.previousState = null;
+      this.clearEpisodeState();
       return;
     }
     if (this.previousState) {
-      const values = this.valuesFor(this.previousState);
-      values[this.previousAction] += this.learningRate * (finalReward - values[this.previousAction]);
-      if (this.terminalBlame > 0) {
-        // See `terminalBlame` in rl_types: without this the untried actions keep
-        // their optimistic seed, `max Q` never drops, and the penalty stops here.
-        const rate = this.learningRate * this.terminalBlame;
-        for (let index = 0; index < values.length; index += 1) {
-          if (index === this.previousAction) continue;
-          values[index] += rate * (finalReward - values[index]);
-        }
-      }
+      this.transitions.push({
+        state: this.previousState,
+        action: this.previousAction,
+        reward: this.pendingReward + finalReward,
+        nextState: this.previousState,
+        nextAllowed: [],
+        terminal: true,
+      });
+      while (this.transitions.length) this.updateOldest(true);
     }
-    this.previousState = null;
+    this.clearEpisodeState();
     this.epsilon = Math.min(this.episodeMaximumEpsilon, this.epsilon + this.episodeEpsilonBoost);
   }
 
   resetEpisode(): void {
-    this.previousState = null;
+    this.clearEpisodeState();
   }
 
   setEvaluationMode(enabled: boolean): void {
     this.evaluationMode = enabled;
-    this.previousState = null;
+    this.clearEpisodeState();
   }
 
   get knownStates(): number {
@@ -167,6 +180,8 @@ export class TabularQAgent<Observation, Action> {
       ? Math.max(0, Math.floor(save.trainingSteps))
       : 0;
     this.previousState = null;
+    this.pendingReward = 0;
+    this.transitions.length = 0;
   }
 
   valuesForState(observation: Observation): readonly number[] {
@@ -240,7 +255,44 @@ export class TabularQAgent<Observation, Action> {
     if (!(this.terminalBlame >= 0 && this.terminalBlame <= 1)) {
       throw new Error('terminalBlame must be in the range [0, 1]');
     }
+    if (!(Number.isInteger(this.nStep) && this.nStep >= 1 && this.nStep <= 32)) {
+      throw new Error('nStep must be an integer in the range [1, 32]');
+    }
     this.epsilon = clamp(this.epsilon, this.minimumEpsilon, this.maximumEpsilon);
+  }
+
+  private updateOldest(flushingTerminal: boolean): void {
+    const horizon = Math.min(this.nStep, this.transitions.length);
+    const first = this.transitions[0];
+    let target = 0;
+    let factor = 1;
+    let terminal = false;
+    for (let index = 0; index < horizon; index += 1) {
+      const transition = this.transitions[index];
+      target += factor * transition.reward;
+      factor *= this.discount;
+      if (transition.terminal) { terminal = true; break; }
+    }
+    const last = this.transitions[horizon - 1];
+    if (!terminal && !flushingTerminal) {
+      const nextValues = this.valuesFor(last.nextState);
+      target += factor * nextValues[argMaxAllowed(nextValues, last.nextAllowed, this.random)];
+    }
+    const values = this.valuesFor(first.state);
+    values[first.action] += this.learningRate * (target - values[first.action]);
+    if (first.terminal && this.terminalBlame > 0) {
+      const rate = this.learningRate * this.terminalBlame;
+      for (let index = 0; index < values.length; index += 1) {
+        if (index !== first.action) values[index] += rate * (target - values[index]);
+      }
+    }
+    this.transitions.shift();
+  }
+
+  private clearEpisodeState(): void {
+    this.previousState = null;
+    this.pendingReward = 0;
+    this.transitions.length = 0;
   }
 }
 

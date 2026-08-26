@@ -1,8 +1,8 @@
 {
   "shared/rl/seed_plan.ts": "d0537caff55e11f0",
-  "shared/rl/experiment_spec.ts": "66e5435d45b0d787",
+  "shared/rl/experiment_spec.ts": "7a0e90aa0df0ef9b",
   "scripts/rl/research_stats.ts": "5ee59fa3574d17aa",
   "scripts/rl/research_ledger.ts": "494a70eaa40d969c",
   "scripts/rl/research_runner.ts": "8b282243914878e9",
-  "scripts/rl/research_contract.ts": "4f86d7866fccc931"
+  "scripts/rl/research_contract.ts": "dd5880e3558c61ba"
 }

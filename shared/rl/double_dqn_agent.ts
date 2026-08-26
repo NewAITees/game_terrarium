@@ -6,7 +6,16 @@ export type DoubleDqnDecision<Action> = {
 };
 
 export type DoubleDqnSave = {
-  version: 1;
+  /**
+   * v2 carries the optimiser choice and the input normaliser's running statistics. The statistics
+   * are part of the policy, not of the training run: a model restored without them would normalise
+   * its inputs differently from the network that was trained on them, which produces a plausible
+   * agent that has quietly been fed a different observation space.
+   */
+  version: 2;
+  optimizer: DqnOptimizer;
+  normalize: boolean;
+  normalizer?: { count: number; mean: number[]; m2: number[] };
   inputSize: number;
   hiddenSize: number;
   actionCount: number;
@@ -18,6 +27,18 @@ export type DoubleDqnSave = {
 };
 
 type NetworkWeights = { input: number[]; hiddenBias: number[]; output: number[]; outputBias: number[] };
+
+export type DqnOptimizer = 'sgd' | 'adam';
+
+/**
+ * Welford running mean and variance per input dimension.
+ *
+ * The encoded observations here are hand-scaled by whatever divisor suited each field, so their
+ * variances differ by orders of magnitude; a single learning rate then means very different step
+ * sizes per dimension. This is the cheap standard fix, and it is a declared variant rather than a
+ * default so its effect is measured instead of assumed.
+ */
+type Normalizer = { count: number; mean: number[]; m2: number[] };
 type Transition = { state: number[]; action: number; reward: number; next: number[]; terminal: boolean; allowed: number[] };
 
 export type DoubleDqnConfig<Observation, Action> = {
@@ -35,6 +56,10 @@ export type DoubleDqnConfig<Observation, Action> = {
   batchSize?: number;
   warmupSteps?: number;
   targetSyncSteps?: number;
+  /** 'sgd' keeps the original per-sample update exactly; 'adam' accumulates the batch, then steps. */
+  optimizer?: DqnOptimizer;
+  /** Standardise encoded inputs with running statistics. */
+  normalizeObservations?: boolean;
   random?: () => number;
 };
 
@@ -54,6 +79,10 @@ export class DoubleDqnAgent<Observation, Action> {
   private readonly warmupSteps: number;
   private readonly targetSyncSteps: number;
   private readonly random: () => number;
+  private readonly optimizer: DqnOptimizer;
+  private readonly normalize: boolean;
+  private normalizer: Normalizer | null;
+  private moments: { first: NetworkWeights; second: NetworkWeights; steps: number } | null;
   private online: NetworkWeights;
   private target: NetworkWeights;
   private replay: Transition[] = [];
@@ -82,8 +111,16 @@ export class DoubleDqnAgent<Observation, Action> {
     this.warmupSteps = config.warmupSteps ?? 256;
     this.targetSyncSteps = config.targetSyncSteps ?? 500;
     this.random = config.random ?? Math.random;
+    this.optimizer = config.optimizer ?? 'sgd';
+    this.normalize = config.normalizeObservations ?? false;
+    this.normalizer = this.normalize
+      ? { count: 0, mean: Array(this.inputSize).fill(0), m2: Array(this.inputSize).fill(0) }
+      : null;
     this.online = createNetwork(this.inputSize, this.hiddenSize, this.actions.length, this.random);
     this.target = cloneNetwork(this.online);
+    this.moments = this.optimizer === 'adam'
+      ? { first: zeroNetwork(this.online), second: zeroNetwork(this.online), steps: 0 }
+      : null;
   }
 
   observe(observation: Observation, reward: number): void {
@@ -124,14 +161,21 @@ export class DoubleDqnAgent<Observation, Action> {
 
   serialize(): DoubleDqnSave {
     return {
-      version: 1, inputSize: this.inputSize, hiddenSize: this.hiddenSize, actionCount: this.actions.length,
+      version: 2, inputSize: this.inputSize, hiddenSize: this.hiddenSize, actionCount: this.actions.length,
       online: cloneNetwork(this.online), target: cloneNetwork(this.target), epsilon: this.epsilon,
       trainingSteps: this.trainingSteps, gradientSteps: this.gradientSteps,
+      optimizer: this.optimizer, normalize: this.normalize,
+      normalizer: this.normalizer
+        ? { count: this.normalizer.count, mean: [...this.normalizer.mean], m2: [...this.normalizer.m2] }
+        : undefined,
     };
   }
 
   restore(save: DoubleDqnSave): void {
-    if (save.version !== 1 || save.inputSize !== this.inputSize || save.hiddenSize !== this.hiddenSize
+    // A network trained under a different optimiser is fine to load — the weights are the weights —
+    // but one trained on differently normalised inputs is not the same policy at all.
+    if (save.version !== 2 || save.normalize !== this.normalize
+      || save.inputSize !== this.inputSize || save.hiddenSize !== this.hiddenSize
       || save.actionCount !== this.actions.length || !validNetwork(save.online, this.inputSize, this.hiddenSize, this.actions.length)
       || !validNetwork(save.target, this.inputSize, this.hiddenSize, this.actions.length)
       || !Number.isFinite(save.epsilon) || !Number.isFinite(save.trainingSteps)
@@ -141,6 +185,10 @@ export class DoubleDqnAgent<Observation, Action> {
     this.epsilon = Math.max(this.minimumEpsilon, Math.min(1, save.epsilon));
     this.trainingSteps = Math.max(0, Math.floor(save.trainingSteps));
     this.gradientSteps = Math.max(0, Math.floor(save.gradientSteps));
+    if (this.normalizer && save.normalizer && save.normalizer.mean.length === this.inputSize
+      && save.normalizer.m2.length === this.inputSize && Number.isFinite(save.normalizer.count)) {
+      this.normalizer = { count: save.normalizer.count, mean: [...save.normalizer.mean], m2: [...save.normalizer.m2] };
+    }
     this.previousState = null;
   }
 
@@ -149,7 +197,11 @@ export class DoubleDqnAgent<Observation, Action> {
     if (values.length !== this.inputSize || values.some((value) => !Number.isFinite(value))) {
       throw new Error(`Double DQN expected ${this.inputSize} finite observation values`);
     }
-    return values.map((value) => Math.max(-4, Math.min(4, value)));
+    if (!this.normalizer) return values.map((value) => Math.max(-4, Math.min(4, value)));
+    // Statistics only advance while learning: evaluation must not be able to move the observation
+    // space it is being scored in.
+    if (!this.evaluationMode) updateNormalizer(this.normalizer, values);
+    return standardize(this.normalizer, values);
   }
 
   private validAllowed(observation: Observation): number[] {
@@ -166,15 +218,27 @@ export class DoubleDqnAgent<Observation, Action> {
 
   private trainFromReplay(): void {
     if (this.replay.length < this.warmupSteps) return;
+    // The SGD path is left exactly as it was — same sampling, same per-sample update, same order —
+    // so ledger rows measured before Adam existed remain comparable with rows measured after.
+    const gradients = this.moments ? zeroNetwork(this.online) : null;
     for (let sample = 0; sample < this.batchSize; sample += 1) {
       const transition = this.replay[Math.floor(this.random() * this.replay.length)];
       const onlineNext = predict(this.online, transition.next, this.inputSize, this.hiddenSize, this.actions.length).output;
       const bestNext = transition.terminal ? 0 : argMax(onlineNext, transition.allowed, this.random);
       const targetNext = transition.terminal ? 0
         : predict(this.target, transition.next, this.inputSize, this.hiddenSize, this.actions.length).output[bestNext];
-      trainOne(this.online, transition.state, transition.action,
-        transition.reward + (transition.terminal ? 0 : this.discount * targetNext),
-        this.inputSize, this.hiddenSize, this.actions.length, this.learningRate / this.batchSize);
+      const target = transition.reward + (transition.terminal ? 0 : this.discount * targetNext);
+      if (gradients) {
+        accumulateGradient(this.online, gradients, transition.state, transition.action, target,
+          this.inputSize, this.hiddenSize, this.actions.length, 1 / this.batchSize);
+      } else {
+        trainOne(this.online, transition.state, transition.action, target,
+          this.inputSize, this.hiddenSize, this.actions.length, this.learningRate / this.batchSize);
+      }
+    }
+    if (gradients && this.moments) {
+      this.moments.steps += 1;
+      applyAdam(this.online, gradients, this.moments, this.learningRate);
     }
     this.gradientSteps += 1;
     if (this.gradientSteps % this.targetSyncSteps === 0) this.target = cloneNetwork(this.online);
@@ -242,4 +306,71 @@ function validNetwork(weights: NetworkWeights, inputs: number, hidden: number, o
   return weights.input?.length === inputs * hidden && weights.hiddenBias?.length === hidden
     && weights.output?.length === hidden * outputs && weights.outputBias?.length === outputs
     && [...weights.input, ...weights.hiddenBias, ...weights.output, ...weights.outputBias].every(Number.isFinite);
+}
+
+function zeroNetwork(shape: NetworkWeights): NetworkWeights {
+  return {
+    input: Array(shape.input.length).fill(0),
+    hiddenBias: Array(shape.hiddenBias.length).fill(0),
+    output: Array(shape.output.length).fill(0),
+    outputBias: Array(shape.outputBias.length).fill(0),
+  };
+}
+
+/** Same derivative as `trainOne`, but summed into a buffer so the batch can take one step. */
+function accumulateGradient(weights: NetworkWeights, into: NetworkWeights, state: readonly number[],
+  action: number, target: number, inputs: number, hidden: number, outputs: number, scale: number): void {
+  const prediction = predict(weights, state, inputs, hidden, outputs);
+  const error = Math.max(-10, Math.min(10, prediction.output[action] - target)) * scale;
+  for (let h = 0; h < hidden; h += 1) {
+    into.output[h * outputs + action] += error * prediction.activation[h];
+    if (prediction.activation[h] <= 0) continue;
+    const gradient = Math.max(-10, Math.min(10, error * weights.output[h * outputs + action]));
+    for (let i = 0; i < inputs; i += 1) into.input[i * hidden + h] += gradient * state[i];
+    into.hiddenBias[h] += gradient;
+  }
+  into.outputBias[action] += error;
+}
+
+const ADAM_BETA1 = 0.9;
+const ADAM_BETA2 = 0.999;
+const ADAM_EPSILON = 1e-8;
+
+function applyAdam(weights: NetworkWeights, gradients: NetworkWeights,
+  moments: { first: NetworkWeights; second: NetworkWeights; steps: number }, rate: number): void {
+  const correction1 = 1 - Math.pow(ADAM_BETA1, moments.steps);
+  const correction2 = 1 - Math.pow(ADAM_BETA2, moments.steps);
+  const keys = ['input', 'hiddenBias', 'output', 'outputBias'] as const;
+  for (const key of keys) {
+    const parameter = weights[key];
+    const gradient = gradients[key];
+    const first = moments.first[key];
+    const second = moments.second[key];
+    for (let index = 0; index < parameter.length; index += 1) {
+      const g = gradient[index];
+      first[index] = ADAM_BETA1 * first[index] + (1 - ADAM_BETA1) * g;
+      second[index] = ADAM_BETA2 * second[index] + (1 - ADAM_BETA2) * g * g;
+      parameter[index] -= rate * (first[index] / correction1) / (Math.sqrt(second[index] / correction2) + ADAM_EPSILON);
+    }
+  }
+}
+
+function updateNormalizer(normalizer: Normalizer, values: readonly number[]): void {
+  normalizer.count += 1;
+  for (let index = 0; index < values.length; index += 1) {
+    const delta = values[index] - normalizer.mean[index];
+    normalizer.mean[index] += delta / normalizer.count;
+    normalizer.m2[index] += delta * (values[index] - normalizer.mean[index]);
+  }
+}
+
+function standardize(normalizer: Normalizer, values: readonly number[]): number[] {
+  // Below a couple of samples the variance estimate is meaningless, so fall back to the raw clip
+  // rather than dividing by noise.
+  if (normalizer.count < 2) return values.map((value) => Math.max(-4, Math.min(4, value)));
+  return values.map((value, index) => {
+    const variance = normalizer.m2[index] / (normalizer.count - 1);
+    const scaled = (value - normalizer.mean[index]) / Math.sqrt(variance + 1e-8);
+    return Math.max(-5, Math.min(5, scaled));
+  });
 }

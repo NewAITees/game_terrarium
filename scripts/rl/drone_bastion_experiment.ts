@@ -23,6 +23,8 @@ import {
   type RlSearchSpace,
 } from '../../shared/rl/experiment_spec.js';
 import { createModelManifest } from '../../shared/rl/model_manifest.js';
+import { DQN_LEARNER_VARIANTS, TABULAR_LEARNER_VARIANTS, isDqnVariant, type TabularLearnerVariant } from '../../shared/rl/learner_variant.js';
+import { DroneBastionDqnAgent } from '../../apps/drone-bastion/drone_bastion_dqn_agent.js';
 
 /**
  * Drone Bastion's declaration of what an automated search may vary.
@@ -39,6 +41,9 @@ const REWARD_WEIGHTS = [
 
 export const DRONE_BASTION_SEARCH_SPACE: RlSearchSpace = {
   gameId: 'drone-bastion',
+  // The only game with both families implemented, so it is the one that can answer whether function
+  // approximation is worth its cost here.
+  learnerVariants: [...TABULAR_LEARNER_VARIANTS, ...DQN_LEARNER_VARIANTS],
   observations: DRONE_BASTION_OBSERVATIONS,
   actions: DRONE_BASTION_ACTION_SETS,
   rewardModes: ['sparse', 'shaped'],
@@ -62,6 +67,7 @@ export function createDroneBastionAdapter(): RlGameAdapter {
     },
     livePublication: {
       stem: 'drone-bastion-live-model',
+      liveLearnerVariant: 'tabular-1step',
       liveObservation: 'shipped',
       liveActions: 'full',
       bundle(model, revision, metadata) {
@@ -84,6 +90,7 @@ export function createDroneBastionAdapter(): RlGameAdapter {
 export function defaultDroneBastionSpec(): ExperimentSpec {
   return {
     gameId: 'drone-bastion',
+    learnerVariant: 'tabular-1step',
     observation: 'shipped',
     actions: 'full',
     reward: { mode: 'shaped', weights: { ...DEFAULT_DRONE_BASTION_REWARD_WEIGHTS } },
@@ -114,17 +121,22 @@ export function resolveDroneBastionRewards(spec: ExperimentSpec): DroneBastionRe
 }
 
 class DroneBastionSession implements RlExperimentSession {
-  private readonly agent: DroneBastionAgent;
+  private readonly agent: DroneBastionAgent | DroneBastionDqnAgent;
   private readonly rewards: DroneBastionRewardWeights;
   private readonly capSeconds: number;
 
   constructor(spec: ExperimentSpec, random?: () => number) {
-    this.agent = new DroneBastionAgent({
-      observation: spec.observation as DroneBastionObservationVariant,
-      actions: spec.actions as DroneBastionActionVariant,
-      learner: spec.learner,
-      random,
-    });
+    this.agent = isDqnVariant(spec.learnerVariant)
+      // The network takes a fixed-size vector, so it uses its own encodings rather than the tabular
+      // key sets. 'minimal' maps across; anything else gets the full engineered vector.
+      ? new DroneBastionDqnAgent(spec.observation === 'minimal' ? 'minimal' : 'engineered', random, spec.learnerVariant)
+      : new DroneBastionAgent({
+        learnerVariant: spec.learnerVariant as TabularLearnerVariant,
+        observation: spec.observation as DroneBastionObservationVariant,
+        actions: spec.actions as DroneBastionActionVariant,
+        learner: spec.learner,
+        random,
+      });
     this.rewards = resolveDroneBastionRewards(spec);
     this.capSeconds = spec.budget.capSeconds;
   }

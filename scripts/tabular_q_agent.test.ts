@@ -12,7 +12,7 @@ const actions = ['wait', 'advance', 'guard'] as const;
 // Every table starts at zero on purpose: hand-authored priors are banned because
 // they pin the greedy policy to values the learner cannot out-earn. Preferences in
 // these tests are therefore taught, never seeded.
-function createAgent(random = () => 0.99): TabularQAgent<Observation, typeof actions[number]> {
+function createAgent(random = () => 0.99, nStep = 1): TabularQAgent<Observation, typeof actions[number]> {
   return new TabularQAgent({
     actions,
     encodeState: (observation) => observation.state,
@@ -24,6 +24,7 @@ function createAgent(random = () => 0.99): TabularQAgent<Observation, typeof act
     maximumEpsilon: 0.5,
     epsilonDecay: 1,
     random,
+    nStep,
   });
 }
 
@@ -48,6 +49,7 @@ test('selects the best learned action and respects action masks', () => {
   const agent = createExplorer();
   assert.equal(agent.decide({ state: 'open' }).action, 'advance');
   agent.observe({ state: 'open' }, 5);
+  agent.decide({ state: 'next' });
 
   agent.setEvaluationMode(true);
   const openDecision = agent.decide({ state: 'open' });
@@ -67,19 +69,21 @@ test('learns rewards across transitions and terminal updates', () => {
   const agent = createAgent();
   agent.decide({ state: 'start' });
   agent.observe({ state: 'next' }, 2);
+  agent.decide({ state: 'next' });
   assert.ok(agent.valuesForState({ state: 'start' })[0] > 0);
 
-  const beforeTerminal = agent.valuesForState({ state: 'start' })[0];
+  const beforeTerminal = agent.valuesForState({ state: 'next' })[0];
   agent.finishEpisode(-4);
-  assert.ok(agent.valuesForState({ state: 'start' })[0] < beforeTerminal);
+  assert.ok(agent.valuesForState({ state: 'next' })[0] < beforeTerminal);
   assert.equal(agent.knownStates, 2);
-  assert.equal(agent.trainingSteps, 1);
+  assert.equal(agent.trainingSteps, 2);
 });
 
 test('round-trips compatible version 1 saves', () => {
   const agent = createAgent();
   agent.decide({ state: 'start' });
   agent.observe({ state: 'next' }, 2);
+  agent.decide({ state: 'next' });
   const save = agent.serialize();
 
   const restored = createAgent();
@@ -115,6 +119,50 @@ test('evaluation mode acts greedily without changing the model', () => {
   assert.equal(agent.trainingSteps, before.trainingSteps);
   assert.equal(agent.epsilon, before.epsilon);
   assert.deepEqual(agent.serialize(), before);
+});
+
+test('three-step return propagates a discounted reward sequence at decision cadence', () => {
+  const agent = new TabularQAgent<Observation, string>({
+    actions: ['only'],
+    encodeState: (observation) => observation.state,
+    learningRate: 1,
+    discount: 0.5,
+    initialEpsilon: 0,
+    minimumEpsilon: 0,
+    nStep: 3,
+  });
+  agent.decide({ state: 's0' });
+  agent.observe({ state: 's1' }, 1);
+  agent.decide({ state: 's1' });
+  agent.observe({ state: 's2' }, 2);
+  agent.decide({ state: 's2' });
+  agent.observe({ state: 's3' }, 3);
+  agent.decide({ state: 's3' });
+  assert.equal(agent.valuesForState({ state: 's0' })[0], 2.75);
+});
+
+test('terminal flush updates every short n-step tail without bootstrapping', () => {
+  const agent = new TabularQAgent<Observation, string>({
+    actions: ['only'],
+    encodeState: (observation) => observation.state,
+    learningRate: 1,
+    discount: 0.5,
+    initialEpsilon: 0,
+    minimumEpsilon: 0,
+    nStep: 5,
+  });
+  agent.decide({ state: 's0' });
+  agent.observe({ state: 's1' }, 2);
+  agent.decide({ state: 's1' });
+  agent.observe({ state: 'terminal' }, 4);
+  agent.finishEpisode(6);
+  assert.equal(agent.valuesForState({ state: 's0' })[0], 7);
+  assert.equal(agent.valuesForState({ state: 's1' })[0], 10);
+});
+
+test('rejects invalid n-step horizons', () => {
+  assert.throws(() => createAgent(() => 0, 0), /nStep/);
+  assert.throws(() => createAgent(() => 0, 33), /nStep/);
 });
 
 test('rejects an action mask with no valid actions', () => {

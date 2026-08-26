@@ -1,4 +1,5 @@
 import { TabularQAgent } from '../../shared/rl/tabular_q_agent.js';
+import { nStepForVariant, type TabularLearnerVariant } from '../../shared/rl/learner_variant.js';
 import { thresholdBand } from '../../shared/rl/discretize.js';
 import type { TabularQSave } from '../../shared/rl/rl_types.js';
 import type { GunshipAction, GunshipBody } from './gunship_physics.js';
@@ -20,7 +21,7 @@ export type GunshipAgentSave =
   | { version: 6; learner: TabularQSave; upgrade: TabularQSave; episodes: number }
   | { version: 7; learner: TabularQSave; upgrade: TabularQSave; episodes: number }
   | { version: 8; learner: TabularQSave; upgrade: TabularQSave; episodes: number }
-  | { version: 9; learner: TabularQSave; upgrade: TabularQSave; episodes: number; observation: string; actions: string };
+  | { version: 9; learner: TabularQSave; upgrade: TabularQSave; episodes: number; observation: string; actions: string; learnerVariant?: string };
 
 // Sentinel buckets for "no orb currently exists" — distinct from any real banded value,
 // so the agent can tell "nothing to collect" apart from "there is one, but it's far/behind".
@@ -80,6 +81,7 @@ const ACTION_SETS: Record<GunshipActionVariant, readonly GunshipAction[]> = {
 };
 
 export type GunshipPolicySpec = {
+  learnerVariant: TabularLearnerVariant;
   observation: GunshipObservationVariant;
   actions: GunshipActionVariant;
   learner: Partial<GunshipLearnerOverrides>;
@@ -100,7 +102,9 @@ export type GunshipLearnerOverrides = {
   maximumStates: number;
 };
 
-export const DEFAULT_GUNSHIP_POLICY_SPEC: GunshipPolicySpec = { observation: 'full', actions: 'full', learner: {} };
+export const DEFAULT_GUNSHIP_POLICY_SPEC: GunshipPolicySpec = {
+  learnerVariant: 'tabular-1step', observation: 'full', actions: 'full', learner: {},
+};
 
 export class GunshipAgent {
   readonly spec: GunshipPolicySpec;
@@ -134,6 +138,7 @@ export class GunshipAgent {
       // Spread last so a search can override any of the above; anything it leaves out keeps the
       // shipped value, which makes the default spec exactly today's agent.
       ...this.spec.learner,
+      nStep: nStepForVariant(this.spec.learnerVariant),
       random: this.spec.random,
     });
     this.upgradeLearner = new TabularQAgent<UpgradeContext, number>({
@@ -178,7 +183,7 @@ export class GunshipAgent {
 
   // Called when a level-up window resolves. `reward` is the return earned since the previous pick; returns the chosen slot.
   decideUpgrade(context: UpgradeContext, reward: number): number { this.upgradeLearner.observe(context, reward); return this.upgradeLearner.decide(context).actionIndex; }
-  finishEpisode(finalReward: number): void { this.learner.finishEpisode(finalReward); this.upgradeLearner.finishEpisode(finalReward); if (!this.evaluationMode) this.episodes++; this.timer = 0; this.pendingReward = 0; }
+  finishEpisode(finalReward: number): void { this.learner.finishEpisode(this.pendingReward + finalReward); this.upgradeLearner.finishEpisode(finalReward); if (!this.evaluationMode) this.episodes++; this.timer = 0; this.pendingReward = 0; }
   serialize(): GunshipAgentSave {
     return {
       version: 9,
@@ -187,6 +192,7 @@ export class GunshipAgent {
       episodes: this.episodes,
       observation: this.spec.observation,
       actions: this.spec.actions,
+      learnerVariant: this.spec.learnerVariant,
     };
   }
   restore(save: GunshipAgentSave): void {
@@ -204,7 +210,8 @@ export class GunshipAgent {
     // whose columns point at different actions — the same class of error as a stale version, but
     // one that produces a plausible-looking agent instead of an obviously broken one.
     if (!save || save.version !== 9) return;
-    if (save.observation !== this.spec.observation || save.actions !== this.spec.actions) return;
+    if (save.observation !== this.spec.observation || save.actions !== this.spec.actions
+      || (save.learnerVariant ?? 'tabular-1step') !== this.spec.learnerVariant) return;
     this.learner.restore(save.learner);
     if (save.upgrade) this.upgradeLearner.restore(save.upgrade);
     this.episodes = Math.max(0, save.episodes || 0);

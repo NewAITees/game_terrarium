@@ -17,6 +17,7 @@ test('a valid spec proposal survives the prose a model wraps it in', () => {
   assert.equal(proposal.kind, 'spec');
   if (proposal.kind !== 'spec') return;
   assert.equal(proposal.spec.observation, 'minimal');
+  assert.equal(proposal.spec.learnerVariant, baseline.learnerVariant);
   assert.equal(proposal.spec.reward.weights.ceiling, 0);
   assert.equal(proposal.spec.reward.weights.kill, baseline.reward.weights.kill, 'unmentioned weights keep the champion value');
 });
@@ -28,6 +29,9 @@ test('a proposal cannot invent a knob, an encoding, or a bigger budget', () => {
 
   const hallucinated = parseProposals('{"kind":"spec","spec":{"observation":"omniscient"}}', space, baseline);
   assert.equal(hallucinated.accepted.length, 0);
+
+  const unknownLearner = parseProposals('{"kind":"spec","spec":{"learnerVariant":"rainbow"}}', space, baseline);
+  assert.equal(unknownLearner.accepted.length, 0);
 
   const greedy = parseProposals('{"kind":"spec","spec":{"budget":{"episodes":999999,"repeats":99,"capSeconds":9,"trainSeeds":1,"holdoutSeeds":1}}}', space, baseline);
   assert.equal(greedy.accepted.length, 1);

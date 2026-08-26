@@ -25,6 +25,8 @@ export type TabularQConfig<Observation, Action> = {
   episodeEpsilonBoost?: number;
   episodeMaximumEpsilon?: number;
   random?: () => number;
+  /** Number of decision transitions used in the return. One preserves ordinary Q-learning. */
+  nStep?: number;
   /**
    * How much of the terminal reward also lands on the actions that were *not*
    * taken in the final state, as a fraction of `learningRate`.

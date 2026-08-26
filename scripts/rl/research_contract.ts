@@ -92,14 +92,17 @@ export function verifyContract(adapter: RlGameAdapter): ContractViolation[] {
   // Every declared variant must actually run. An outside contributor adding a name to the search
   // space without wiring it up would otherwise show up as a mysteriously weak configuration.
   const probe: ExperimentSpec = { ...spec, budget: { ...spec.budget, capSeconds: 3, episodes: 1, repeats: 1 } };
-  for (const observation of adapter.searchSpace.observations) {
-    for (const actions of adapter.searchSpace.actions) {
-      try {
-        const session = adapter.createSession({ ...probe, observation, actions }, mulberry32(1));
-        const outcome = session.train(trainingSeed(seeds, 0));
-        if (!Number.isFinite(outcome.taskReturn)) fail('variant-runs', `${observation}/${actions} produced a non-finite task return`);
-      } catch (error) {
-        fail('variant-runs', `${observation}/${actions} is declared but does not run: ${message(error)}`);
+  for (const learnerVariant of adapter.searchSpace.learnerVariants) {
+    for (const observation of adapter.searchSpace.observations) {
+      for (const actions of adapter.searchSpace.actions) {
+        const label = `${learnerVariant}/${observation}/${actions}`;
+        try {
+          const session = adapter.createSession({ ...probe, learnerVariant, observation, actions }, mulberry32(1));
+          const outcome = session.train(trainingSeed(seeds, 0));
+          if (!Number.isFinite(outcome.taskReturn)) fail('variant-runs', `${label} produced a non-finite task return`);
+        } catch (error) {
+          fail('variant-runs', `${label} is declared but does not run: ${message(error)}`);
+        }
       }
     }
   }
@@ -128,6 +131,12 @@ export function verifyContract(adapter: RlGameAdapter): ContractViolation[] {
     if (observation === spec.observation) continue;
     if (specHash({ ...spec, observation }) === specHash(spec)) {
       fail('spec-identity', `observation '${observation}' collides with '${spec.observation}', so their models would share a file`);
+    }
+  }
+  for (const learnerVariant of adapter.searchSpace.learnerVariants) {
+    if (learnerVariant === spec.learnerVariant) continue;
+    if (specHash({ ...spec, learnerVariant }) === specHash(spec)) {
+      fail('spec-identity', `learner '${learnerVariant}' collides with '${spec.learnerVariant}', so their models would share a file`);
     }
   }
 

@@ -25,21 +25,25 @@ export type LedgerDigest = {
   gameId: string;
   runs: number;
   searchSpace: RlSearchSpace;
-  champion: { id: string; holdoutMedian: number; observation: string; actions: string; weights: Record<string, number>; shapingShare: number } | null;
+  champion: { id: string; holdoutMedian: number; learnerVariant: string; observation: string; actions: string; weights: Record<string, number>; shapingShare: number } | null;
+  learnerVariants: VariantSummary[];
   observations: VariantSummary[];
   actions: VariantSummary[];
   /** Declared combinations with no completed run yet. */
   untried: string[];
-  top: { id: string; holdoutMedian: number; lower95: number; observation: string; actions: string; shapingShare: number; weights: Record<string, number> }[];
+  top: { id: string; holdoutMedian: number; lower95: number; learnerVariant: string; observation: string; actions: string; shapingShare: number; weights: Record<string, number> }[];
 };
 
 export function digestLedger(gameId: string, rows: readonly ResearchRow[], space: RlSearchSpace, champion?: ResearchRow): LedgerDigest {
   const completed = rows.filter((row) => !row.error && row.holdout.count > 0);
-  const tried = new Set(completed.map((row) => `${row.spec.observation}/${row.spec.actions}`));
+  const tried = new Set(completed.map((row) => `${row.spec.learnerVariant}/${row.spec.observation}/${row.spec.actions}`));
   const untried: string[] = [];
-  for (const observation of space.observations) {
-    for (const actions of space.actions) {
-      if (!tried.has(`${observation}/${actions}`)) untried.push(`${observation}/${actions}`);
+  for (const learnerVariant of space.learnerVariants) {
+    for (const observation of space.observations) {
+      for (const actions of space.actions) {
+        const key = `${learnerVariant}/${observation}/${actions}`;
+        if (!tried.has(key)) untried.push(key);
+      }
     }
   }
   return {
@@ -50,12 +54,14 @@ export function digestLedger(gameId: string, rows: readonly ResearchRow[], space
       ? {
         id: champion.id,
         holdoutMedian: round(champion.holdout.median),
+        learnerVariant: champion.spec.learnerVariant,
         observation: champion.spec.observation,
         actions: champion.spec.actions,
         weights: roundWeights(champion.spec.reward.weights),
         shapingShare: round(champion.shapingShare),
       }
       : null,
+    learnerVariants: space.learnerVariants.map((name) => summarize(name, completed.filter((row) => row.spec.learnerVariant === name))),
     observations: space.observations.map((name) => summarize(name, completed.filter((row) => row.spec.observation === name))),
     actions: space.actions.map((name) => summarize(name, completed.filter((row) => row.spec.actions === name))),
     untried,
@@ -67,6 +73,7 @@ export function digestLedger(gameId: string, rows: readonly ResearchRow[], space
         id: row.id,
         holdoutMedian: round(row.holdout.median),
         lower95: round(row.holdout.lower95),
+        learnerVariant: row.spec.learnerVariant,
         observation: row.spec.observation,
         actions: row.spec.actions,
         shapingShare: round(row.shapingShare),
