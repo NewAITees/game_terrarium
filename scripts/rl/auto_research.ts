@@ -11,6 +11,7 @@ import { ResearchLedger, type ResearchRow } from './research_ledger.js';
 import { verifyContract } from './research_contract.js';
 import { beats } from './research_stats.js';
 import { modelArtifactName } from './model_artifact.js';
+import { publishChampion } from './publish_champion_core.js';
 
 /**
  * The search loop: propose configurations, run them in parallel, record everything, keep the
@@ -36,6 +37,9 @@ const repeats = Number(args.get('repeats') ?? 0);
 const evaluationEpisodes = Number(args.get('evaluate') ?? 24);
 const searchSeed = Number(args.get('seed') ?? 1);
 const exploreEnvironment = args.has('explore-environment');
+// The search publishes each promotion to the live model; --no-publish keeps a run purely exploratory.
+const noPublish = args.has('no-publish');
+const liveModelRoot = resolve(args.get('model-root') || process.env.RL_MODEL_ROOT || process.cwd());
 const workerPath = join(__dirname, 'research_worker.js');
 
 async function main(): Promise<void> {
@@ -89,6 +93,12 @@ async function main(): Promise<void> {
   console.log(`auto-research ${gameId}: ${queue.length} specs, ${concurrency} workers, ledger ${ledgerPath}`);
   if (champion) console.log(`champion ${champion.id}: hold-out median ${champion.holdout.median.toFixed(1)} (95% ${champion.holdout.lower95.toFixed(1)}–${champion.holdout.upper95.toFixed(1)})`);
 
+  // Publishing only on promotion leaves the player showing whatever was last written whenever the
+  // champion was decided by an earlier run — which is every restart, since a round that promotes
+  // nothing promotes nothing to publish. Reconciling once at startup is what makes "the page shows
+  // the leaderboard's best" true from the moment the page opens rather than after the next win.
+  if (champion) await publishNewChampion(champion.id);
+
   let completed = 0;
   await pool(queue, concurrency, async (entry) => {
     const produced = await runInWorker(entry.spec, entry.parent);
@@ -99,6 +109,7 @@ async function main(): Promise<void> {
     if (!row.error && !row.spec.diagnostic && (!champion || beats(row.holdout, champion.holdout))) {
       champion = row;
       console.log(`  ↑ new champion ${row.id}`);
+      await publishNewChampion(row.id);
     }
   });
 
@@ -114,6 +125,25 @@ async function main(): Promise<void> {
       + `  shaping ${(row.shapingShare * 100).toFixed(0)}%`
       + `  ${row.wallSeconds.toFixed(0)}s`,
     );
+  }
+}
+
+/**
+ * A promotion is what the player is meant to be showing, so it reaches the live model file here
+ * rather than waiting for someone to run the publish command. Promotion still has to clear the
+ * challenger's bootstrap lower bound against the incumbent's median, so this follows the same
+ * evidence the leaderboard is ranked on; it does not lower the bar, it only stops the result from
+ * sitting in the ledger unused.
+ */
+async function publishNewChampion(championId: string): Promise<void> {
+  if (noPublish) return;
+  try {
+    const outcome = await publishChampion({ gameId, ledgerPath, modelRoot: liveModelRoot });
+    if (outcome.status === 'published') console.log(`  → published r${outcome.revision} to the live model`);
+    else console.log(`  → not published: ${outcome.reason}`);
+  } catch (error) {
+    // A search that dies because publication failed would lose the rows it has not written yet.
+    console.log(`  → publish failed for ${championId}: ${(error as Error).message}`);
   }
 }
 

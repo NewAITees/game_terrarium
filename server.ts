@@ -15,6 +15,7 @@ import { EscortTdRuntime } from './game/escort_td_runtime';
 import { ArenaShooterSaveStore, type ArenaSaveBundle } from './game/arena_shooter_save_store';
 import { ModelFileStore } from './scripts/rl/model_file_store';
 import { TrainerStatusStore } from './scripts/rl/trainer_status_store';
+import { readResearchLeaderboard } from './scripts/rl/leaderboard_view';
 
 const DEFAULT_PORT = Number.parseInt(process.env.GAME_TERRARIUM_PORT || process.env.PORT || '3000', 10) || 3000;
 const telemetry = new Map<string, any>();
@@ -352,6 +353,13 @@ export async function startServer(
   app.get('/api/rl/trainers/:gameId', async (req, res) => {
     if (!modelStoreFor(req.params.gameId)) return res.status(404).json({ ok: false, error: 'unknown RL game' });
     res.json(await new TrainerStatusStore(rlModelRoot, req.params.gameId).read());
+  });
+
+  // The board the page shows on death. Ranking lives in the research tooling, not here: this only
+  // reads the append-only ledger, so what the player sees and what the search promotes cannot drift.
+  app.get('/api/rl/leaderboard/:gameId', async (req, res) => {
+    if (!modelStoreFor(req.params.gameId)) return res.status(404).json({ ok: false, error: 'unknown RL game' });
+    res.json(await readResearchLeaderboard(req.params.gameId, projectRoot));
   });
 
   app.get('/api/rl/models/:gameId', async (req, res) => {
