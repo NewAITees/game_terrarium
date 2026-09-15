@@ -1,8 +1,11 @@
 import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, Tray, type MenuItemConstructorOptions } from 'electron';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { startServer } from './server';
 import { describePage, isPageKey, PAGE_BY_NUMBER, PAGE_REGISTRY, type PageKey } from './shared/page_registry';
+import { trainerForPage, type PageTrainer } from './scripts/rl/page_trainers';
+import { TrainerStatusStore } from './scripts/rl/trainer_status_store';
 
 app.commandLine.appendSwitch('disable-features', 'HardwareMediaKeyHandling,MediaSessionService');
 
@@ -51,6 +54,70 @@ function saveWindowState(): void {
   } catch { /* Window placement is a convenience, never a startup blocker. */ }
 }
 
+// Pages that are an RL agent playing itself are only worth watching while something is still
+// learning. The trainer follows the page rather than the npm script that started the app, so
+// reaching a game through Ctrl+K trains exactly as much as launching it through its own launcher.
+const ENABLE_PAGE_TRAINERS = process.env.ELECTRON_DISABLE_PAGE_TRAINERS !== '1';
+let activeTrainer: { gameId: string; child: ChildProcess; heartbeat: NodeJS.Timeout } | null = null;
+
+function stopTrainer(): void {
+  if (!activeTrainer) return;
+  const { child, heartbeat } = activeTrainer;
+  activeTrainer = null;
+  clearInterval(heartbeat);
+  if (child.exitCode === null && !child.killed) child.kill();
+}
+
+function startTrainer(trainer: PageTrainer): void {
+  const startedAt = new Date().toISOString();
+  const statusStore = new TrainerStatusStore(process.env.RL_MODEL_ROOT || process.cwd(), trainer.gameId);
+  const child = spawn(process.execPath, [
+    join(__dirname, 'scripts', trainer.trainerModule),
+    ...(process.env.RL_LIVE_SMOKE === '1' ? trainer.smokeArguments : []),
+  ], {
+    cwd: app.getAppPath(),
+    stdio: 'inherit',
+    // Here process.execPath is electron.exe, not node. Without this the trainer would boot a whole
+    // Chromium runtime to run a headless script; ELECTRON_RUN_AS_NODE makes the same binary behave
+    // as the plain Node the trainer was written for, with no extra dependency on a system node.
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+  });
+  const publishRunning = (): void => { void statusStore.publish({ state: 'running', pid: child.pid, startedAt }); };
+  publishRunning();
+  const heartbeat = setInterval(publishRunning, 2000);
+  activeTrainer = { gameId: trainer.gameId, child, heartbeat };
+  console.log(`[trainer] started ${trainer.gameId} (pid ${child.pid ?? '?'})`);
+  child.on('error', (error) => {
+    // The page keeps replaying its last published model, so a trainer that cannot start is a
+    // degraded session rather than a broken one. Say so instead of failing silently.
+    console.error(`[trainer] ${trainer.gameId} failed to start`, error);
+    clearInterval(heartbeat);
+    if (activeTrainer?.child === child) activeTrainer = null;
+    void statusStore.publish({ state: 'failed', pid: child.pid, startedAt, error: error.message });
+  });
+  child.on('exit', (code, signal) => {
+    clearInterval(heartbeat);
+    if (activeTrainer?.child === child) activeTrainer = null;
+    console.log(`[trainer] ${trainer.gameId} exited ${code ?? signal ?? 'unknown'}`);
+    void statusStore.publish({
+      state: code === 0 || signal !== null ? 'stopped' : 'failed',
+      pid: child.pid,
+      startedAt,
+      stoppedAt: new Date().toISOString(),
+      exitCode: code,
+      error: code === 0 || signal !== null ? undefined : `trainer exited ${code ?? 'unknown'}`,
+    });
+  });
+}
+
+function syncTrainerTo(pageKey: PageKey): void {
+  if (!ENABLE_PAGE_TRAINERS) return;
+  const wanted = trainerForPage(pageKey);
+  if (activeTrainer && wanted && activeTrainer.gameId === wanted.gameId) return;
+  stopTrainer();
+  if (wanted) startTrainer(wanted);
+}
+
 function loadPage(pageKey: PageKey): void {
   if (!win) return;
   const page = PAGE_REGISTRY.find((entry) => entry.key === pageKey);
@@ -58,6 +125,7 @@ function loadPage(pageKey: PageKey): void {
   currentPage = pageKey;
   rendererErrors = [];
   lastLoadState = { page: pageKey, status: 'loading' };
+  syncTrainerTo(pageKey);
   const targetUrl = new URL(page.target);
   targetUrl.port = String(activeServerPort);
   const target = targetUrl.toString();
@@ -342,6 +410,8 @@ app.on('window-all-closed', () => {
 });
 
 app.on('will-quit', () => {
+  // A trainer outliving the app would hold its model lock against the next session.
+  stopTrainer();
   if (ENABLE_GLOBAL_SHORTCUTS) {
     globalShortcut.unregisterAll();
   }
