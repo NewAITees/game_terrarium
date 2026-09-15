@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 export type TrainerRunState = 'running' | 'stopped' | 'failed';
@@ -31,13 +31,21 @@ export class TrainerStatusStore {
       ...values,
       heartbeatAt: values.heartbeatAt ?? new Date().toISOString(),
     };
-    this.writeQueue = this.writeQueue.then(async () => {
+    // The queue must never keep a rejection: chaining onto a rejected promise skips every later
+    // handler, so a single failed write used to silence the heartbeat for the life of the process.
+    // A status writer that goes quiet is read as "the trainer died", which is worse than the
+    // transient failure it is reporting.
+    const write = this.writeQueue.then(async () => {
       await mkdir(dirname(this.path), { recursive: true });
       const temporaryPath = `${this.path}.${process.pid}.tmp`;
       await writeFile(temporaryPath, `${JSON.stringify(status)}\n`, 'utf8');
-      await rename(temporaryPath, this.path);
+      // Windows fails the rename with EPERM/EBUSY while a reader holds the destination open, and
+      // the status file is read by the server on every trainer poll. Retry briefly rather than
+      // treating a reader as a fatal error, and never leave the temp file behind.
+      await renameWithRetry(temporaryPath, this.path);
     });
-    await this.writeQueue;
+    this.writeQueue = write.catch(() => undefined);
+    await write;
     return status;
   }
 
@@ -51,6 +59,20 @@ export class TrainerStatusStore {
       return status;
     } catch {
       return { version: 1, gameId: this.gameId, state: 'stopped', heartbeatAt: new Date(0).toISOString() };
+    }
+  }
+}
+
+async function renameWithRetry(from: string, to: string, attempts = 5): Promise<void> {
+  for (let attempt = 1; ; attempt += 1) {
+    try { return await rename(from, to); }
+    catch (error) {
+      const code = (error as NodeJS.ErrnoException)?.code;
+      if (attempt >= attempts || (code !== 'EPERM' && code !== 'EBUSY' && code !== 'EACCES')) {
+        await unlink(from).catch(() => undefined);
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20 * attempt));
     }
   }
 }
