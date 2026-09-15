@@ -1,4 +1,4 @@
-import { mkdir, open, unlink } from 'node:fs/promises';
+import { mkdir, open, readFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { AIRFRAMES, type AirframeId } from '../apps/gunship/gunship_airframes.js';
 import { GunshipAgent, type GunshipAgentSave } from '../apps/gunship/gunship_rl.js';
@@ -39,7 +39,38 @@ const seeds = createSeedPlan(Math.max(1, Number(args.get('trainSeeds') ?? 256)),
 let episodesRun = 0;
 const environment = { ...DEFAULT_GUNSHIP_ENVIRONMENT, capSeconds: cap, density };
 
-async function acquireLock(): Promise<void> { await mkdir(logsDir, { recursive: true }); const lock = await open(lockPath, 'wx'); await lock.writeFile(String(process.pid)); await lock.close(); }
+/**
+ * The lock keeps two trainers from interleaving writes to the same model file. It holds a pid so
+ * the successor can tell a live owner from a crashed one: now that the app starts a trainer every
+ * time the page is opened, a lock left behind by a killed process would silently disable training
+ * for good rather than for one run.
+ */
+async function acquireLock(): Promise<void> {
+  await mkdir(logsDir, { recursive: true });
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const lock = await open(lockPath, 'wx');
+      await lock.writeFile(String(process.pid));
+      await lock.close();
+      return;
+    } catch (error) {
+      if (attempt > 0 || (error as NodeJS.ErrnoException)?.code !== 'EEXIST') throw error;
+      const owner = Number.parseInt(await readFile(lockPath, 'utf8').catch(() => ''), 10);
+      if (Number.isFinite(owner) && isProcessAlive(owner)) {
+        throw new Error(`gunship trainer already running (pid ${owner})`);
+      }
+      console.log(`gunship trainer: clearing stale lock (pid ${Number.isFinite(owner) ? owner : 'unknown'})`);
+      await unlink(lockPath).catch(() => undefined);
+    }
+  }
+}
+
+function isProcessAlive(pid: number): boolean {
+  if (pid <= 0 || pid === process.pid) return false;
+  try { process.kill(pid, 0); return true; }
+  // EPERM means the pid exists but belongs to someone else — still a live owner.
+  catch (error) { return (error as NodeJS.ErrnoException)?.code === 'EPERM'; }
+}
 const emptyModels = (): LiveModels => ({ version: 1, revision: 0, publishedAt: new Date(0).toISOString(), models: {} });
 async function load(): Promise<LiveModels> {
   const champion = await store.loadChampion(emptyModels);
