@@ -209,11 +209,24 @@ export class GunshipAgent {
     // search that varies either one would silently load a table whose keys mean something else and
     // whose columns point at different actions — the same class of error as a stale version, but
     // one that produces a plausible-looking agent instead of an obviously broken one.
-    if (!save || save.version !== 9) return;
-    if (save.observation !== this.spec.observation || save.actions !== this.spec.actions
-      || (save.learnerVariant ?? 'tabular-1step') !== this.spec.learnerVariant) return;
+    // The version number no longer gates the load. Refusing a save because its number is not the
+    // newest threw away the only trained policy on disk and left a zero-valued table behind the
+    // greedy evaluation path — an agent that looks like it is flying and has learned nothing. The
+    // structural check that actually matters lives one level down: TabularQAgent.restore drops any
+    // row whose action vector is not the width of the current action set, so a table built under a
+    // different action set contributes no rows rather than rows pointing at the wrong actions.
+    if (!save) return;
+    // Saves written before v9 predate the variant labels, so there was exactly one variant to have
+    // been trained under: the current spec's. A save that does carry labels is taken at its word.
+    const observation = (save as { observation?: string }).observation ?? this.spec.observation;
+    const actions = (save as { actions?: string }).actions ?? this.spec.actions;
+    const learnerVariant = (save as { learnerVariant?: string }).learnerVariant ?? this.spec.learnerVariant;
+    if (observation !== this.spec.observation || actions !== this.spec.actions
+      || learnerVariant !== this.spec.learnerVariant) return;
     this.learner.restore(save.learner);
-    if (save.upgrade) this.upgradeLearner.restore(save.upgrade);
+    // The very first save format had no upgrade learner at all.
+    const upgrade = (save as { upgrade?: TabularQSave }).upgrade;
+    if (upgrade) this.upgradeLearner.restore(upgrade);
     this.episodes = Math.max(0, save.episodes || 0);
   }
   // Greedy playback of what the policy actually knows, with exploration and
