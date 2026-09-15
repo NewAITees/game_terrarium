@@ -10,7 +10,6 @@ import { TrainerStatusStore } from './scripts/rl/trainer_status_store';
 app.commandLine.appendSwitch('disable-features', 'HardwareMediaKeyHandling,MediaSessionService');
 
 const IS_DEBUG_MINIMAL = process.env.ELECTRON_DEBUG_MINIMAL === '1';
-const ENABLE_APP_MENU = process.env.ELECTRON_DISABLE_MENU !== '1';
 const ENABLE_GLOBAL_SHORTCUTS = process.env.ELECTRON_DISABLE_SHORTCUTS !== '1';
 const ENABLE_ALWAYS_ON_TOP = process.env.ELECTRON_ENABLE_ALWAYS_ON_TOP === '1' && !IS_DEBUG_MINIMAL;
 const ENABLE_ALL_WORKSPACES = process.env.ELECTRON_ENABLE_ALL_WORKSPACES === '1' && !IS_DEBUG_MINIMAL;
@@ -240,10 +239,6 @@ function refreshTray(): void {
 
 function refreshMenu(): void {
   refreshTray();
-  if (!ENABLE_APP_MENU) {
-    Menu.setApplicationMenu(null);
-    return;
-  }
 
   const radio = (label: string, pageKey: PageKey, accelerator: string): MenuItemConstructorOptions => ({
     label,
