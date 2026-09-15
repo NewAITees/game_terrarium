@@ -193,13 +193,36 @@ export function runEpisode(agent: GunshipAgent, airframeId: AirframeId, environm
     kills += result.kills;
     if (result.finalReward !== null) {
       agent.finishEpisode(result.finalReward);
-      return { seed, seconds: state.elapsed, kills, wave: state.wave, fell: result.fell, channels: rewardBreakdown(totals), taskReturn: state.elapsed, terminated: true, truncated: false };
+      return { seed, seconds: state.elapsed, kills, wave: state.wave, fell: result.fell, channels: rewardBreakdown(totals), taskReturn: gunshipTaskReturn(state.elapsed, kills, state.wave), terminated: true, truncated: false };
     }
     lastReward = result.reward.total;
   }
   // Timed out rather than died: treat as a neutral cut so the cap cannot be farmed.
   agent.finishEpisode(0);
-  return { seed, seconds: state.elapsed, kills, wave: state.wave, fell: false, channels: rewardBreakdown(totals), taskReturn: state.elapsed, terminated: false, truncated: true };
+  return { seed, seconds: state.elapsed, kills, wave: state.wave, fell: false, channels: rewardBreakdown(totals), taskReturn: gunshipTaskReturn(state.elapsed, kills, state.wave), terminated: false, truncated: true };
+}
+
+/**
+ * The score a gunship configuration is ranked on: fight, and stay alive while doing it.
+ *
+ * Both attempts at a sum failed the brief, in opposite directions. Seconds alone paid for leaving:
+ * the winner climbed away and idled, 33.7s survived for 1.17 kills. Adding ten per kill paid for
+ * trading your life for a burst: the winner killed 5.92 and died in 13.9s. A sum always lets one
+ * term buy out the other, so neither ranking asked for both.
+ *
+ * Multiplying does. Seconds set the scale and kills multiply it, so a configuration scores nothing
+ * by surviving without fighting and nothing by fighting without surviving. On the measured runs it
+ * puts the balanced agent first (25.5s/2.92 kills = 54.1) ahead of the idler (33.7s/1.17 = 52.9)
+ * and the glass cannon (13.9s/5.92 = 43.0).
+ *
+ * Kills and waves are episode outcomes, not reward channels, so the score stays unreachable from
+ * any tunable weight - the property research_contract checks.
+ */
+export const GUNSHIP_TASK_WEIGHTS = { kill: .35, wave: .2 } as const;
+
+export function gunshipTaskReturn(seconds: number, kills: number, wave: number): number {
+  const engagement = 1 + kills * GUNSHIP_TASK_WEIGHTS.kill + Math.max(0, wave - 1) * GUNSHIP_TASK_WEIGHTS.wave;
+  return seconds * engagement;
 }
 
 function mean(values: number[]): number {

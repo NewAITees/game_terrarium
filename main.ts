@@ -59,8 +59,12 @@ function saveWindowState(): void {
 // reaching a game through Ctrl+K trains exactly as much as launching it through its own launcher.
 const ENABLE_PAGE_TRAINERS = process.env.ELECTRON_DISABLE_PAGE_TRAINERS !== '1';
 let activeTrainer: { gameId: string; child: ChildProcess; heartbeat: NodeJS.Timeout } | null = null;
+let trainerRestart: NodeJS.Timeout | null = null;
+// A search batch that dies immediately would otherwise be respawned in a tight loop.
+const TRAINER_RESTART_DELAY_MS = 4000;
 
 function stopTrainer(): void {
+  if (trainerRestart) { clearTimeout(trainerRestart); trainerRestart = null; }
   if (!activeTrainer) return;
   const { child, heartbeat } = activeTrainer;
   activeTrainer = null;
@@ -73,7 +77,7 @@ function startTrainer(trainer: PageTrainer): void {
   const statusStore = new TrainerStatusStore(process.env.RL_MODEL_ROOT || process.cwd(), trainer.gameId);
   const child = spawn(process.execPath, [
     join(__dirname, 'scripts', trainer.trainerModule),
-    ...(process.env.RL_LIVE_SMOKE === '1' ? trainer.smokeArguments : []),
+    ...(process.env.RL_LIVE_SMOKE === '1' ? trainer.smokeArguments : trainer.trainerArguments),
   ], {
     cwd: app.getAppPath(),
     stdio: 'inherit',
@@ -97,16 +101,24 @@ function startTrainer(trainer: PageTrainer): void {
   });
   child.on('exit', (code, signal) => {
     clearInterval(heartbeat);
-    if (activeTrainer?.child === child) activeTrainer = null;
+    const wasActive = activeTrainer?.child === child;
+    if (wasActive) activeTrainer = null;
     console.log(`[trainer] ${trainer.gameId} exited ${code ?? signal ?? 'unknown'}`);
+    // A finished search batch is a round, not an ending: restarting it is what makes the search a
+    // resident trainer. It resumes from the append-only ledger, so the next round proposes fresh
+    // candidates from the current champion rather than repeating the ones already scored.
+    const restarting = wasActive && trainer.restartOnExit && signal === null && ENABLE_PAGE_TRAINERS;
     void statusStore.publish({
-      state: code === 0 || signal !== null ? 'stopped' : 'failed',
+      state: restarting ? 'running' : (code === 0 || signal !== null ? 'stopped' : 'failed'),
       pid: child.pid,
       startedAt,
-      stoppedAt: new Date().toISOString(),
+      stoppedAt: restarting ? undefined : new Date().toISOString(),
       exitCode: code,
-      error: code === 0 || signal !== null ? undefined : `trainer exited ${code ?? 'unknown'}`,
+      error: restarting || code === 0 || signal !== null ? undefined : `trainer exited ${code ?? 'unknown'}`,
     });
+    if (!restarting) return;
+    console.log(`[trainer] ${trainer.gameId} finished a search round; starting the next`);
+    trainerRestart = setTimeout(() => { trainerRestart = null; startTrainer(trainer); }, TRAINER_RESTART_DELAY_MS);
   });
 }
 
