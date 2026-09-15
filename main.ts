@@ -210,6 +210,10 @@ function createMainWindow(): void {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      // Every experience here drives itself from requestAnimationFrame, and Chromium stops
+      // servicing rAF once a window is occluded or backgrounded. For a page whose whole point
+      // is to keep simulating while you look at something else, that throttle is the bug.
+      backgroundThrottling: false,
       // Injects the Ctrl+K page palette into every page so switching does not
       // depend on each experience shipping its own navigation.
       preload: join(__dirname, 'preload.js'),
