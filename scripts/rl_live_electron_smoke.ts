@@ -75,7 +75,6 @@ async function smokeTarget(target: LiveTarget, index: number): Promise<void> {
       RL_MODEL_ROOT: modelRoot,
       GAME_TERRARIUM_PORT: String(port),
       ELECTRON_DEBUG_MINIMAL: '1',
-      ELECTRON_DISABLE_MENU: '1',
       ELECTRON_DISABLE_SHORTCUTS: '1',
       ELECTRON_DISABLE_TRAY: '1',
       ELECTRON_ENABLE_ALWAYS_ON_TOP: '0',

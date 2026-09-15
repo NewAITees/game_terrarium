@@ -18,6 +18,9 @@ if (!canvas) throw new Error('Missing gunship canvas');
 const ctx = canvas.getContext('2d');
 if (!ctx) throw new Error('Canvas 2D unavailable');
 const $ = <T extends HTMLElement>(id: string): T => { const node = document.getElementById(id); if (!node) throw new Error(`Missing #${id}`); return node as T; };
+const topBar = $('top');
+const controlsPanel = $('controls');
+const researchPanel = $('research');
 const ui = { hp: $('hp'), hpText: $('hp-text'), wave: $('wave'), encounter: $('encounter'), episode: $('episode'), action: $('action'), margin: $('margin'), burst: $('burst'), kills: $('kills'), reward: $('reward'), epsilon: $('epsilon'), states: $('states'), steps: $('steps'), deaths: $('deaths'), pause: $('pause'), mode: $<HTMLSelectElement>('mode'), level: $('level'), xp: $('xp'), upgrade: $('upgrade'), choices: $('upgrade-choices'), countdown: $('upgrade-countdown'), shipAccuracy: $('ship-accuracy'), airAccuracy: $('air-accuracy'), lowMargin: $('low-margin'), noseDown: $('nose-down'), cycle: $('cycle'), survival: $('survival'), data: $('data'), researchThrust: $<HTMLButtonElement>('research-thrust'), researchHull: $<HTMLButtonElement>('research-hull'), save: $<HTMLButtonElement>('save'), resetLearning: $<HTMLButtonElement>('reset-learning'), saveStatus: $('save-status'), airframe: $<HTMLSelectElement>('airframe'), frameName: $('frame-name'), frameStats: $('frame-stats'), combo: $('combo'), recovery: $('recovery'), nextTarget: $('next-target'), weapon: $('weapon'), weaponRole: $('weapon-role'), board: $('board'), boardRows: $('board-rows'), boardTable: $<HTMLTableElement>('board-table'), boardEmpty: $('board-empty'), boardNext: $('board-next') };
 type LeaderboardEntry = { id: string; rank: number; champion: boolean; holdoutMedian: number; lower95: number; upper95: number; learnerVariant: string; observation: string; actions: string; shapingShare: number; knownStates: number; episodes: number };
 type LeaderboardView = { gameId: string; runs: number; championId: string | null; entries: LeaderboardEntry[] };
@@ -25,6 +28,7 @@ type MetaProgress = { data: number; thrustResearch: number; hullResearch: number
 type LiveModelBundle = { version: 1; revision: number; manifest?: ModelManifest; models: Partial<Record<AirframeId, ReturnType<GunshipAgent['serialize']>>> };
 const liveModelCompatibility = { gameId: 'gunship', algorithm: 'tabular-q', modelVersion: 9, observationSchemaVersion: 1, rewardSchemaVersion: 1 } as const;
 const rlHud = createRlHud('GUNSHIP');
+const rlHudPanel = document.querySelector<HTMLElement>('[data-rl-hud="true"]');
 rlHud.watchTrainer('gunship');
 let liveModels: LiveModelBundle | null = null;
 let meta: MetaProgress = { data: 0, thrustResearch: 0, hullResearch: 0 };
@@ -230,7 +234,24 @@ function processUpgrade(dt: number): void { if (!upgradeChoices.length) { upgrad
 function showUpgradeChoices(): void { ui.upgrade.dataset.open = 'true'; ui.choices.replaceChildren(...upgradeChoices.map((choice) => { const button = document.createElement('button'); button.innerHTML = `<b>${choice.label}</b><span>${choice.detail}</span>`; button.addEventListener('click', () => chooseUpgrade(choice)); return button; })); }
 function chooseUpgrade(choice: GunshipUpgrade): void { applyUpgrade(core.run, choice); upgradeChoices = []; ui.upgrade.dataset.open = 'false'; upgradeRewardMark = episodeReward; }
 function manualAction() { const turn = keys.has('a') || keys.has('arrowleft') ? 1 : keys.has('d') || keys.has('arrowright') ? -1 : 0; const thrust = keys.has('w') || keys.has('arrowup'); const fire = keys.has('f') || keys.has('enter'); return { turn: turn as -1 | 0 | 1, thrust, fire, label: 'MANUAL FLIGHT' }; }
-function resize(): void { const ratio = Math.min(devicePixelRatio || 1, 2); const width = innerWidth * ratio; const height = innerHeight * ratio; if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; } }
+function resize(): void {
+  const top = Math.ceil(topBar.getBoundingClientRect().bottom);
+  canvas.style.position = 'fixed';
+  canvas.style.left = '0';
+  canvas.style.top = `${top}px`;
+  canvas.style.width = '100vw';
+  canvas.style.height = `calc(100vh - ${top}px)`;
+  const controlsTop = controlsPanel.getBoundingClientRect().top;
+  researchPanel.style.bottom = `${Math.max(16, innerHeight - controlsTop + 12)}px`;
+  if (rlHudPanel) {
+    const researchTop = researchPanel.getBoundingClientRect().top;
+    rlHudPanel.style.bottom = `${Math.max(16, innerHeight - researchTop + 12)}px`;
+  }
+  const ratio = Math.min(devicePixelRatio || 1, 2);
+  const width = Math.max(1, Math.round(canvas.clientWidth * ratio));
+  const height = Math.max(1, Math.round(canvas.clientHeight * ratio));
+  if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
+}
 function nextTargetLabel(): string {
   const priority = ['battleship', 'carrier', 'cruiser', 'destroyer', 'submarine', 'diver', 'mine', 'chaser'] as const;
   const target = [...core.enemies].filter((enemy) => enemy.kind !== 'submarine' || enemy.surfaced).sort((left, right) => priority.indexOf(left.kind) - priority.indexOf(right.kind) || Math.hypot(left.x - core.ship.x, left.y - core.ship.y) - Math.hypot(right.x - core.ship.x, right.y - core.ship.y))[0];

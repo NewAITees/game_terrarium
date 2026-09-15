@@ -144,7 +144,6 @@ async function main(): Promise<void> {
       ...process.env,
       GAME_TERRARIUM_PORT: smokePort,
       ELECTRON_DEBUG_MINIMAL: '1',
-      ELECTRON_DISABLE_MENU: '1',
       ELECTRON_DISABLE_SHORTCUTS: '1',
       ELECTRON_DISABLE_SERVER: '0',
       ELECTRON_ENABLE_ALWAYS_ON_TOP: '0',
