@@ -1,6 +1,6 @@
 import { encounterKindForWave, spawnWave, type Enemy, type EnemyShot } from './gunship_enemies.js';
 import { altitudeMargin, type GunshipBody } from './gunship_physics.js';
-import { GunshipAgent } from './gunship_rl.js';
+import { GunshipAgent, type GunshipPolicySpec } from './gunship_rl.js';
 import { applyUpgrade, choicesFor, createRunProgress, type GunshipUpgrade } from './gunship_progression.js';
 import { AIRFRAMES, airframeById, randomAirframe, twrOf, type Airframe, type AirframeId } from './gunship_airframes.js';
 import { renderGunship } from './gunship_render.js';
@@ -18,7 +18,9 @@ if (!canvas) throw new Error('Missing gunship canvas');
 const ctx = canvas.getContext('2d');
 if (!ctx) throw new Error('Canvas 2D unavailable');
 const $ = <T extends HTMLElement>(id: string): T => { const node = document.getElementById(id); if (!node) throw new Error(`Missing #${id}`); return node as T; };
-const ui = { hp: $('hp'), hpText: $('hp-text'), wave: $('wave'), encounter: $('encounter'), episode: $('episode'), action: $('action'), margin: $('margin'), burst: $('burst'), kills: $('kills'), reward: $('reward'), epsilon: $('epsilon'), states: $('states'), steps: $('steps'), deaths: $('deaths'), pause: $('pause'), mode: $<HTMLSelectElement>('mode'), level: $('level'), xp: $('xp'), upgrade: $('upgrade'), choices: $('upgrade-choices'), countdown: $('upgrade-countdown'), shipAccuracy: $('ship-accuracy'), airAccuracy: $('air-accuracy'), lowMargin: $('low-margin'), noseDown: $('nose-down'), cycle: $('cycle'), survival: $('survival'), data: $('data'), researchThrust: $<HTMLButtonElement>('research-thrust'), researchHull: $<HTMLButtonElement>('research-hull'), save: $<HTMLButtonElement>('save'), resetLearning: $<HTMLButtonElement>('reset-learning'), saveStatus: $('save-status'), airframe: $<HTMLSelectElement>('airframe'), frameName: $('frame-name'), frameStats: $('frame-stats'), combo: $('combo'), recovery: $('recovery'), nextTarget: $('next-target'), weapon: $('weapon'), weaponRole: $('weapon-role') };
+const ui = { hp: $('hp'), hpText: $('hp-text'), wave: $('wave'), encounter: $('encounter'), episode: $('episode'), action: $('action'), margin: $('margin'), burst: $('burst'), kills: $('kills'), reward: $('reward'), epsilon: $('epsilon'), states: $('states'), steps: $('steps'), deaths: $('deaths'), pause: $('pause'), mode: $<HTMLSelectElement>('mode'), level: $('level'), xp: $('xp'), upgrade: $('upgrade'), choices: $('upgrade-choices'), countdown: $('upgrade-countdown'), shipAccuracy: $('ship-accuracy'), airAccuracy: $('air-accuracy'), lowMargin: $('low-margin'), noseDown: $('nose-down'), cycle: $('cycle'), survival: $('survival'), data: $('data'), researchThrust: $<HTMLButtonElement>('research-thrust'), researchHull: $<HTMLButtonElement>('research-hull'), save: $<HTMLButtonElement>('save'), resetLearning: $<HTMLButtonElement>('reset-learning'), saveStatus: $('save-status'), airframe: $<HTMLSelectElement>('airframe'), frameName: $('frame-name'), frameStats: $('frame-stats'), combo: $('combo'), recovery: $('recovery'), nextTarget: $('next-target'), weapon: $('weapon'), weaponRole: $('weapon-role'), board: $('board'), boardRows: $('board-rows'), boardTable: $<HTMLTableElement>('board-table'), boardEmpty: $('board-empty'), boardNext: $('board-next') };
+type LeaderboardEntry = { id: string; rank: number; champion: boolean; holdoutMedian: number; lower95: number; upper95: number; learnerVariant: string; observation: string; actions: string; shapingShare: number; knownStates: number; episodes: number };
+type LeaderboardView = { gameId: string; runs: number; championId: string | null; entries: LeaderboardEntry[] };
 type MetaProgress = { data: number; thrustResearch: number; hullResearch: number };
 type LiveModelBundle = { version: 1; revision: number; manifest?: ModelManifest; models: Partial<Record<AirframeId, ReturnType<GunshipAgent['serialize']>>> };
 const liveModelCompatibility = { gameId: 'gunship', algorithm: 'tabular-q', modelVersion: 9, observationSchemaVersion: 1, rewardSchemaVersion: 1 } as const;
@@ -90,7 +92,77 @@ function update(dt: number): void {
   saveTimer += dt;
   if (saveTimer > 8) { saveTimer = 0; saveAgent(); }
 }
-function finishEpisode(fell: boolean, finalReward: number): void { if (fell) fallingDeaths++; agent.finishEpisode(finalReward); meta.data += Math.max(1, Math.floor((kills + core.wave) / 4)); survivalHistory.push(episodeElapsed); if (survivalHistory.length > 10) survivalHistory.shift(); saveAgent(); restart = Number.POSITIVE_INFINITY; void reloadLiveModel().finally(() => { restart = 1.6; }); }
+function finishEpisode(fell: boolean, finalReward: number): void { if (fell) fallingDeaths++; agent.finishEpisode(finalReward); meta.data += Math.max(1, Math.floor((kills + core.wave) / 4)); survivalHistory.push(episodeElapsed); if (survivalHistory.length > 10) survivalHistory.shift(); saveAgent(); restart = Number.POSITIVE_INFINITY; void showLeaderboardThenReload().finally(() => { restart = 1.6; }); }
+/**
+ * The death screen: what the search has found, and what is about to fly.
+ *
+ * The board is read from the ledger rather than ranked here, so the row marked champion is the same
+ * row the search published - a page that ranked its own copy could disagree with what it then loads.
+ * Reloading the live model afterwards is what puts the top model in the next episode.
+ */
+const LEADERBOARD_SECONDS = 3.4;
+
+async function showLeaderboardThenReload(): Promise<void> {
+  await refreshLeaderboard();
+  ui.board.dataset.open = 'true';
+  try {
+    await reloadLiveModel();
+  } finally {
+    ui.boardNext.textContent = `NEXT: ${describeLoadedModel()}`;
+    await new Promise((resolve) => setTimeout(resolve, LEADERBOARD_SECONDS * 1000));
+    ui.board.dataset.open = 'false';
+  }
+}
+
+function describeLoadedModel(): string {
+  const spec = agent.spec;
+  return `${spec.observation}/${spec.actions} · ${spec.learnerVariant}`
+    + (liveModels ? ` · r${liveModels.revision}` : ' · ローカル');
+}
+
+async function refreshLeaderboard(): Promise<void> {
+  try {
+    const response = await fetch('/api/rl/leaderboard/gunship', { cache: 'no-store' });
+    if (!response.ok) throw new Error('leaderboard unavailable');
+    const view = await response.json() as LeaderboardView;
+    renderLeaderboard(view);
+  } catch {
+    // A page that cannot reach the ledger still has to restart, so an empty board is the failure mode.
+    renderLeaderboard({ gameId: 'gunship', runs: 0, championId: null, entries: [] });
+  }
+}
+
+function renderLeaderboard(view: LeaderboardView): void {
+  const hasRows = view.entries.length > 0;
+  ui.boardTable.hidden = !hasRows;
+  ui.boardEmpty.hidden = hasRows;
+  if (!hasRows) {
+    ui.boardEmpty.textContent = '探索の記録がまだありません。npm run research で探索すると、ここに並びます。';
+    return;
+  }
+  ui.boardRows.replaceChildren(...view.entries.map((entry) => {
+    const row = document.createElement('tr');
+    row.dataset.champion = String(entry.champion);
+    const cells = [
+      entry.champion ? `★${entry.rank}` : String(entry.rank),
+      entry.id,
+      entry.holdoutMedian.toFixed(1),
+      `${entry.lower95.toFixed(1)}–${entry.upper95.toFixed(1)}`,
+      entry.learnerVariant,
+      entry.observation,
+      entry.actions,
+      String(entry.knownStates),
+    ];
+    cells.forEach((text, index) => {
+      const cell = document.createElement('td');
+      if (index === 2 || index === 3 || index === 7) cell.className = 'num';
+      cell.textContent = text;
+      row.appendChild(cell);
+    });
+    return row;
+  }));
+}
+
 function saveAgent(): void { try { localStorage.setItem(agentKey(airframe.id), JSON.stringify(agent.serialize())); localStorage.setItem('gravity-gunship-meta-v1', JSON.stringify(meta)); ui.saveStatus.textContent = `SAVED ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`; refreshAirframeOptions(); } catch { ui.saveStatus.textContent = 'SAVE UNAVAILABLE'; } }
 // Each airframe is a separately trained pilot: its Q-tables live under their own key and survive machine swaps.
 function agentKey(id: AirframeId): string { return `gravity-gunship-q-${id}`; }
@@ -115,8 +187,24 @@ function refreshAirframeOptions(): void {
     option.textContent = episodes ? `${frame.label} · ${episodes}ep / ${states}状態` : `${frame.label} · 未訓練`;
   }
 }
+/**
+ * A published model carries the encoding it was trained under, so the page can build the agent the
+ * champion actually is instead of assuming the default one. Without this the page could only ever
+ * show a full/full policy, and a search that found something better under a narrower observation
+ * had no way to reach the screen. Saves written before those labels existed predate the variants,
+ * so their absence means the default.
+ */
+function specFromSave(save: ReturnType<GunshipAgent['serialize']>): Partial<GunshipPolicySpec> {
+  const labelled = save as Partial<Pick<GunshipPolicySpec, 'observation' | 'actions' | 'learnerVariant'>>;
+  return {
+    ...(labelled.observation ? { observation: labelled.observation } : {}),
+    ...(labelled.actions ? { actions: labelled.actions } : {}),
+    ...(labelled.learnerVariant ? { learnerVariant: labelled.learnerVariant } : {}),
+  };
+}
+
 function loadAgentFor(id: AirframeId): GunshipAgent { const next = new GunshipAgent(); const raw = localStorage.getItem(agentKey(id)) ?? (id === 'interceptor' ? localStorage.getItem('gravity-gunship-q-v1') : null); if (raw) { try { next.restore(JSON.parse(raw)); } catch { /* Corrupt local data is optional. */ } } next.setEvaluationMode(true); return next; }
-async function reloadLiveModel(): Promise<void> { try { const response = await fetch('/api/rl/models/gunship', { cache: 'no-store' }); if (!response.ok) { document.documentElement.dataset.rlModelStatus = 'unavailable'; rlHud.update({ modelState: liveModels ? 'last-champion' : 'no-model' }); return; } const bundle = await response.json() as LiveModelBundle; if (bundle.manifest && !isCompatibleModelManifest(bundle.manifest, liveModelCompatibility)) { document.documentElement.dataset.rlModelStatus = 'incompatible'; rlHud.update({ modelState: 'incompatible' }); return; } liveModels = bundle; const save = bundle.models?.[airframe.id]; if (!save) { document.documentElement.dataset.rlModelStatus = 'fallback'; rlHud.update({ modelState: 'no-model' }); refreshAirframeOptions(); return; } const next = new GunshipAgent(); next.restore(save); next.setEvaluationMode(true); agent = next; document.documentElement.dataset.rlModelStatus = 'compatible'; currentDecision = agent.decide(core.ship, core.enemies, core.enemyShots, core.orbs, { weapon: weaponKind(core.run), recoveryDelay: core.combat.recoveryDelay }, 0, 0); currentAction = currentDecision.action; rlHud.update({ modelState: 'champion', algorithm: bundle.manifest?.algorithm ?? 'tabular-q', revision: bundle.revision, publishedAt: bundle.manifest?.publishedAt, trainingSteps: bundle.manifest?.trainingSteps ?? agent.steps, mode: 'evaluation' }); ui.saveStatus.textContent = `INFERENCE r${bundle.revision}`; refreshAirframeOptions(); } catch { document.documentElement.dataset.rlModelStatus = 'unavailable'; rlHud.update({ modelState: liveModels ? 'last-champion' : 'no-model' }); /* Keep the last complete policy. */ } }
+async function reloadLiveModel(): Promise<void> { try { const response = await fetch('/api/rl/models/gunship', { cache: 'no-store' }); if (!response.ok) { document.documentElement.dataset.rlModelStatus = 'unavailable'; rlHud.update({ modelState: liveModels ? 'last-champion' : 'no-model' }); return; } const bundle = await response.json() as LiveModelBundle; if (bundle.manifest && !isCompatibleModelManifest(bundle.manifest, liveModelCompatibility)) { document.documentElement.dataset.rlModelStatus = 'incompatible'; rlHud.update({ modelState: 'incompatible' }); return; } liveModels = bundle; const save = bundle.models?.[airframe.id]; if (!save) { document.documentElement.dataset.rlModelStatus = 'fallback'; rlHud.update({ modelState: 'no-model' }); refreshAirframeOptions(); return; } const next = new GunshipAgent(specFromSave(save)); next.restore(save); next.setEvaluationMode(true); agent = next; document.documentElement.dataset.rlModelStatus = 'compatible'; currentDecision = agent.decide(core.ship, core.enemies, core.enemyShots, core.orbs, { weapon: weaponKind(core.run), recoveryDelay: core.combat.recoveryDelay }, 0, 0); currentAction = currentDecision.action; rlHud.update({ modelState: 'champion', algorithm: bundle.manifest?.algorithm ?? 'tabular-q', revision: bundle.revision, publishedAt: bundle.manifest?.publishedAt, trainingSteps: bundle.manifest?.trainingSteps ?? agent.steps, mode: 'evaluation' }); ui.saveStatus.textContent = `INFERENCE r${bundle.revision}`; refreshAirframeOptions(); } catch { document.documentElement.dataset.rlModelStatus = 'unavailable'; rlHud.update({ modelState: liveModels ? 'last-champion' : 'no-model' }); /* Keep the last complete policy. */ } }
 async function resetLearning(): Promise<void> { try { const response = await fetch('/api/rl/models/gunship/reset', { method: 'POST' }); if (!response.ok) throw new Error('reset rejected'); clearStoredPolicyModels(localStorage, [...AIRFRAMES.map((frame) => agentKey(frame.id)), 'gravity-gunship-q-v1']); liveModels = null; agent = loadAgentFor(airframe.id); currentDecision = agent.decide(core.ship, core.enemies, core.enemyShots, core.orbs, { weapon: weaponKind(core.run), recoveryDelay: core.combat.recoveryDelay }, 0, 0); currentAction = currentDecision.action; rlHud.update({ modelState: 'no-model', revision: 0, publishedAt: undefined, trainingSteps: 0 }); ui.saveStatus.textContent = 'LEARNING RESET'; refreshAirframeOptions(); } catch { ui.saveStatus.textContent = 'RESET FAILED'; } }
 function loadSelection(): 'random' | AirframeId { const raw = localStorage.getItem('gravity-gunship-frame-v1'); if (raw === 'random' || AIRFRAMES.some((frame) => frame.id === raw)) return raw as 'random' | AirframeId; return 'interceptor'; }
 function switchAirframe(next: 'random' | AirframeId): void {
