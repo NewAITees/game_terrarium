@@ -11,7 +11,8 @@
 - [x] 配置可否のゴースト表示を実装する
 - [x] バリケードの設置・HP・敵フローフィールドへの反映を実装する
 - [x] KINGの残りルートを閉じる配置を拒否する
-- [ ] Escort TD APIスモークで結果計算とCHIP永続化を検証する
+- [x] 結果計算(score/chips)は`scripts/escort_td_rules.test.ts`の`calculateEscortResult`ユニットテストで既に検証済み(2026-09-25確認)
+- [ ] CHIP永続化(`localStorage`)はブラウザ側(`apps/escort-td/escort_td_runtime.ts`)専用の関心事で、現行の`escort_td_smoke.ts`はHTTP API(`/api/escort-td/*`)とサーバー側runtimeしか叩いておらずrenderer内のJSを検証できない。カバーするにはPlaywright等のブラウザ駆動テストの新規導入が必要で、このリポジトリには現状その基盤がない。1項目のためだけに導入するのは投資対効果が見合わないと判断し、保留する(基盤を入れる別の理由ができたときに合わせて着手)
 
 ## P1: 護衛と監視
 

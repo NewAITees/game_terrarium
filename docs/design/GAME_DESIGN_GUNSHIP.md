@@ -1,6 +1,6 @@
 # GRAVITY GUNSHIP — RL Arena 派生 / 重力戦闘機シューティング 開発計画書
 
-> ステータス: 設計 / 未着手
+> ステータス: 実装済み・RLリサーチ運用中(`apps/gunship/`、自動リサーチ・チャンピオン昇格対応の3ゲームの一角。2026-09-25時点、当初のステータス表記が更新されていなかったため訂正)
 > 対象アプリ: `apps/gunship/`（新規・独立アプリ）
 > 仮題: **GRAVITY GUNSHIP**
 > ベース: `docs/design/GAME_DESIGN_RL_ARENA.md`（RL基盤・観察思想を継承）
