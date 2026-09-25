@@ -24,6 +24,11 @@ const CONFIG: CityTrafficConfig = {
   followGapSoft: 8.0,
 };
 
+// Corner turn radius. Must stay below (roadW/2 + stopGap - laneOff) so a car committed to a
+// turn never starts curving before it would have had to stop for a red light at the old
+// straight-line stop line: 1.6 + 0.55 - 0.72 = 1.43.
+const TURN_RADIUS = 1.3;
+
 const DURS = [CONFIG.gTime, CONFIG.yTime, CONFIG.gTime, CONFIG.yTime] as const;
 const HEADINGS: CityTrafficHeading[] = ['E', 'W', 'S', 'N'];
 const HEADING_VEC: Record<CityTrafficHeading, { x: number; z: number }> = {
@@ -34,6 +39,21 @@ const HEADING_VEC: Record<CityTrafficHeading, { x: number; z: number }> = {
 };
 const LEFT_TURN: Record<CityTrafficHeading, CityTrafficHeading> = { E: 'N', N: 'W', W: 'S', S: 'E' };
 const RIGHT_TURN: Record<CityTrafficHeading, CityTrafficHeading> = { E: 'S', S: 'W', W: 'N', N: 'E' };
+// atan2(dir.x, dir.z) for each heading's unit vector, matching the client's rendering convention.
+const HEADING_YAW: Record<CityTrafficHeading, number> = { E: Math.PI / 2, W: -Math.PI / 2, S: 0, N: Math.PI };
+
+type TurnArc = {
+  ox: number;
+  oz: number;
+  r: number;
+  startAngle: number;
+  deltaAngle: number;
+  arcLength: number;
+  traveled: number;
+  exitHeading: CityTrafficHeading;
+  newRoadIndex: number;
+  newPos: number;
+};
 const VEHICLE_DEFS = [
   'sedan', 'suv', 'taxi', 'police', 'ambulance', 'van', 'delivery', 'delivery-flat',
   'truck', 'truck-flat', 'garbage-truck', 'firetruck', 'hatchback-sports', 'sedan-sports', 'suv-luxury',
@@ -52,6 +72,8 @@ export class CityTrafficRuntime {
   private readonly roads: number[];
   private readonly intersections: RuntimeIntersection[] = [];
   private readonly cars: RuntimeCar[] = [];
+  private readonly turningCars = new Map<number, TurnArc>();
+  private readonly pendingDecision = new Map<number, { interId: string; nextHeading: CityTrafficHeading }>();
   private elapsed = 0;
   private lastTickAt = Date.now();
 
@@ -73,8 +95,39 @@ export class CityTrafficRuntime {
       config: CONFIG,
       roads: [...this.roads],
       intersections: this.intersections.map((inter) => ({ ...inter })),
-      cars: this.cars.map((car) => ({ ...car })),
+      cars: this.cars.map((car) => ({ ...car, ...this.carTransform(car) })),
     };
+  }
+
+  private carTransform(car: RuntimeCar): { x: number; z: number; yaw: number } {
+    const arc = this.turningCars.get(car.id);
+    if (arc) {
+      const t = Math.min(arc.traveled / arc.arcLength, 1);
+      const angle = arc.startAngle + arc.deltaAngle * t;
+      const dirSign = Math.sign(arc.deltaAngle) || 1;
+      const dirX = -Math.sin(angle) * dirSign;
+      const dirZ = Math.cos(angle) * dirSign;
+      return {
+        x: arc.ox + arc.r * Math.cos(angle),
+        z: arc.oz + arc.r * Math.sin(angle),
+        yaw: Math.atan2(dirX, dirZ),
+      };
+    }
+    const laneFixed = this.laneFixed(car.heading, car.roadIndex);
+    const isEW = car.heading === 'E' || car.heading === 'W';
+    return {
+      x: isEW ? car.pos : laneFixed,
+      z: isEW ? laneFixed : car.pos,
+      yaw: HEADING_YAW[car.heading],
+    };
+  }
+
+  private laneFixed(heading: CityTrafficHeading, roadIndex: number): number {
+    const roadV = this.roads[roadIndex];
+    if (heading === 'E') return roadV + CONFIG.laneOff;
+    if (heading === 'W') return roadV - CONFIG.laneOff;
+    if (heading === 'S') return roadV - CONFIG.laneOff;
+    return roadV + CONFIG.laneOff;
   }
 
   private tickToNow(): void {
@@ -115,6 +168,9 @@ export class CityTrafficRuntime {
         targetXi: 0,
         targetZi: 0,
         vehicleKey: this.pickVehicleKey(),
+        x: 0,
+        z: 0,
+        yaw: 0,
       };
       this.assignDestination(car);
       this.cars.push(car);
@@ -150,16 +206,30 @@ export class CityTrafficRuntime {
     }
 
     for (const car of this.cars) {
+      const arc = this.turningCars.get(car.id);
+      if (arc) {
+        arc.traveled += car.speedNow * dt;
+        if (arc.traveled >= arc.arcLength) {
+          car.heading = arc.exitHeading;
+          car.roadIndex = arc.newRoadIndex;
+          car.pos = arc.newPos;
+          this.turningCars.delete(car.id);
+        }
+        continue;
+      }
+
       const sign = this.headingSign(car.heading);
       const inter = this.nextInter(car);
       let speed = car.speedNow;
+      let approaching = false;
+      let iPos = 0;
 
       if (inter) {
-        const iPos = this.axisCoord(inter, car.heading);
+        iPos = this.axisCoord(inter, car.heading);
         const hw = CONFIG.roadW / 2;
         const stopLine = iPos - sign * (hw + CONFIG.stopGap);
         const front = car.pos + sign * (CONFIG.carLen / 2);
-        const approaching = sign > 0
+        approaching = sign > 0
           ? (front >= stopLine - 0.28 && car.pos < iPos)
           : (front <= stopLine + 0.28 && car.pos > iPos);
 
@@ -169,17 +239,23 @@ export class CityTrafficRuntime {
           if (sign > 0) car.pos = Math.min(car.pos, clampedCenter);
           else car.pos = Math.max(car.pos, clampedCenter);
         }
+
+        if (approaching && this.pendingDecision.get(car.id)?.interId !== inter.id) {
+          const nextHeading = this.chooseHeadingAtIntersection(car, inter);
+          this.pendingDecision.set(car.id, { interId: inter.id, nextHeading });
+        }
       }
 
       const prevPos = car.pos;
       car.pos += sign * speed * dt;
 
-      if (inter) {
-        const iPos = this.axisCoord(inter, car.heading);
-        const crossed = sign > 0 ? (prevPos < iPos && car.pos >= iPos) : (prevPos > iPos && car.pos <= iPos);
-        if (crossed) {
-          const nextHeading = this.chooseHeadingAtIntersection(car, inter);
-          this.applyTurn(car, inter, nextHeading);
+      const pending = inter ? this.pendingDecision.get(car.id) : undefined;
+      if (inter && pending && pending.interId === inter.id) {
+        if (pending.nextHeading === car.heading) {
+          const crossed = sign > 0 ? (prevPos < iPos && car.pos >= iPos) : (prevPos > iPos && car.pos <= iPos);
+          if (crossed) this.pendingDecision.delete(car.id);
+        } else {
+          this.startTurn(car, inter, pending.nextHeading, sign, prevPos);
         }
       }
 
@@ -187,6 +263,47 @@ export class CityTrafficRuntime {
       if (car.pos > limit) car.pos = -limit;
       if (car.pos < -limit) car.pos = limit;
     }
+  }
+
+  private startTurn(
+    car: RuntimeCar,
+    inter: RuntimeIntersection,
+    nextHeading: CityTrafficHeading,
+    sign: number,
+    prevPos: number
+  ): void {
+    const entryHeading = car.heading;
+    const entryLaneFixed = this.laneFixed(entryHeading, car.roadIndex);
+    const newRoadIndex = this.isEWHeading(nextHeading) ? inter.zi : inter.xi;
+    const exitLaneFixed = this.laneFixed(nextHeading, newRoadIndex);
+    const triggerPos = exitLaneFixed - sign * TURN_RADIUS;
+    const crossed = sign > 0 ? (prevPos < triggerPos && car.pos >= triggerPos) : (prevPos > triggerPos && car.pos <= triggerPos);
+    if (!crossed) return;
+
+    const entryDir = HEADING_VEC[entryHeading];
+    const exitDir = HEADING_VEC[nextHeading];
+    const isEWEntry = this.isEWHeading(entryHeading);
+    const cx = isEWEntry ? exitLaneFixed : entryLaneFixed;
+    const cz = isEWEntry ? entryLaneFixed : exitLaneFixed;
+    const t1x = cx - TURN_RADIUS * entryDir.x;
+    const t1z = cz - TURN_RADIUS * entryDir.z;
+    const t2x = cx + TURN_RADIUS * exitDir.x;
+    const t2z = cz + TURN_RADIUS * exitDir.z;
+    const ox = t1x + t2x - cx;
+    const oz = t1z + t2z - cz;
+    const startAngle = Math.atan2(t1z - oz, t1x - ox);
+    const endAngle = Math.atan2(t2z - oz, t2x - ox);
+    let deltaAngle = endAngle - startAngle;
+    while (deltaAngle <= -Math.PI) deltaAngle += Math.PI * 2;
+    while (deltaAngle > Math.PI) deltaAngle -= Math.PI * 2;
+    const arcLength = Math.max(TURN_RADIUS * Math.abs(deltaAngle), 0.01);
+    const newPos = this.isEWHeading(nextHeading) ? t2x : t2z;
+
+    this.turningCars.set(car.id, {
+      ox, oz, r: TURN_RADIUS, startAngle, deltaAngle, arcLength, traveled: 0,
+      exitHeading: nextHeading, newRoadIndex, newPos,
+    });
+    this.pendingDecision.delete(car.id);
   }
 
   private pickVehicleKey(): string {
@@ -245,18 +362,6 @@ export class CityTrafficRuntime {
     }
 
     return best;
-  }
-
-  private applyTurn(car: RuntimeCar, inter: RuntimeIntersection, nextHeading: CityTrafficHeading): void {
-    if (nextHeading === car.heading) return;
-    car.heading = nextHeading;
-    if (this.isEWHeading(nextHeading)) {
-      car.roadIndex = inter.zi;
-      car.pos = inter.x;
-    } else {
-      car.roadIndex = inter.xi;
-      car.pos = inter.z;
-    }
   }
 
   private laneGapAhead(car: RuntimeCar, other: RuntimeCar): number {

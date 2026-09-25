@@ -4,10 +4,10 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { bindComposerResize, startAnimationFrameLoop } from '../../shared/browser-runtime.js';
 import type {
   CityTrafficCarSnapshot,
-  CityTrafficHeading,
   CityTrafficIntersectionSnapshot,
   CityTrafficStateSnapshot,
 } from '../../shared/types/city_traffic.js';
@@ -133,10 +133,115 @@ function setTiltMode(mode: string): void {
 for (const btn of tiltButtons) btn.addEventListener('click', () => setTiltMode(btn.dataset.tilt ?? 'off'));
 setTiltMode(tiltMode);
 
-scene.add(new THREE.HemisphereLight(0xf2f8ff, 0xa4b5c2, 1.35));
+const hemiLight = new THREE.HemisphereLight(0xf2f8ff, 0xa4b5c2, 1.35);
+scene.add(hemiLight);
 const sun = new THREE.DirectionalLight(0xfff8ee, 1.42);
 sun.position.set(90, 160, 55);
 scene.add(sun);
+const sunMeshMat = new THREE.MeshBasicMaterial({ color: 0xfff2cf });
+sunMeshMat.toneMapped = false;
+sunMeshMat.fog = false;
+const sunMesh = new THREE.Mesh(new THREE.SphereGeometry(7, 16, 16), sunMeshMat);
+scene.add(sunMesh);
+const moon = new THREE.DirectionalLight(0x9fb4ff, 0);
+scene.add(moon);
+const nightFill = new THREE.AmbientLight(0x3a4a68, 0);
+scene.add(nightFill);
+const moonMeshMat = new THREE.MeshBasicMaterial({ color: 0xdfe6ff });
+moonMeshMat.toneMapped = false;
+moonMeshMat.fog = false;
+const moonMesh = new THREE.Mesh(new THREE.SphereGeometry(4, 16, 16), moonMeshMat);
+scene.add(moonMesh);
+
+const STAR_COUNT = 1400;
+const starPositions = new Float32Array(STAR_COUNT * 3);
+for (let i = 0; i < STAR_COUNT; i++) {
+  const r = 650 + Math.random() * 120;
+  const theta = Math.random() * Math.PI * 2;
+  const phi = Math.acos(Math.random() * 2 - 1);
+  starPositions[i * 3 + 0] = r * Math.sin(phi) * Math.cos(theta);
+  starPositions[i * 3 + 1] = r * Math.cos(phi);
+  starPositions[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
+}
+const starGeo = new THREE.BufferGeometry();
+starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 2.2, sizeAttenuation: false, transparent: true, opacity: 0, depthWrite: false });
+starMat.toneMapped = false;
+starMat.fog = false;
+const stars = new THREE.Points(starGeo, starMat);
+scene.add(stars);
+
+const skyDay = new THREE.Color(0xcfe3f2);
+const skyNight = new THREE.Color(0x1c2c48);
+const fogDay = new THREE.Color(0xcfe3f2);
+const fogNight = new THREE.Color(0x1c2c48);
+const sunColorLow = new THREE.Color(0xffb066);
+const sunColorHigh = new THREE.Color(0xfff8ee);
+const hemiSkyDay = new THREE.Color(0xf2f8ff);
+const hemiSkyNight = new THREE.Color(0x2c3c5c);
+const hemiGroundDay = new THREE.Color(0xa4b5c2);
+const hemiGroundNight = new THREE.Color(0x323c4c);
+
+const DAY_LENGTH_SEC = 150;
+const SKY_RADIUS = 260;
+const SUN_AZIMUTH_RAW = { x: 90, z: 55 };
+const SUN_AZIMUTH_LEN = Math.hypot(SUN_AZIMUTH_RAW.x, SUN_AZIMUTH_RAW.z);
+const SUN_AZIMUTH = { x: SUN_AZIMUTH_RAW.x / SUN_AZIMUTH_LEN, z: SUN_AZIMUTH_RAW.z / SUN_AZIMUTH_LEN };
+
+function smoothstep01(edge0: number, edge1: number, x: number): number {
+  const t = THREE.MathUtils.clamp((x - edge0) / (edge1 - edge0), 0, 1);
+  return t * t * (3 - 2 * t);
+}
+
+const dayNightStartAt = performance.now() / 1000;
+const dayNightStartPhase = 0.5;
+
+function updateDayNight(nowSec: number): void {
+  const elapsed = nowSec - dayNightStartAt + dayNightStartPhase * DAY_LENGTH_SEC;
+  const phase = ((elapsed % DAY_LENGTH_SEC) + DAY_LENGTH_SEC) % DAY_LENGTH_SEC / DAY_LENGTH_SEC;
+  const theta = phase * Math.PI * 2 - Math.PI / 2;
+  const sunHeight = Math.sin(theta);
+
+  // Fixed compass azimuth (matching the original static light's angle) so the sun rakes
+  // across building facades all day instead of passing overhead through the zenith at noon.
+  const heightRatio = Math.max(sunHeight, 0);
+  const sunReach = 110 + 230 * heightRatio;
+  sun.position.set(SUN_AZIMUTH.x * sunReach, 50 + 260 * heightRatio, SUN_AZIMUTH.z * sunReach);
+  sunMesh.position.copy(sun.position);
+  sunMesh.visible = sunHeight > -0.05;
+
+  const dayFactor = smoothstep01(-0.15, 0.15, sunHeight);
+  const nightFactor = 1 - dayFactor;
+
+  sun.intensity = dayFactor * 4.2;
+  sun.color.copy(sunColorLow).lerp(sunColorHigh, smoothstep01(0, 0.55, sunHeight));
+
+  const moonTheta = theta + Math.PI;
+  const moonHeight = Math.sin(moonTheta);
+  moonMesh.position.set(Math.cos(moonTheta) * SKY_RADIUS, Math.max(moonHeight * SKY_RADIUS, 6), -60);
+  moonMesh.visible = moonHeight > -0.1;
+  moon.position.copy(moonMesh.position);
+  moon.intensity = nightFactor * 1.6;
+  nightFill.intensity = nightFactor * 2.2;
+
+  hemiLight.intensity = THREE.MathUtils.lerp(2.2, 3.4, dayFactor);
+  (hemiLight.color as THREE.Color).copy(hemiSkyNight).lerp(hemiSkyDay, dayFactor);
+  (hemiLight.groundColor as THREE.Color).copy(hemiGroundNight).lerp(hemiGroundDay, dayFactor);
+
+  const bgColor = (scene.background as THREE.Color);
+  bgColor.copy(skyNight).lerp(skyDay, dayFactor);
+  const fog = scene.fog as THREE.FogExp2;
+  fog.color.copy(fogNight).lerp(fogDay, dayFactor);
+  fog.density = THREE.MathUtils.lerp(0.0014, 0.001, dayFactor);
+
+  starMat.opacity = smoothstep01(0.2, -0.05, sunHeight);
+  stars.rotation.y += 0.00006;
+
+  renderer.toneMappingExposure = THREE.MathUtils.lerp(2.3, 2.8, dayFactor);
+  vividPass.uniforms.saturation.value = THREE.MathUtils.lerp(1.05, 1.34, dayFactor);
+  vividPass.uniforms.contrast.value = THREE.MathUtils.lerp(1.0, 1.16, dayFactor);
+  vividPass.uniforms.brightness.value = THREE.MathUtils.lerp(2.5, 1.6, dayFactor);
+}
 
 const signalMaterials = {
   rOff: new THREE.MeshStandardMaterial({ color: 0x4c0a0a }),
@@ -155,8 +260,6 @@ const litGeo = new THREE.SphereGeometry(0.11, 6, 4);
 const visorGeo = new THREE.BoxGeometry(0.24, 0.04, 0.12);
 const poleMt = new THREE.MeshStandardMaterial({ color: 0x3a3a3a, roughness: 0.82 });
 const boxMt = new THREE.MeshStandardMaterial({ color: 0x101010, roughness: 0.85 });
-
-const headingYaw: Record<CityTrafficHeading, number> = { E: Math.PI / 2, W: -Math.PI / 2, S: 0, N: Math.PI };
 
 const vehicleLoader = new GLTFLoader();
 const vehicleTemplates = new Map<string, { ready: boolean; template: THREE.Group | null; listeners: RuntimeCarVisual[] }>();
@@ -178,11 +281,160 @@ const vehicleDefs = new Map<string, string>([
   ['suv-luxury', '/assets/kenney_car_kit/Models/GLB format/suv-luxury.glb'],
 ]);
 
+const dracoLoader = new DRACOLoader();
+dracoLoader.setDecoderPath('/draco/');
+const cityLoader = new GLTFLoader();
+cityLoader.setDRACOLoader(dracoLoader);
+const cityTemplates = new Map<string, { ready: boolean; template: THREE.Group | null; listeners: ((template: THREE.Group) => void)[] }>();
+
+type BuildingCategoryKey = 'office' | 'apartment' | 'store' | 'house';
+type BuildingCategory = { paths: string[]; heightMin: number; heightMax: number };
+
+const BUILDING_CATALOG: Record<BuildingCategoryKey, BuildingCategory> = {
+  office: {
+    paths: ['/assets/threejsassets/all/midrise-office-01.glb'],
+    heightMin: 9,
+    heightMax: 13,
+  },
+  apartment: {
+    paths: [
+      '/assets/threejsassets/all/apartment-block-01.glb',
+      '/assets/threejsassets/all/station-building.glb',
+    ],
+    heightMin: 6,
+    heightMax: 9,
+  },
+  store: {
+    paths: [
+      '/assets/threejsassets/all/corner-store-01.glb',
+      '/assets/threejsassets/all/general-store.glb',
+      '/assets/threejsassets/all/convenience-store-01.glb',
+    ],
+    heightMin: 3,
+    heightMax: 4.4,
+  },
+  house: {
+    paths: [
+      '/assets/threejsassets/all/two-story-house.glb',
+      '/assets/threejsassets/all/bungalow-house.glb',
+      '/assets/threejsassets/all/ranch-house.glb',
+      '/assets/threejsassets/all/farmhouse.glb',
+    ],
+    heightMin: 2.5,
+    heightMax: 4.5,
+  },
+};
+
+type BuildingSlot = { dx: number; dz: number; footprint: number };
+
+function slotsForCount(count: number, half: number): BuildingSlot[] {
+  if (count <= 1) return [{ dx: 0, dz: 0, footprint: half * 1.7 }];
+  if (count === 2) {
+    return [
+      { dx: -half * 0.52, dz: 0, footprint: half * 0.92 },
+      { dx: half * 0.52, dz: 0, footprint: half * 0.92 },
+    ];
+  }
+  if (count === 3) {
+    return [
+      { dx: 0, dz: -half * 0.46, footprint: half * 0.95 },
+      { dx: -half * 0.5, dz: half * 0.5, footprint: half * 0.78 },
+      { dx: half * 0.5, dz: half * 0.5, footprint: half * 0.78 },
+    ];
+  }
+  return [
+    { dx: -half * 0.5, dz: -half * 0.5, footprint: half * 0.66 },
+    { dx: half * 0.5, dz: -half * 0.5, footprint: half * 0.66 },
+    { dx: -half * 0.5, dz: half * 0.5, footprint: half * 0.66 },
+    { dx: half * 0.5, dz: half * 0.5, footprint: half * 0.66 },
+  ];
+}
+
+function districtFor(
+  xi: number,
+  zi: number,
+  cx: number,
+  cz: number,
+  mapHalf: number
+): { category: BuildingCategoryKey; count: number } {
+  const r = Math.max(Math.abs(cx), Math.abs(cz)) / mapHalf;
+  const parity = (xi + zi) % 2;
+  if (r < 0.22) return { category: 'office', count: 1 };
+  if (r < 0.45) return { category: 'apartment', count: parity === 0 ? 1 : 2 };
+  if (r < 0.75) return { category: 'store', count: (xi + zi) % 3 === 0 ? 2 : 3 };
+  return { category: 'house', count: parity === 0 ? 3 : 4 };
+}
+
+const treeDefs = [
+  '/assets/threejsassets/all/apple-tree.glb',
+  '/assets/threejsassets/all/birch-tree.glb',
+  '/assets/threejsassets/all/street-tree-01.glb',
+  '/assets/threejsassets/all/tree-oak-01.glb',
+  '/assets/threejsassets/all/spruce-tree.glb',
+  '/assets/threejsassets/all/flowering-tree.glb',
+];
+const STREETLAMP_MODEL = '/assets/threejsassets/all/streetlamp-01.glb';
+
+function loadCityTemplate(path: string, onReady: (template: THREE.Group) => void): void {
+  const cached = cityTemplates.get(path);
+  if (cached) {
+    if (cached.ready && cached.template) onReady(cached.template);
+    else cached.listeners.push(onReady);
+    return;
+  }
+  const entry = { ready: false, template: null as THREE.Group | null, listeners: [onReady] };
+  cityTemplates.set(path, entry);
+  cityLoader.load(
+    path,
+    (gltf) => {
+      const root = gltf.scene;
+      root.traverse((obj: any) => {
+        if (!obj.isMesh) return;
+        obj.castShadow = false;
+        obj.receiveShadow = true;
+      });
+      entry.ready = true;
+      entry.template = root;
+      for (const listener of entry.listeners.splice(0)) listener(root);
+    },
+    undefined,
+    (error) => console.warn(`Failed to load city asset ${path}`, error)
+  );
+}
+
+function fitModelToFootprint(root: THREE.Group, footprint: number, height?: number): void {
+  const box = new THREE.Box3().setFromObject(root);
+  const size = new THREE.Vector3();
+  const center = new THREE.Vector3();
+  box.getSize(size);
+  box.getCenter(center);
+  const fit = height
+    ? height / Math.max(size.y, 1e-6)
+    : footprint / Math.max(size.x, size.z, 1e-6);
+  root.scale.setScalar(fit);
+  root.position.set(-center.x * fit, -box.min.y * fit, -center.z * fit);
+}
+
 type RuntimeCarVisual = {
   group: THREE.Group;
   vehicleRoot: THREE.Group;
   vehicleKind: string;
+  prevPos: THREE.Vector3;
+  curPos: THREE.Vector3;
+  prevRot: number;
+  curRot: number;
+  syncAt: number;
 };
+
+const CAR_POLL_INTERVAL_SEC = 0.1;
+const CAR_JUMP_SNAP_DIST = 10;
+
+function lerpAngle(a: number, b: number, t: number): number {
+  let diff = (b - a) % (Math.PI * 2);
+  if (diff > Math.PI) diff -= Math.PI * 2;
+  else if (diff < -Math.PI) diff += Math.PI * 2;
+  return a + diff * t;
+}
 
 type SignalHead = { rl: THREE.Mesh; yl: THREE.Mesh; gl: THREE.Mesh };
 type VisualIntersection = { nsHeads: SignalHead[]; ewHeads: SignalHead[] };
@@ -255,15 +507,12 @@ function ensureVehicleModel(car: RuntimeCarVisual, key: string): void {
   else entry.listeners.push(car);
 }
 
-function laneFixedFor(heading: CityTrafficHeading, roadIndex: number, laneOff: number): number {
-  const roadV = roads[roadIndex];
-  if (heading === 'E') return roadV + laneOff;
-  if (heading === 'W') return roadV - laneOff;
-  if (heading === 'S') return roadV - laneOff;
-  return roadV + laneOff;
-}
+function syncCarVisual(snapshot: CityTrafficCarSnapshot): void {
+  const targetX = snapshot.x;
+  const targetZ = snapshot.z;
+  const targetRot = snapshot.yaw;
+  const nowSec = performance.now() / 1000;
 
-function syncCarVisual(snapshot: CityTrafficCarSnapshot, laneOff: number): void {
   let visual = carVisuals.get(snapshot.id);
   if (!visual) {
     const group = new THREE.Group();
@@ -276,17 +525,41 @@ function syncCarVisual(snapshot: CityTrafficCarSnapshot, laneOff: number): void 
     vehicleRoot.add(placeholder);
     group.add(vehicleRoot);
     carGroup.add(group);
-    visual = { group, vehicleRoot, vehicleKind: '' };
+    group.position.set(targetX, 0, targetZ);
+    group.rotation.y = targetRot;
+    visual = {
+      group,
+      vehicleRoot,
+      vehicleKind: '',
+      prevPos: new THREE.Vector3(targetX, 0, targetZ),
+      curPos: new THREE.Vector3(targetX, 0, targetZ),
+      prevRot: targetRot,
+      curRot: targetRot,
+      syncAt: nowSec,
+    };
     carVisuals.set(snapshot.id, visual);
   }
   if (visual.vehicleKind !== snapshot.vehicleKey) ensureVehicleModel(visual, snapshot.vehicleKey);
-  const laneFixed = laneFixedFor(snapshot.heading, snapshot.roadIndex, laneOff);
-  if (snapshot.heading === 'E' || snapshot.heading === 'W') {
-    visual.group.position.set(snapshot.pos, 0, laneFixed);
+
+  const jumpDist = Math.hypot(targetX - visual.curPos.x, targetZ - visual.curPos.z);
+  if (jumpDist > CAR_JUMP_SNAP_DIST) {
+    visual.prevPos.set(targetX, 0, targetZ);
+    visual.prevRot = targetRot;
   } else {
-    visual.group.position.set(laneFixed, 0, snapshot.pos);
+    visual.prevPos.copy(visual.curPos);
+    visual.prevRot = visual.curRot;
   }
-  visual.group.rotation.y = headingYaw[snapshot.heading];
+  visual.curPos.set(targetX, 0, targetZ);
+  visual.curRot = targetRot;
+  visual.syncAt = nowSec;
+}
+
+function updateCarTransforms(nowSec: number): void {
+  for (const visual of carVisuals.values()) {
+    const t = THREE.MathUtils.clamp((nowSec - visual.syncAt) / CAR_POLL_INTERVAL_SEC, 0, 1);
+    visual.group.position.lerpVectors(visual.prevPos, visual.curPos, t);
+    visual.group.rotation.y = lerpAngle(visual.prevRot, visual.curRot, t);
+  }
 }
 
 function makeHeadOnPole(poleX: number, poleZ: number, armEndX: number, armEndZ: number, faceX: number, faceZ: number): SignalHead {
@@ -406,19 +679,50 @@ function buildStaticCity(state: CityTrafficStateSnapshot): void {
         );
         park.position.set(cx, 0.04, cz);
         buildingGroup.add(park);
+        for (let ti = 0; ti < 3; ti++) {
+          const treeAngle = ((xi * 7 + zi * 11 + ti * 13) % 360) * (Math.PI / 180);
+          const treeRadius = 1.6 + ((xi * 3 + zi * 5 + ti) % 3) * 1.1;
+          const tx = cx + Math.cos(treeAngle) * treeRadius;
+          const tz = cz + Math.sin(treeAngle) * treeRadius;
+          const treePath = treeDefs[(xi * 5 + zi * 7 + ti * 3) % treeDefs.length];
+          const anchor = new THREE.Group();
+          anchor.position.set(tx, 0, tz);
+          buildingGroup.add(anchor);
+          loadCityTemplate(treePath, (template) => {
+            const inst = template.clone(true);
+            fitModelToFootprint(inst, 0, 2.2 + ((xi + zi + ti) % 3) * 0.5);
+            anchor.add(inst);
+          });
+        }
         continue;
       }
-      for (const dx of [-3.6, 3.6]) {
-        for (const dz of [-3.6, 3.6]) {
-          const h = 2.5 + ((xi * 3 + zi * 5 + (dx > 0 ? 1 : 0) + (dz > 0 ? 1 : 0)) % 5) * 1.2;
-          const block = new THREE.Mesh(
-            new THREE.BoxGeometry(3.8, h, 3.8),
-            new THREE.MeshStandardMaterial({ color: 0xd5cec2, roughness: 0.92 })
-          );
-          block.position.set(cx + dx, h / 2, cz + dz);
-          buildingGroup.add(block);
-        }
-      }
+      const blockSpan = roads[xi + 1] - roads[xi];
+      const interiorHalf = Math.max(1.2, (blockSpan - state.config.roadW) / 2 - 0.4);
+      const { category, count } = districtFor(xi, zi, cx, cz, state.config.half);
+      const catalog = BUILDING_CATALOG[category];
+      const slots = slotsForCount(count, interiorHalf);
+      slots.forEach((slot, ti) => {
+        const bx = cx + slot.dx;
+        const bz = cz + slot.dz;
+        const heightSpan = catalog.heightMax - catalog.heightMin;
+        const h = catalog.heightMin + ((xi * 3 + zi * 5 + ti) % 5) * (heightSpan / 5);
+        const placeholder = new THREE.Mesh(
+          new THREE.BoxGeometry(slot.footprint, h, slot.footprint),
+          new THREE.MeshStandardMaterial({ color: 0xd5cec2, roughness: 0.92 })
+        );
+        placeholder.position.set(bx, h / 2, bz);
+        buildingGroup.add(placeholder);
+        const buildingPath = catalog.paths[(xi * 3 + zi * 5 + ti) % catalog.paths.length];
+        const anchor = new THREE.Group();
+        anchor.position.set(bx, 0, bz);
+        buildingGroup.add(anchor);
+        loadCityTemplate(buildingPath, (template) => {
+          placeholder.visible = false;
+          const inst = template.clone(true);
+          fitModelToFootprint(inst, slot.footprint);
+          anchor.add(inst);
+        });
+      });
     }
   }
   cityGroup.add(buildingGroup);
@@ -437,6 +741,18 @@ function buildStaticCity(state: CityTrafficStateSnapshot): void {
     ];
     signalVisuals.set(inter.id, { nsHeads, ewHeads });
     applySignalState(inter);
+
+    const ld = d * 1.6;
+    for (const [lx, lz] of [[ld, ld], [-ld, -ld], [ld, -ld], [-ld, ld]] as const) {
+      const anchor = new THREE.Group();
+      anchor.position.set(inter.x + lx, 0, inter.z + lz);
+      signalGroup.add(anchor);
+      loadCityTemplate(STREETLAMP_MODEL, (template) => {
+        const inst = template.clone(true);
+        fitModelToFootprint(inst, 0, 3.6);
+        anchor.add(inst);
+      });
+    }
   }
 }
 
@@ -444,7 +760,7 @@ function updateFromState(state: CityTrafficStateSnapshot): void {
   if (!latestState) buildStaticCity(state);
   latestState = state;
   for (const inter of state.intersections) applySignalState(inter);
-  for (const car of state.cars) syncCarVisual(car, state.config.laneOff);
+  for (const car of state.cars) syncCarVisual(car);
   window.Telemetry?.report('city_traffic', {
     cars: state.cars.length,
     roads: state.roads.length,
@@ -478,13 +794,15 @@ const pollId = window.setInterval(() => {
 
 startAnimationFrameLoop({
   clock: new THREE.Clock(),
-  step: () => {
+  step: (_dt, now) => {
     targetAperture = APERTURE_LEVELS[tiltMode] ?? APERTURE_LEVELS.off;
     tiltShiftPass.uniforms.blurStrength.value = THREE.MathUtils.lerp(tiltShiftPass.uniforms.blurStrength.value, targetAperture, 0.08);
     const ratio = THREE.MathUtils.clamp(targetAperture / APERTURE_LEVELS.weak3, 0, 1);
     const pct = Math.round(ratio * 100);
     const modeLabel = tiltMode === 'off' ? 'OFF' : tiltMode.replace('weak', '弱');
     tiltLabelEl.textContent = `TiltShift: ${modeLabel} (${pct}%)`;
+    updateDayNight(now);
+    updateCarTransforms(now);
     ctrl.update();
   },
   render: () => composer.render(),
