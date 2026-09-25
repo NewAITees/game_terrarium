@@ -8,6 +8,7 @@ import { proposeCandidate } from './candidate_sampler.js';
 import { parseProposals } from './proposal_schema.js';
 import { resolveAdapter } from './research_adapters.js';
 import { ResearchLedger, type ResearchRow } from './research_ledger.js';
+import { buildLeaderboard, formatLeaderboard } from './leaderboard.js';
 import { verifyContract } from './research_contract.js';
 import { beats } from './research_stats.js';
 import { modelArtifactName } from './model_artifact.js';
@@ -102,26 +103,7 @@ async function main(): Promise<void> {
     }
   });
 
-  const finalChampion = ledger.champion(gameId, baseline);
-  console.log(`\n=== leaderboard (hold-out task return; units are ${gameId}'s own) ===`);
-  for (const row of leaderboard(ledger)) {
-    const marker = row.id === finalChampion?.id ? '*' : ' ';
-    console.log(
-      `${marker} ${row.id}  ${row.holdout.median.toFixed(1).padStart(7)}`
-      + `  95% ${row.holdout.lower95.toFixed(1)}–${row.holdout.upper95.toFixed(1)}`.padEnd(20)
-      + `  learner=${row.spec.learnerVariant.padEnd(13)}`
-      + ` obs=${row.spec.observation.padEnd(8)} act=${row.spec.actions.padEnd(11)}`
-      + `  shaping ${(row.shapingShare * 100).toFixed(0)}%`
-      + `  ${row.wallSeconds.toFixed(0)}s`,
-    );
-  }
-}
-
-function leaderboard(ledger: ResearchLedger): ResearchRow[] {
-  return ledger.completed(gameId)
-    .slice()
-    .sort((left, right) => right.holdout.lower95 - left.holdout.lower95)
-    .slice(0, 20);
+  console.log(`\n${formatLeaderboard(buildLeaderboard(ledger, adapter))}`);
 }
 
 function report(row: ResearchRow, completed: number, total: number, champion: ResearchRow | undefined): void {
