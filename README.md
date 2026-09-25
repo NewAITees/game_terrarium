@@ -75,15 +75,16 @@ Final evaluation of "fun" belongs to the human, not the AI.
 
 ## Repository Layout
 
-- `main.js`, `server.js`, `package.json`: Electron and Express entry points
+- `main.ts`, `server.ts`, `preload.ts`, `package.json`: TypeScript Electron and Express sources and project metadata, compiled into `build/` and `build-node/`
 - `apps/`: browser-served interactive experiences grouped by feature
 - `pages/`: Electron-loaded standalone visualization pages
 - `shared/`: shared browser modules such as telemetry and network helpers
+- `shared/rl/`: shared reinforcement-learning framework components
 - `shared/types/`: TypeScript domain contracts and browser/module shims
 - `game/`: server-side game engine code
 - `agent_rules/`, `faction_rules/`, `assets/`: runtime data and art assets
 - `docs/`: planning notes and design documents
-- `scripts/`: helper scripts for manual testing
+- `scripts/`: headless simulation, training, and RL-research CLIs
 
 ## Ctrl Number Registry
 
@@ -101,6 +102,11 @@ Final evaluation of "fun" belongs to the human, not the AI.
 - `Ctrl+9` - AI Colony Sandbox
 - `Ctrl+Shift+0` - RL Arena Shooter
 - `Ctrl+Shift+1` - Drone Bastion TD
+- `Ctrl+Shift+2` - AI Restoration Alpha
+- `Ctrl+Shift+3` - Zombie Survivor
+- `Ctrl+Shift+4` - One-Line RPG
+- `Ctrl+Shift+5` - Gravity Gunship
+- `Ctrl+Shift+6` - Sorting Terrarium
 
 ## Direct Game Launch
 

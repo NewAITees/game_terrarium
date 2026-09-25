@@ -1,7 +1,7 @@
 # AI 擬似感情レイヤー（Mood / Inner Voice / Quirk）設計
 
 > 提案対象: `shared/rl/` を使う全学習系体験（基準実装 `apps/arena-shooter/`）
-> 関連: `docs/RL_TERRARIUM_REDESIGN_PROPOSAL.md`
+> 関連: `docs/plans/RL_TERRARIUM_REDESIGN_PROPOSAL.md`
 > 作成日: 2026-07-30 / 更新: 2026-07-30（共通信号・話し言葉・たまに起きる奇行を反映）
 > ステータス: 提案
 

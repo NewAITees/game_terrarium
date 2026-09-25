@@ -15,4 +15,4 @@ active TypeScript codebase or otherwise retired as planning notes.
 
 ## Current active items
 
-See `docs/PLANET_TODO.md` for the remaining open work.
+See `docs/plans/PLANET_TODO.md` for the remaining open work.

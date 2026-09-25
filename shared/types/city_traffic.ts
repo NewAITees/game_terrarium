@@ -28,6 +28,9 @@ export type CityTrafficCarSnapshot = {
   targetXi: number;
   targetZi: number;
   vehicleKey: string;
+  x: number;
+  z: number;
+  yaw: number;
 };
 
 export type CityTrafficIntersectionSnapshot = {

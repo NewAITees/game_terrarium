@@ -1,9 +1,9 @@
 # Zombie Survivor — WAVE制サバイバルゲーム企画書
 
-> ステータス: 初期設計
+> ステータス: 実装済み(`apps/zombie-survivor/`、camp/combat別のRLエージェントが稼働。2026-09-25時点、当初のステータス表記が更新されていなかったため訂正。個々の未完機能は本文参照)
 > 仮題: **ZOMBIE SURVIVOR: LAST OUTPOST**
 > 更新日: 2026-07-27
-> 関連資料: `docs/GAME_DESIGN_RL_ARENA.md`
+> 関連資料: `docs/design/GAME_DESIGN_RL_ARENA.md`
 
 ## コンセプト一行
 
