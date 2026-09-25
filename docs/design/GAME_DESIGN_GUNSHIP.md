@@ -3,7 +3,7 @@
 > ステータス: 設計 / 未着手
 > 対象アプリ: `apps/gunship/`（新規・独立アプリ）
 > 仮題: **GRAVITY GUNSHIP**
-> ベース: `docs/GAME_DESIGN_RL_ARENA.md`（RL基盤・観察思想を継承）
+> ベース: `docs/design/GAME_DESIGN_RL_ARENA.md`（RL基盤・観察思想を継承）
 > アセット: 戦闘機/戦艦/空/海の2D素材は未所持 → プロシージャル先行・専用調達（後述）
 > 更新日: 2026-07-29
 

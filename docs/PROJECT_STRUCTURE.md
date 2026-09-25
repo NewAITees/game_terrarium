@@ -21,6 +21,11 @@ game_terrarium/
 │   └── rl/                       # 強化学習フレームワーク共通部品
 ├── scripts/                      # ヘッドレスsim・学習・テスト・RLリサーチCLI
 ├── docs/                         # 設計書・調査ノート
+│   ├── design/                    # 各ゲームの設計書（GAME_DESIGN_*.md 等）
+│   ├── plans/                     # 作業計画・提案（*_TODO.md, *_IMPLEMENTATION_PLAN.md 等）
+│   ├── reference/                 # 外部調査・参考資料
+│   ├── reviews/                   # 実施後の振り返り・評価
+│   └── old/                       # 旧世代ドキュメント（レガシー）
 ├── agent_rules/, faction_rules/  # 旧世代のJSONルールエンジン（RL以前の例外、新規拡張禁止）
 ├── pages/                        # Electron直読み込みの静的HTML（ナビ非経由）
 ├── public/                       # 静的配信ファイル（draco decoder等）
@@ -47,7 +52,7 @@ game_terrarium/
 | 0 | `planet_strategy` | AI Planet Strategy | 4X戦略、AIパーソナリティ実装（expansionist/fortifier/industrialist/raider）、最もアクティブな観察対象 |
 | 1 | `city` | City Traffic | 交通シミュレーション可視化（信号・車の学習ではなくルールベース挙動、昼夜サイクル） |
 | 2 | `moss` | MOSS | セルオートマトン的成長シミュレーション |
-| 3 | `escort_td` | Escort TD | タワーディフェンス（V2でKING拠点防衛×放置メタ×迷路構築へピボット中、`docs/GAME_DESIGN_ESCORT_TD_V2.md`） |
+| 3 | `escort_td` | Escort TD | タワーディフェンス（V2でKING拠点防衛×放置メタ×迷路構築へピボット中、`docs/design/GAME_DESIGN_ESCORT_TD_V2.md`） |
 | 4 | `net_sw` | Network Small World | ネットワークトポロジー可視化 |
 | 5 | `submarine` | Submarine Cables | 海底ケーブル地図（`submarinecablemap.com` プロキシ） |
 | 6 | `submarine_3d` | Submarine Network 3D | 同上の3D版 |
@@ -58,8 +63,8 @@ game_terrarium/
 | 11 | `drone_bastion` | Drone Bastion TD | **RL学習対象**（Double DQN比較あり） |
 | 12 | `ai_restoration` | AI Restoration Alpha | 画像/描画系の実験ページ |
 | 13 | `zombie_survivor` | Zombie Survivor | サバイバー系、エージェント制御（camp/combat agent） |
-| 14 | `one_line_rpg` | One-Line RPG | 「なんとなく勝てない」フェーズ制コンバット、`docs/GAME_DESIGN_ONE_LINE_RPG.md` |
-| 15 | `gunship` | Gravity Gunship | **RL学習対象**（自動リサーチ済み、`docs/IMPLEMENTATION_GUNSHIP.md`） |
+| 14 | `one_line_rpg` | One-Line RPG | 「なんとなく勝てない」フェーズ制コンバット、`docs/design/GAME_DESIGN_ONE_LINE_RPG.md` |
+| 15 | `gunship` | Gravity Gunship | **RL学習対象**（自動リサーチ済み、`docs/reference/IMPLEMENTATION_GUNSHIP.md`） |
 | 16 | `sorting_warehouse` | Sorting Terrarium | 倉庫ソートシミュレーション |
 
 補足:
@@ -124,4 +129,4 @@ build-node/                     ← Electron/Node側で実行
 
 - 動作原則・RLリサーチ運用の全詳細: [CLAUDE.md](../CLAUDE.md)
 - プロジェクトの目的・観察体験としての狙い: [README.md](../README.md)
-- 各ゲームの設計書: `docs/GAME_DESIGN_*.md`
+- 各ゲームの設計書: `docs/design/GAME_DESIGN_*.md`

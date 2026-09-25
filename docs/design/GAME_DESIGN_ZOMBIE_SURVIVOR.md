@@ -3,7 +3,7 @@
 > ステータス: 初期設計
 > 仮題: **ZOMBIE SURVIVOR: LAST OUTPOST**
 > 更新日: 2026-07-27
-> 関連資料: `docs/GAME_DESIGN_RL_ARENA.md`
+> 関連資料: `docs/design/GAME_DESIGN_RL_ARENA.md`
 
 ## コンセプト一行
 
