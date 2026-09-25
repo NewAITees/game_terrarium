@@ -49,9 +49,19 @@
 ## やること(優先度順)
 
 1. [x] 巨大ファイルの分割(escort-td / arena-shooter / drone-bastion、gunship は不要と判断)
-2. [ ] リーダーボード CLI: 環境ごとに分けた順位表 + 3点の宣言 + 未試行の組み合わせ、JSON 出力
-3. [ ] drone-bastion / arena-shooter で実際に research を回し、ledger を作る
-4. [ ] ゲームごとに重複している live_trainer / launcher / headless_sim の骨格を共通化
+2. [x] リーダーボード CLI: `npm run research:board`(環境ごとの順位表 + 3点の宣言 + 未試行の組み合わせ、`logs/rl-research/leaderboard.json`)
+3. [x] drone-bastion / arena-shooter で research を回し、ledger を作った(各6件、下の「観測結果」参照)
+4. [x] live_trainer の共通ループ化(`scripts/rl/live_trainer_loop.ts`。launcher は元から薄い。gunship は昇格ゲート付きの別契約なので対象外。headless_sim はゲーム固有部分が大半のため見送り)
 5. [ ] 第2段階ゲームの adapter 追加(ゲームごとに task return を決める spec から)
 6. [ ] RL を持たない体験の扱いを決める(ユーザー判断)
 7. [ ] リーダーボードを Electron のページとして見られるようにする
+
+## 観測結果(2026-09-25)
+
+| ゲーム | 件数 | hold-out 中央値の幅 | shaping share | 所見 |
+|---|---:|---|---|---|
+| gunship | 24 | 5〜12.8 秒 | 32〜90% | 差は出ている。旧行は `learnerVariant` 未記録 |
+| drone-bastion | 6 | 3.6〜5.0 | 0〜99% | 差は出ている。比較可能 |
+| arena-shooter | 6 | 1.2〜1.3 | 98〜99% | **全設定がほぼ同点**。600ep×3 では task に届いていない。full 観測は状態数 11万超 |
+
+arena-shooter は今のままでは探索しても順位が付かない。予算・観測の粒度・報酬のどれを動かすかを決めてから測る(ルールで補うのは禁止)。
